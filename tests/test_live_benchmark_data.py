@@ -78,6 +78,40 @@ def test_token_update_does_not_reencode_saved_video(tmp_path, monkeypatch):
     assert second['candidates']==first['candidates']
 
 
+def test_deferred_video_export_is_retried_without_a_new_generation(tmp_path, monkeypatch):
+    from tools import live_benchmark_data as live
+    run=make_run(tmp_path);destination=tmp_path/'public'
+    real=live.export_candidate
+    monkeypatch.setattr(live,'export_candidate',lambda *_: (_ for _ in ()).throw(OSError('memory headroom')))
+    first=case_data(run,destination)
+    assert first['candidates']==[]
+    monkeypatch.setattr(live,'export_candidate',real)
+    second=case_data(run,destination,previous=first)
+    assert second['candidates']
+
+
+def test_published_asset_reuse_needs_no_local_media_copy(tmp_path):
+    from concurrent.futures import Future
+    from tools.live_benchmark_data import merge_render_jobs
+    detail={'first_frame':'assets/existing.png','candidates':[],'events':[],
+            'case_id':'0001','attempt':1,'delivery_status':'complete','status':'complete','output_tokens':1}
+    future=Future();future.set_result([('case_0001_attempt_01','suite/m/text/case_0001_attempt_01.json',[],detail)])
+    pending={('suite/m/text','0001'):future};cache={};destination=tmp_path/'public'
+    merge_render_jobs(destination,cache,pending,tmp_path/'render',{'assets/existing.png'})
+    assert (destination/'suite/m/text/case_0001_attempt_01.json').exists()
+    assert not pending
+
+
+def test_incremental_publish_tracks_only_changed_public_files(tmp_path,monkeypatch):
+    from tools import live_benchmark_data as live
+    root=tmp_path/'public';monkeypatch.setattr(live,'PUBLICATION_ROOT',root)
+    monkeypatch.setattr(live,'PUBLICATION_DIRTY',set())
+    assert live.save(root/'index.json',{'count':1})
+    assert not live.save(root/'index.json',{'count':1})
+    live.save(tmp_path/'private-cache.json',{'private':True})
+    assert live.PUBLICATION_DIRTY=={'pixelworld/index.json'}
+
+
 def test_visual_returns_are_published_from_frozen_logs_only(tmp_path):
     from PIL import Image
     run=make_run(tmp_path,video=False)

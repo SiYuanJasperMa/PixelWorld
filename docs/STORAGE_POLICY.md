@@ -35,3 +35,10 @@ oversized-record rejection, compressed archive readback, active/changed-file
 preservation and infrastructure-attempt accounting. Operational acceptance also
 checks the actual root free space, archival heartbeat, publication checkout
 location and public model-progress/video pages.
+
+Native video exports share one large-media slot. Already published immutable
+assets and candidate metadata are reused after a checkout migration instead of
+decoding every historical tensor again. Check the container cgroup memory limit,
+not host `free` output, before choosing generation concurrency. On the current
+32 GiB container, 720p generation uses six slots and 4K generation uses two;
+ongoing cases remain alive while a matrix controller is reloaded.

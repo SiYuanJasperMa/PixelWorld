@@ -2,7 +2,7 @@
   "protocol": "pixelworld-physics_iq_4k24fps-native-source-v1",
   "inputs_root": "data/physics_iq_4k24fps/inputs",
   "runs_root": "runs/physics_iq_4k24fps",
-  "max_concurrency": 3,
+  "max_concurrency": 2,
   "max_per_config": 1,
   "max_attempts": 2,
   "max_total_attempts": 5,

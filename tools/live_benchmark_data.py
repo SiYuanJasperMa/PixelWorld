@@ -17,6 +17,7 @@ import time
 import fcntl
 import sys
 import uuid
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -27,6 +28,29 @@ from tools.live_evaluation_data import collect as collect_evaluation
 from tools.live_case_diagnostics import diagnostics as case_diagnostics, VERSION as DIAGNOSTICS_VERSION
 
 PUBLIC_SCHEMA = 2
+LARGE_MEDIA_RENDER_LOCK = threading.Lock()
+PUBLICATION_ROOT = None
+PUBLICATION_DIRTY = set()
+PUBLICATION_DIRTY_LOCK = threading.Lock()
+
+
+def mark_publication_dirty(path):
+    if PUBLICATION_ROOT is not None and path.is_relative_to(PUBLICATION_ROOT):
+        with PUBLICATION_DIRTY_LOCK:
+            PUBLICATION_DIRTY.add('pixelworld/'+str(path.relative_to(PUBLICATION_ROOT)))
+
+
+def large_media_headroom(spec):
+    needed=spec['width']*spec['height']*spec['frames']*4+2*1024**3
+    for limit_path,usage_path in [
+        (Path('/sys/fs/cgroup/memory/memory.limit_in_bytes'),Path('/sys/fs/cgroup/memory/memory.usage_in_bytes')),
+        (Path('/sys/fs/cgroup/memory.max'),Path('/sys/fs/cgroup/memory.current'))]:
+        try:
+            limit=int(limit_path.read_text());usage=int(usage_path.read_text())
+            return limit-usage >= needed
+        except (OSError,ValueError):
+            continue
+    return True
 
 
 def read(path):
@@ -44,6 +68,7 @@ def save(path, value):
     tmp = path.with_name(path.name + '.tmp')
     tmp.write_text(text)
     tmp.replace(path)
+    mark_publication_dirty(path)
     return True
 
 
@@ -83,7 +108,13 @@ def export_candidate(source, destination, spec, label, utc):
     locks=destination/'.asset-locks';locks.mkdir(parents=True,exist_ok=True)
     with (locks/(digest+'.lock')).open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
-        video = export_pixels(source, target, spec)
+        if spec['width']*spec['height']*spec['frames']*3 > 100*1024**2:
+            with LARGE_MEDIA_RENDER_LOCK:
+                if not large_media_headroom(spec):
+                    raise OSError('Native media export deferred for container memory headroom')
+                video = export_pixels(source, target, spec)
+        else:
+            video = export_pixels(source, target, spec)
     if not video:
         return None
     value = {**video, 'label': label, 'utc': utc,'asset_id':digest,
@@ -113,7 +144,8 @@ def case_data(run, destination, previous=None):
         [p.parent.name, p.stat().st_mtime_ns] for p in snapshots]
     versions = []
     reused = (previous is not None and previous.get('schema_version') == PUBLIC_SCHEMA
-              and previous.get('media_stamp') == media_stamp)
+              and previous.get('media_stamp') == media_stamp
+              and (previous.get('candidates') or not pixels.is_file()))
     if reused:
         versions = previous.get('candidates', [])
     for path in ([] if reused else snapshots):
@@ -300,7 +332,8 @@ def _render_case_set(folder, case, identity, render_root, saved):
         if saved.get(run.name,{}).get('stamp') == stamp:
             continue
         try:
-            detail = case_data(run, render_root, previous=read(render_root/relative))
+            previous=read(render_root/relative) or read(render_root.parent/'pixelworld'/relative)
+            detail = case_data(run, render_root, previous=previous)
         except (OSError,ValueError,KeyError,EOFError,BadZipFile):
             continue
         save(render_root/relative,detail)
@@ -337,7 +370,7 @@ def render_backfill_set(folder,identity,render_root,saved,excluded=(),limit=4):
     return rows
 
 
-def merge_render_jobs(destination,cache,pending,render_root):
+def merge_render_jobs(destination,cache,pending,render_root,published_assets=None):
     for key,future in list(pending.items()):
         if not future.done():
             continue
@@ -348,12 +381,15 @@ def merge_render_jobs(destination,cache,pending,render_root):
             rows = []
         for name,relative,stamp,detail in rows:
             for asset in referenced_assets(detail):
+                if published_assets is not None and asset in published_assets:
+                    continue  # Immutable asset is already in the committed public tree.
                 target=destination/asset
                 if not target.exists():
                     target.parent.mkdir(parents=True,exist_ok=True)
                     temp=target.with_name(target.name+'.tmp')
                     shutil.copyfile(render_root/asset,temp)
                     temp.replace(target)
+                    mark_publication_dirty(target)
             save(destination/relative,detail)
             cache.setdefault(identity,{})[name]={'stamp':stamp,'detail':relative,
                 'case':detail['case_id'],'attempt':detail['attempt'],
@@ -364,10 +400,10 @@ def merge_render_jobs(destination,cache,pending,render_root):
 
 
 def async_update(run_root,destination,cache,pool,pending,render_root,
-                 history_pool=None,history_pending=None,history_cursor=None):
-    merge_render_jobs(destination,cache,pending,render_root)
+                 history_pool=None,history_pending=None,history_cursor=None,published_assets=None):
+    merge_render_jobs(destination,cache,pending,render_root,published_assets)
     if history_pending is not None:
-        merge_render_jobs(destination,cache,history_pending,render_root)
+        merge_render_jobs(destination,cache,history_pending,render_root,published_assets)
     catalogue={'groups':[],'updated_utc':datetime.now(timezone.utc).isoformat()}
     historical=[]
     for suite,source in sources(run_root):
@@ -422,6 +458,7 @@ def async_update(run_root,destination,cache,pool,pending,render_root,
 
 
 def main():
+    global PUBLICATION_ROOT
     p = argparse.ArgumentParser()
     p.add_argument('--run-root', type=Path, required=True)
     p.add_argument('--checkout', type=Path, required=True)
@@ -436,11 +473,12 @@ def main():
     except BlockingIOError:
         return
     destination = root / 'pixelworld'
+    PUBLICATION_ROOT = destination
     cache_path = root / '.publisher_cache.json'
     cache = read(cache_path)
-    pool=ThreadPoolExecutor(max_workers=4)
+    pool=ThreadPoolExecutor(max_workers=2)
     evaluation_pool=ThreadPoolExecutor(max_workers=1)
-    history_pool=ThreadPoolExecutor(max_workers=2)
+    history_pool=ThreadPoolExecutor(max_workers=1)
     history_pending={}
     history_cursor=[0]
     evaluation_future=None
@@ -448,12 +486,19 @@ def main():
     pending={}
     render_root=root/'.render-cache'
     render_root.mkdir(exist_ok=True)
+    tracked=subprocess.check_output(['git','ls-files','-z','--','pixelworld/assets'],cwd=root).decode().split('\0')
+    published_assets={name.removeprefix('pixelworld/') for name in tracked if name}
+    for command in [
+        ['git','diff','--name-only','-z','--','pixelworld'],
+        ['git','diff','--cached','--name-only','-z','--','pixelworld'],
+        ['git','ls-files','--others','--exclude-standard','-z','--','pixelworld']]:
+        PUBLICATION_DIRTY.update(p for p in subprocess.check_output(command,cwd=root).decode().split('\0') if p)
     while True:
         start = time.monotonic()
         try:
             published_revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
             async_update(args.run_root.resolve(),destination,cache,pool,pending,render_root,
-                         history_pool,history_pending,history_cursor)
+                         history_pool,history_pending,history_cursor,published_assets)
             if evaluation_future is not None and evaluation_future.done():
                 try:
                     save(destination/'evaluation.json',evaluation_future.result())
@@ -465,11 +510,16 @@ def main():
                 evaluation_future=evaluation_pool.submit(collect_evaluation,args.run_root.resolve())
             save_head_pointer(destination, published_revision)
             save(cache_path, cache)
-            subprocess.run(['git', 'add', '--sparse', '--', 'pixelworld', ':(exclude)pixelworld/**/*.tmp'], cwd=root, check=True)
+            with PUBLICATION_DIRTY_LOCK:
+                changed=sorted(p for p in PUBLICATION_DIRTY if not p.endswith('.tmp'))
+            for start in range(0,len(changed),1000):
+                subprocess.run(['git','add','--sparse','--',*changed[start:start+1000]],cwd=root,check=True)
             if subprocess.run(['git', 'diff', '--cached', '--quiet'], cwd=root).returncode:
                 subprocess.run(['git', 'commit', '-m', 'Refresh live PixelWorld progress and saved candidates'], cwd=root, check=True,
                                stdout=subprocess.DEVNULL)
             subprocess.run(['git', 'push', 'origin', 'pixelworld-live'], cwd=root, check=True, timeout=60)
+            with PUBLICATION_DIRTY_LOCK:
+                PUBLICATION_DIRTY.difference_update(changed)
             save(root / '.publisher_status.json', {'pid': __import__('os').getpid(), 'updated_unix': time.time(),
                  'duration_seconds': time.monotonic() - start, 'groups': len(cache), 'status': 'ok',
                  'pending_case_reads':len(pending),'pending_history_batches':len(history_pending),
