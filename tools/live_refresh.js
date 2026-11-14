@@ -1,5 +1,6 @@
 /* Saved RGB candidates and observed tools; independent of Pages deployment. */
 (() => {
+  if(location.pathname.endsWith('/physics_iq_4k_smoke/index.html'))return;
   const repository = 'SiyuanMaCS/SiyuanMaCS.github.io';
   const rawBase = 'https://raw.githubusercontent.com/' + repository + '/';
   let root = rawBase + 'pixelworld-live/pixelworld/';
@@ -68,6 +69,7 @@
   }
   function asset(path) { return path ? root + path : ''; }
   function video(v) {
+    if(v.preview_mp4)return `<div class="box"><video controls preload="metadata" src="${asset(v.preview_mp4)}" poster="${asset(v.poster)}" style="width:100%;max-height:720px"></video><p class="note">${v.width}×${v.height} · ${v.fps} fps · 压缩播放预览。无损 RGB、PNG 和 NPZ 保留在实验目录，评测使用原始产物。</p></div>`;
     const data = {...v,pixels:asset(v.pixels),poster:asset(v.poster)};
     if(v.chunks)data.chunks=v.chunks.map(c=>({...c,pixels:asset(c.pixels)}));
     return `<div class="player" data-video='${esc(JSON.stringify(data))}'><div class="player-frame"><canvas></canvas><button class="play-overlay">▶</button></div><div class="controls"><button class="play">▶ 播放</button><button class="replay">↻ 重播</button><input class="seek" type="range" min="0" step="1" value="0"></div><p class="status">点击播放 · 保存的 RGB 候选</p></div>`;
@@ -100,7 +102,7 @@
     (window.__benchPlayers || []).forEach(p=>p.pause());
     const latest=d.candidates.at(-1), spec=d.spec;
     let body=`<a class="back" href="/pixelworld/index.html">← PixelWorld 总览</a><section class="hero"><p class="eyebrow">CODING AGENTS AS PIXEL WORLD MODELS</p><h1>${esc(label(d.model_key))} · ${esc(d.case_id)}</h1></section><div id="live-status" class="card">${banner}<p class="note">${esc(d.track==='text'?'Text':'Vision')} · Attempt ${d.attempt} · ${spec.width}×${spec.height} · ${spec.fps} FPS · ${spec.frames} 帧。保存候选与最终有效提交分别记录。</p></div>`;
-    body+=`<div class="case-layout" id="video"><div>${latest?video(latest):'<div class="box">尚未保存候选视频；下方展示当前工具记录。</div>'}</div><aside class="card"><h3>任务输入</h3><p>${esc(d.prompt)}</p>${d.first_frame?`<img class="inspection" src="${asset(d.first_frame)}" alt="实际输入首帧">`:''}</aside></div>`;
+    body+=`<div class="case-layout" id="video"><div>${latest?video(latest):'<div class="box">'+(d.preview_pending?'原始 RGB 已保存，播放预览正在编码与上传；下方可查看实际工具记录。':'尚未保存候选视频；下方展示当前工具记录。')+'</div>'}</div><aside class="card"><h3>任务输入</h3><p>${esc(d.prompt)}</p>${d.first_frame?`<img class="inspection" src="${asset(d.first_frame)}" alt="实际输入首帧">`:''}</aside></div>`;
     if(d.source_video)body+=`<section class="card"><h3>任务输入视频</h3><video controls preload="metadata" src="${asset(d.source_video)}" style="width:100%;max-height:480px"></video></section>`;
     if(d.status==='failed'){
       const diag=d.diagnostics, labels={infra_failure:'接口 / 系统中断 · stale',token_budget_exhausted:'输出 token 预算耗尽',ended_without_submission:'结束但未提交视频',submitted_but_unrecognized:'已保存输出，但最终验证未通过'};

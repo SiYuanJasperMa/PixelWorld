@@ -42,3 +42,10 @@ decoding every historical tensor again. Check the container cgroup memory limit,
 not host `free` output, before choosing generation concurrency. On the current
 32 GiB container, 720p generation uses six slots and 4K generation uses two;
 ongoing cases remain alive while a matrix controller is reloaded.
+
+Large-video web previews retain the native dimensions, FPS and duration but use
+H.264 compression with an 18 Mbps maximum rate. The original lossless RGB tensor,
+PNGs and traces remain on BN; evaluation never uses the web preview. Small RGB
+players and the already verified standalone 4K pixel smoke remain unchanged.
+Publication stages only changed paths, so an unrelated historical media backlog
+does not require a complete working-tree scan on every progress update.

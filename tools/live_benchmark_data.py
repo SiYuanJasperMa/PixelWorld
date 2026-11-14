@@ -27,7 +27,7 @@ from pixelworld.smoke_web import clean
 from tools.live_evaluation_data import collect as collect_evaluation
 from tools.live_case_diagnostics import diagnostics as case_diagnostics, VERSION as DIAGNOSTICS_VERSION
 
-PUBLIC_SCHEMA = 2
+PUBLIC_SCHEMA = 3
 LARGE_MEDIA_RENDER_LOCK = threading.Lock()
 PUBLICATION_ROOT = None
 PUBLICATION_DIRTY = set()
@@ -41,7 +41,7 @@ def mark_publication_dirty(path):
 
 
 def large_media_headroom(spec):
-    needed=spec['width']*spec['height']*spec['frames']*4+2*1024**3
+    needed=2*1024**3  # Preview encoder reads native PNGs, not the full packed tensor.
     for limit_path,usage_path in [
         (Path('/sys/fs/cgroup/memory/memory.limit_in_bytes'),Path('/sys/fs/cgroup/memory/memory.usage_in_bytes')),
         (Path('/sys/fs/cgroup/memory.max'),Path('/sys/fs/cgroup/memory.current'))]:
@@ -51,6 +51,26 @@ def large_media_headroom(spec):
         except (OSError,ValueError):
             continue
     return True
+
+
+def export_native_preview(source,target,spec):
+    frames=source/'frames';pattern=frames/'%02d.png'
+    if not all((frames/f'{i:02d}.png').is_file() for i in range(spec['frames'])):
+        raise OSError('Waiting for the complete native PNG candidate')
+    target.mkdir(parents=True,exist_ok=True)
+    preview=target/'preview.mp4';poster=target/'poster.png'
+    if not preview.exists():
+        temporary=target/'preview.tmp.mp4'
+        subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-framerate',str(spec['fps']),
+            '-i',str(pattern),'-frames:v',str(spec['frames']),'-an','-c:v','libx264',
+            '-preset','veryfast','-crf','18','-maxrate','18M','-bufsize','36M',
+            '-pix_fmt','yuv420p','-threads','2','-movflags','+faststart',str(temporary)],
+            check=True,timeout=300)
+        temporary.replace(preview)
+    if not poster.exists():shutil.copyfile(frames/'00.png',poster)
+    return {**{k:spec[k] for k in ['width','height','frames','fps']},
+            'preview_file':'preview.mp4','layout':'native-size-compressed-preview',
+            'native_rgb_retained':True}
 
 
 def read(path):
@@ -112,7 +132,7 @@ def export_candidate(source, destination, spec, label, utc):
             with LARGE_MEDIA_RENDER_LOCK:
                 if not large_media_headroom(spec):
                     raise OSError('Native media export deferred for container memory headroom')
-                video = export_pixels(source, target, spec)
+                video = export_native_preview(source, target, spec)
         else:
             video = export_pixels(source, target, spec)
     if not video:
@@ -120,6 +140,7 @@ def export_candidate(source, destination, spec, label, utc):
     value = {**video, 'label': label, 'utc': utc,'asset_id':digest,
              'pixels': prefix + '/' + video['pixels_file'] if video.get('pixels_file') else None,
              'poster': prefix + '/poster.png'}
+    if video.get('preview_file'):value['preview_mp4']=prefix+'/'+video['preview_file']
     if video.get('chunks'):
         value['chunks']=[{**c,'pixels':prefix+'/'+c['pixels_file']}for c in video['chunks']]
     for name in ('inspection.png', 'transition_check.png'):
@@ -344,7 +365,7 @@ def _render_case_set(folder, case, identity, render_root, saved):
 def referenced_assets(detail):
     values = [detail.get('first_frame'), detail.get('source_video')]
     for video in detail.get('candidates',[]):
-        values += [video.get(k) for k in ('pixels','poster','inspection','transition_check')]
+        values += [video.get(k) for k in ('pixels','preview_mp4','poster','inspection','transition_check')]
         values += [c.get('pixels')for c in video.get('chunks',[])]
     for event in detail.get('events',[]):
         values += event.get('images',[])
@@ -512,8 +533,8 @@ def main():
             save(cache_path, cache)
             with PUBLICATION_DIRTY_LOCK:
                 changed=sorted(p for p in PUBLICATION_DIRTY if not p.endswith('.tmp'))
-            for start in range(0,len(changed),1000):
-                subprocess.run(['git','add','--sparse','--',*changed[start:start+1000]],cwd=root,check=True)
+            for batch_start in range(0,len(changed),1000):
+                subprocess.run(['git','add','--sparse','--',*changed[batch_start:batch_start+1000]],cwd=root,check=True)
             if subprocess.run(['git', 'diff', '--cached', '--quiet'], cwd=root).returncode:
                 subprocess.run(['git', 'commit', '-m', 'Refresh live PixelWorld progress and saved candidates'], cwd=root, check=True,
                                stdout=subprocess.DEVNULL)
