@@ -62,10 +62,12 @@ def publish(checkout: Path):
                 if 'id="physics-resolution-entry"' not in text:
                     card='<article class="card feature" id="physics-resolution-entry"><span class="badge">独立全量实验</span><h3>Physics-IQ · 720p / 4K · 24 FPS</h3><p>三模型 × Text/Vision，两个分辨率各198条；合计2,376条视频。</p><a class="button" href="physics_iq_resolution.html">打开分辨率对照与实时进度 →</a></article>'
                     p.write_text(text.replace('</main>',card+'</main>'));changed.append(name)
-                text=p.read_text()
-                if 'id="physics-4k-smoke-entry"' not in text:
-                    card='<article class="card feature" id="physics-4k-smoke-entry"><span class="badge">smoke</span><h3>GPT-6.1-Sol · 原生4K Smoke</h3><p>3840×2160、24FPS、120帧；原生播放、代码与实际工具记录。</p><a class="button" href="physics_iq_4k_smoke/index.html">播放4K smoke →</a></article>'
-                    p.write_text(text.replace('</main>',card+'</main>'));changed.append(name)
+        from tools.home_resolution_navigation import integrate_home,integrate_physics
+        for name in ['pixelworld/index.html','pixelworld/pixelworld-index.html']:
+            p=checkout/name
+            if p.exists():p.write_text(integrate_home(p.read_text()));changed.append(name)
+        p=checkout/'pixelworld/physics_iq_baseline.html'
+        if p.exists():p.write_text(integrate_physics(p.read_text()));changed.append('pixelworld/physics_iq_baseline.html')
         paths = subprocess.check_output(['git','ls-files','--','pixelworld'], cwd=checkout, text=True).splitlines()
         for relative in paths:
             if not relative.endswith('.html'):

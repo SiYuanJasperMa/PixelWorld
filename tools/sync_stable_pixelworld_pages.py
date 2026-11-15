@@ -350,7 +350,7 @@ def group_manifest_stats(run_root: Path, benchmark: str) -> dict[tuple[str, str]
 def page(title: str, body: str) -> str:
     nav = (
         '<header class="top"><div class="top-inner"><a class="brand" href="index.html">PixelWorld</a>'
-        '<nav class="nav"><a href="index.html#benchmarks">Benchmarks</a>'
+        '<nav class="nav"><a href="index.html#current-experiments">当前实验</a><a href="physics_iq_resolution.html">720p / 4K</a><a href="index.html#benchmarks">Benchmarks</a>'
         '<a href="physics_iq_baseline.html">Physics-IQ</a><a href="robojudge.html">RoboJudge</a>'
         '<a href="vbench2_subset.html">VBench2</a><a href="phygenbench.html">PhyGenBench</a>'
         '<a href="matrix_full.html">Legacy</a></nav></div></header>'
@@ -877,7 +877,8 @@ def write_index_page(destination: Path, run_root: Path) -> None:
                  f'仍有 {preview.get("remaining_video_details",0)} 条已生成视频的详情等待同步。</p>'
                  f'<p class=note>详情检查时间 UTC：{html.escape(str(preview.get("updated_utc","—")))}。'
                  '生成完成数量与网页详情同步数量分别统计；正在同步的案例保留原始产物和逐轮记录。</p></div></section>')
-    destination.write_text(page("PixelWorld Index", body))
+    from tools.home_resolution_navigation import integrate_home
+    destination.write_text(page("PixelWorld Index", integrate_home(body)))
 
 
 def write_phygen_pixelspace_page(run_root: Path, destination: Path) -> None:

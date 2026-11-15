@@ -168,12 +168,26 @@
   }
   function summary(catalogue) {
     const groups=catalogue.groups;
+    const homeMatrix=document.querySelector('#home-resolution-models');
+    if(homeMatrix){
+      const selected=groups.filter(g=>['physics_iq_720p24fps','physics_iq_4k24fps'].includes(g.suite));
+      let body='<table><tr><th>模型</th><th>720p Text</th><th>720p Vision</th><th>4K Text</th><th>4K Vision</th></tr>';
+      for(const model of [...new Set(selected.map(g=>g.model_key))]){
+        body+='<tr><td>'+esc(label(model))+'</td>';
+        for(const suite of ['physics_iq_720p24fps','physics_iq_4k24fps'])for(const track of ['text','vision-agent']){
+          const g=selected.find(x=>x.model_key===model&&x.suite===suite&&x.track===track),c=g?.counts||{};
+          const url='/pixelworld/live.html?'+new URLSearchParams({suite,model,track});
+          body+=`<td><a href="${url}"><strong>${c.complete||0}/${g?.cases_total||198}</strong></a><br><span class="note">${g?.paused?0:c.running||0} active · ${c.pending||0} pending</span></td>`;
+        }body+='</tr>';
+      }body+='</table><p class="note">实时记录更新：'+esc(catalogue.updated_utc)+'</p>';
+      if(homeMatrix.innerHTML!==body)homeMatrix.innerHTML=body;
+    }
     if(location.pathname.endsWith('/physics_iq_resolution.html')){
       const container=document.querySelector('#resolution-runs');
       if(container){let body='';for(const [suite,title] of [['physics_iq_720p24fps','720p · 1280×720 · 24 FPS'],['physics_iq_4k24fps','4K · 3840×2160 · 24 FPS']]){
-        const selected=groups.filter(g=>g.suite===suite);body+='<h2>'+title+'</h2><div class="scroll"><table><tr><th>模型</th><th>Text</th><th>Vision</th></tr>';
+        const selected=groups.filter(g=>g.suite===suite);body+='<section id="'+suite+'"><h2>'+title+'</h2><div class="scroll"><table><tr><th>模型</th><th>Text</th><th>Vision</th></tr>';
         for(const model of [...new Set(selected.map(g=>g.model_key))]){body+='<tr><td>'+esc(label(model))+'</td>';for(const track of ['text','vision-agent']){const g=selected.find(x=>x.model_key===model&&x.track===track),c=g?.counts||{},link='/pixelworld/live.html?'+new URLSearchParams({suite,model,track});body+=`<td><strong>${c.complete||0}/${g?.cases_total||198}</strong> · ${c.running||0} active<br>${c.pending||0} pending · ${c.exhausted||0} 未交付<br><a href="${link}">视频、修订与工具记录 →</a></td>`}body+='</tr>'}
-        body+='</table></div>';}
+        body+='</table></div></section>';}
         if(container.innerHTML!==body)container.innerHTML=body;
       }
     }
@@ -187,12 +201,13 @@
       const selected=groups.filter(g=>g.suite.startsWith('phygen_'));
       if(table && selected.length) table.innerHTML='<tr><th>条件</th><th>模型</th><th>Track</th><th>有效视频</th><th>运行中</th><th>待生成</th><th>查看</th></tr>'+selected.map(g=>`<tr><td>${g.suite.includes('i2v')?'I2V · Qwen 首帧':'T2V'}</td><td>${esc(label(g.model_key))}</td><td>${g.track==='text'?'Text':'Vision'}</td><td>${g.counts.complete || 0}/${g.cases_total}</td><td>${g.counts.running || 0}</td><td>${g.counts.pending || 0}</td><td><a href="/pixelworld/live.html?suite=${g.suite}&model=${g.model_key}&track=${g.track}">实时视频与候选 →</a></td></tr>`).join('');
     }
-    const routes={'Physics-IQ 512w24fps':['physics_iq_512w24fps_gpt_native'],'Physics-IQ Verified':['physics_iq','physics_iq_gpt_native_v2','physics_iq_seed21_native_v2'],'RoboJudge shared-50':['robojudge','robojudge_seed21_native_v2'],'PCVE-RigidBench · 必跑':['pcve_smoke'],'PhyGenBench · T2V + I2V':groups.filter(g=>g.suite.startsWith('phygen_')).map(g=>g.suite)};
-    document.querySelectorAll('article.card.feature').forEach(card=>{const scopes=routes[card.querySelector('h3')?.textContent];if(!scopes)return;const selected=groups.filter(g=>scopes.includes(g.suite));if(!selected.length)return;const total=selected.reduce((a,g)=>a+(g.cases_total || 0),0),count=name=>selected.reduce((a,g)=>a+(g.counts[name] || 0),0);const badge=card.querySelector('.badge');if(badge)badge.textContent=count('running')?'running · '+count('running')+' active':count('complete')===total?(selected.some(g=>g.suite.startsWith('phygen_'))?'smoke 已完成':'生成完成'):'进度已更新';let facts=card.querySelector('.facts');if(!facts){facts=document.createElement('div');facts.className='facts';card.querySelector('a')?.before(facts);}facts.innerHTML=`<div><strong>${count('complete')} / ${total}</strong>有效视频</div><div><strong>${count('running')}</strong>运行中</div><div><strong>${count('pending')}</strong>待生成</div>`;});
+    const routes={'Physics-IQ · 720p / 4K · 24 FPS':['physics_iq_720p24fps','physics_iq_4k24fps'],'Physics-IQ 512w24fps':['physics_iq_512w24fps_gpt_native'],'Physics-IQ Verified':['physics_iq','physics_iq_gpt_native_v2','physics_iq_seed21_native_v2'],'RoboJudge shared-50':['robojudge','robojudge_seed21_native_v2'],'PCVE-RigidBench · 必跑':['pcve_smoke'],'PhyGenBench · T2V + I2V':groups.filter(g=>g.suite.startsWith('phygen_')).map(g=>g.suite)};
+    document.querySelectorAll('article.card.feature').forEach(card=>{const scopes=routes[card.querySelector('h3')?.textContent];if(!scopes)return;const selected=groups.filter(g=>scopes.includes(g.suite));if(!selected.length)return;const total=selected.reduce((a,g)=>a+(g.cases_total || 0),0),count=name=>selected.reduce((a,g)=>a+(name==='running'&&g.paused?0:g.counts[name] || 0),0);const badge=card.querySelector('.badge');if(badge)badge.textContent=count('running')?'running · '+count('running')+' active':count('complete')===total?(selected.some(g=>g.suite.startsWith('phygen_'))?'smoke 已完成':'生成完成'):selected.every(g=>g.paused)?'已暂停':'进度已更新';let facts=card.querySelector('.facts');if(!facts){facts=document.createElement('div');facts.className='facts';card.querySelector('a')?.before(facts);}facts.innerHTML=`<div><strong>${count('complete')} / ${total}</strong>有效视频</div><div><strong>${count('running')}</strong>运行中</div><div><strong>${count('pending')}</strong>待生成</div>`;});
   }
   function renderEvaluation(data) {
     let rows=data.cohorts || [];
     if(context)rows=rows.filter(r=>r.suite===context.suite&&r.model_key===context.model&&r.track===context.track);
+    else if(document.querySelector('#home-resolution-models'))rows=rows.filter(r=>['physics_iq_720p24fps','physics_iq_4k24fps'].includes(r.suite));
     else if(location.pathname.endsWith('/physics_iq_baseline.html'))rows=rows.filter(r=>r.suite.startsWith('physics_iq')&&!r.suite.includes('512'));
     else if(location.pathname.endsWith('/physics_iq_512w24fps.html'))rows=rows.filter(r=>r.suite.includes('512w24fps'));
     else if(location.pathname.endsWith('/physics_iq_resolution.html'))rows=rows.filter(r=>r.suite==='physics_iq_720p24fps'||r.suite==='physics_iq_4k24fps');
@@ -201,7 +216,7 @@
     else if(phygenGallery || location.pathname.endsWith('/phygen_pixelspace.html'))return;
     if(!rows.length)return;
     let box=document.querySelector('#live-evaluation');
-    if(!box){box=document.createElement('section');box.id='live-evaluation';box.className='card';const hero=document.querySelector('main .hero');if(hero&&!context?.case)hero.after(box);else document.querySelector('main').append(box);}
+    if(!box){box=document.createElement('section');box.id='live-evaluation';box.className='card';const current=document.querySelector('#current-experiments'),hero=document.querySelector('main .hero');if(current)current.after(box);else if(hero&&!context?.case)hero.after(box);else document.querySelector('main').append(box);}
     const phases={complete:'完整官方范围已评分',waiting_for_generation:'等待完整生成',waiting_for_evaluator:'已生成 · 等待评分队列',incomplete_generation:'生成未覆盖完整范围',official_evaluation:'原版评测运行中',official_full_evaluation:'导出 / 原版评测',adapter_evaluation:'导出 / 准备评测',preparing_evaluation:'导出 / 准备评测',stale_evaluation:'评测进程已退出 · 待恢复',waiting_for_evaluation_retry:'评测中断 · 等待重试',waiting_for_cuda:'等待 GPU',blocked_score_provenance:'评分范围 / 身份未通过验证',blocked_evaluation_prerequisites:'评测资源暂缺'};
     let body='<h2>实时自动评测</h2><p class="note">记录更新：'+esc(data.updated_utc)+'。只有完整官方范围通过验证才显示组均分。</p>';
     for(const name of [...new Set(rows.map(r=>r.benchmark))]){
