@@ -76,3 +76,12 @@ def test_stream_send_disconnect_is_infrastructure(tmp_path):
     events.write_text(json.dumps({'type':'error','message':
         'stream disconnected before completion: error sending request'}))
     assert _provider_infra_failure(events)=='provider_connection_failed'
+
+
+def test_local_proxy_auth_mismatch_is_infrastructure(tmp_path):
+    events=tmp_path/'events.jsonl'
+    events.write_text(json.dumps({'type':'error','message':
+        'unexpected status 401 Unauthorized: Local proxy authentication required'}))
+    reason=_provider_infra_failure(events)
+    assert reason=='local_proxy_auth_failure'
+    assert infrastructure_failure({'stop_reason':reason})

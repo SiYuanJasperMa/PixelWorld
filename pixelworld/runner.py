@@ -151,6 +151,8 @@ def _provider_infra_failure(events: Path) -> str | None:
         return "provider_connection_failed"
     if "Request exceeds local size limit" in text:
         return "local_proxy_request_limit"
+    if "Local proxy authentication required" in text:
+        return "local_proxy_auth_failure"
     if ("HTTPSConnectionPool" in text and any(value in text for value in
             ("Read timed out", "Max retries exceeded", "SSLError"))):
         return "provider_connection_failed"

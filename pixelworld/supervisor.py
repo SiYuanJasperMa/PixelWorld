@@ -234,16 +234,26 @@ def run(config: Benchmark, interval: float = 5.0) -> None:
                     order=(item['attempt'],case_id) if settings.get('prioritize_less_attempted_cases') else case_id
                     candidates.append((fairness, group_order[key], order, model, track, case_id, item))
             candidates.sort(key=lambda item: item[:3])
-            with launch_guard(config) as (model_limit, model_counts):
+            with launch_guard(config) as (model_limit, model_counts, config_counts):
                 total_limit=settings.get('max_total_runs')
                 if total_limit is not None and (not isinstance(total_limit,int)
                         or isinstance(total_limit,bool) or total_limit < 1):
                     raise ValueError('max_total_runs must be a positive integer')
+                config_limits=settings.get('max_runs_by_config',{})
+                if not isinstance(config_limits,dict):
+                    raise ValueError('max_runs_by_config must be an object')
+                config_limit=config_limits.get(config.source.name)
+                if config_limit is not None and (not isinstance(config_limit,int)
+                        or isinstance(config_limit,bool) or config_limit < 1):
+                    raise ValueError('max_runs_by_config values must be positive integers')
+                config_key=str(config.source.resolve())
                 launched = 0
                 for _, _, _, model, track, case_id, item in candidates:
                     if launched >= capacity:
                         break
                     if total_limit is not None and sum(model_counts.values()) >= total_limit:
+                        break
+                    if config_limit is not None and config_counts.get(config_key,0) >= config_limit:
                         break
                     if not memory_launch_allowed(settings):
                         break
@@ -254,6 +264,7 @@ def run(config: Benchmark, interval: float = 5.0) -> None:
                         continue
                     _launch(config, model, track, case_id, current["attempt"])
                     model_counts[model.key] = model_counts.get(model.key, 0) + 1
+                    config_counts[config_key] = config_counts.get(config_key,0) + 1
                     launched += 1
         time.sleep(interval)
     final, final_info = snapshot(config, os.getpid())
