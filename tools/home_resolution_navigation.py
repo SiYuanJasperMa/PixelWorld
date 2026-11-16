@@ -60,6 +60,20 @@ def resolution_body():
         'output_tokens不重复叠加reasoning tokens。所有候选、失败记录和trace均保留。</p></section>')
 
 
+def standard_benchmark_body(title, eyebrow, suite, protocol, legacy_note):
+    return (f'<p><a class="back" href="/pixelworld/index.html">← PixelWorld 总览</a></p>'
+        f'<section class="hero"><p class="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{protocol}</p></section>'
+        f'<section id="benchmark-main" data-suite="{suite}" class="card feature">'
+        '<span class="badge">主实验 · 实时更新</span><div id="benchmark-main-summary" class="facts">正在读取进度…</div></section>'
+        '<section><div class="section-head"><h2>模型 × Track</h2><p>点击格子查看全部视频、候选与trace。</p></div>'
+        '<div id="benchmark-main-table" class="scroll"><p class="note">正在读取六个cohort…</p></div></section>'
+        '<section><div class="section-head"><h2>最近同步的视频</h2><p>每个模型与Track各一条可直接播放的成功结果。</p></div>'
+        '<div id="benchmark-latest-grid" class="video-grid"><p class="note">首条成功视频生成后自动出现。</p></div></section>'
+        '<section id="live-evaluation" class="card"><h2>官方评测</h2><p class="note">完整cohort后自动评测。</p></section>'
+        f'<details class="report"><summary>Legacy与旧协议</summary><p>{legacy_note}</p>'
+        '<p><a class="button" href="matrix_full.html">打开Legacy总入口 →</a></p></details>')
+
+
 def integrate_home(text):
     text=re.sub(r'<section id="current-experiments">.*?</section>','',text,flags=re.S)
     for identifier in ['physics-resolution-entry','physics-4k-smoke-entry']:
@@ -69,6 +83,14 @@ def integrate_home(text):
     elif '<main>' in text:text=text.replace('<main>','<main>'+current_experiments(),1)
     else:text=current_experiments()+text
     text=text.replace('<h2>主 Benchmark 与进度</h2>','<h2>Benchmark 与已有结果</h2>')
+    for title in ('Physics-IQ Verified','Physics-IQ 512w24fps'):
+        text=re.sub(r'<article class="card feature">(?:(?!</article>).)*?<h3>'+re.escape(title)+r'</h3>.*?</article>','',text,flags=re.S)
+    text=text.replace('RoboJudge shared-50','RoboJudge · 720p / 24 FPS')
+    text=text.replace('50 shared embodied generation prompts x Text/Vision','50 shared embodied prompts × 三模型 × Text/Vision；保持输入画幅。')
+    text=text.replace('PhyGenBench · T2V + I2V','PhyGenBench · 720p / 24 FPS')
+    text=text.replace('PCVE-RigidBench · 必跑','PCVE-RigidBench · Standard 720p')
+    text=text.replace('129 条官方物理反事实视频编辑 × 五模型 × Text/Vision，共 1,290 条视频；复用已有成功 smoke。','129 条官方物理反事实编辑 × 三模型 × Text/Vision；原生24 FPS、96帧、4秒。')
+    text=text.replace('<section><h2>候选与历史</h2>','<section><h2>Legacy 与探索结果</h2>')
     text=re.sub(r'<section><h2>视频详情同步</h2>.*?</section>','',text,flags=re.S)
     # The old benchmark-wide table is retained as a reference below the active matrix.
     text=re.sub(r'<section><h2>模型 × Benchmark 总览</h2>(.*?)</section>',

@@ -38,11 +38,20 @@ def publish(checkout: Path):
             '<a href="/pixelworld/phygen_pixelspace.html">协议与进度 →</a></p>'
             '<p id="live-poll-time" class="note">正在读取当前模型与四个条件的进度…</p>'))
         changed.append(gallery)
-        from tools.home_resolution_navigation import resolution_body
+        from tools.home_resolution_navigation import resolution_body,standard_benchmark_body
         resolution='pixelworld/physics_iq_resolution.html'
         (checkout/resolution).write_text(document('Physics-IQ · 720p / 24 FPS · Main Experiment',
                                                   resolution_body()))
         changed.append(resolution)
+        standards = {
+            'pixelworld/robojudge.html': ('RoboJudge · 720p / 24 FPS','ROBOJUDGE · MAIN EXPERIMENT','robojudge_main720p24fps','50个shared embodied prompts，保持原始画幅，24 FPS、120帧、5秒。','旧256宽/4 FPS结果与额外模型保留为Legacy，不进入主分数。'),
+            'pixelworld/pcve_rigid.html': ('PCVE-RigidBench · Standard 720p','PCVE-RIGIDBENCH · MAIN EXPERIMENT','pcve_standard720p24fps','官方原生1280×720、24 FPS、96帧、4秒；保持编辑生效帧与逐帧评测时间轴。','旧256×144结果保留为Legacy，不继续补旧协议。'),
+            'pixelworld/phygen_pixelspace.html': ('PhyGenBench · 720p / 24 FPS','PHYGENBENCH · MAIN EXPERIMENT','phygenbench_t2v_main720p24fps','官方160条T2V prompts，1280×720、24 FPS、120帧、5秒；paired I2V准备完成后加入同页。','旧256×144/4 FPS smoke和pre-v2结果保留为Legacy。'),
+        }
+        for relative,(title,eyebrow,suite,protocol,legacy) in standards.items():
+            (checkout/relative).write_text(document(title,
+                standard_benchmark_body(title,eyebrow,suite,protocol,legacy)))
+            changed.append(relative)
         smoke='pixelworld/physics_iq_4k_smoke/index.html';(checkout/smoke).parent.mkdir(parents=True,exist_ok=True)
         (checkout/smoke).write_text(document('Physics-IQ · GPT-6.1-Sol · 4K Smoke',
             '<section class=hero><p class=eyebrow>PHYSICS-IQ · NATIVE 4K SMOKE</p><h1>GPT-6.1-Sol · 4K Smoke</h1>'

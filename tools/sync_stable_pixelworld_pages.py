@@ -1199,6 +1199,17 @@ def sync_once(run_root: Path, heavy_web: Path, stable_repo: Path, core_only: boo
     write_phygen_qwen_init_page(run_root, pixelworld / "phygen_qwen_init/index.html")
     write_openve_page(run_root, pixelworld / "openve.html")
     write_pcve_page(run_root, pixelworld / "pcve_rigid.html")
+    # Final main-experiment pages supersede the low-resolution historical
+    # monitor pages above. Live data supplies progress, videos and evaluation.
+    from tools.home_resolution_navigation import standard_benchmark_body
+    standards = {
+        'robojudge.html': ('RoboJudge · 720p / 24 FPS','ROBOJUDGE · MAIN EXPERIMENT','robojudge_main720p24fps','50个shared embodied prompts，保持原始画幅，24 FPS、120帧、5秒。','旧256宽/4 FPS结果与额外模型保留为Legacy，不进入主分数。'),
+        'pcve_rigid.html': ('PCVE-RigidBench · Standard 720p','PCVE-RIGIDBENCH · MAIN EXPERIMENT','pcve_standard720p24fps','官方原生1280×720、24 FPS、96帧、4秒；保持编辑生效帧与逐帧评测时间轴。','旧256×144结果保留为Legacy，不继续补旧协议。'),
+        'phygen_pixelspace.html': ('PhyGenBench · 720p / 24 FPS','PHYGENBENCH · MAIN EXPERIMENT','phygenbench_t2v_main720p24fps','官方160条T2V prompts，1280×720、24 FPS、120帧、5秒；paired I2V准备完成后加入同页。','旧256×144/4 FPS smoke和pre-v2结果保留为Legacy。'),
+    }
+    for filename,(title,eyebrow,suite,protocol,legacy) in standards.items():
+        (pixelworld/filename).write_text(live_document(title,
+            standard_benchmark_body(title,eyebrow,suite,protocol,legacy)))
 
     assets_src = heavy_web / "robojudge_assets"
     assets_dst = pixelworld / "robojudge_assets"

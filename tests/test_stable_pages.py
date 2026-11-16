@@ -126,7 +126,7 @@ def test_pcve_full_page_and_home_report_129_case_scope(tmp_path, monkeypatch):
     assert '当前主线是 4+1' in text
 
 
-def test_highres_monitor_uses_actual_worker_and_marks_stopped_worker(tmp_path, monkeypatch):
+def test_highres_worker_remains_observable_but_is_hidden_from_main_cards(tmp_path, monkeypatch):
     root = tmp_path / 'generations/physics_iq_512w24fps_gpt_native'
     event = root / 'gpt61-sol/text/case_0001_attempt_01/logs/events.jsonl'
     event.parent.mkdir(parents=True)
@@ -144,15 +144,9 @@ def test_highres_monitor_uses_actual_worker_and_marks_stopped_worker(tmp_path, m
     assert workers[0]['reason'] == ''
     output = tmp_path / 'index.html'
     pages.write_index_page(output, tmp_path)
-    card = next(part.split('</article>', 1)[0] for part in
-                output.read_text().split('<article class="card feature">')
-                if '<h3>Physics-IQ 512w24fps' in part)
-    assert 'running · 1 active' in card
-    assert '0 / 792' in card
+    text=output.read_text()
+    assert '<h3>Physics-IQ 512w24fps' not in text
+    assert 'Legacy 与探索入口' in text
     rows.clear()
     pages.write_index_page(output, tmp_path)
-    card = next(part.split('</article>', 1)[0] for part in
-                output.read_text().split('<article class="card feature">')
-                if '<h3>Physics-IQ 512w24fps' in part)
-    assert '待调度 · 0 active' in card
-    assert 'running · 4 active' not in card
+    assert '<h3>Physics-IQ 512w24fps' not in output.read_text()

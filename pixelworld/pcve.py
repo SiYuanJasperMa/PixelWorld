@@ -41,7 +41,7 @@ def evaluation_reference_paths(edits: list[dict]) -> list[str]:
     return sorted(paths)
 
 
-def prepare(root: Path, inputs: Path, indices=None):
+def prepare(root: Path, inputs: Path, indices=None, long_edge: int = 256):
     manifest=fetch(root,'benchmark_manifest.json');data=json.loads(manifest.read_text())
     if sha256(manifest)!=MANIFEST_SHA256:raise ValueError('PCVE manifest differs from its official dataset revision')
     if len(data['edits'])!=TOTAL:raise ValueError('Expected all 129 official PCVE tasks')
@@ -52,7 +52,7 @@ def prepare(root: Path, inputs: Path, indices=None):
         row=data['edits'][index];case=f'pcve_{index:04d}';destination=inputs/case
         if destination.exists():raise FileExistsError('Prepared inputs are immutable')
         original=fetch(root,row['source_video'])
-        frames,info=sample_video(original,256,24)
+        frames,info=sample_video(original,long_edge,24)
         if len(frames)!=96 or abs(info['original_fps']-24)>1e-4 or abs(info['duration_seconds']-4)>1e-4:
             raise ValueError('Official PCVE inputs must be 96 frames at 24 fps, 4 seconds')
         # The released quantitative prompts count source frames from 1.

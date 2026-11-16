@@ -240,7 +240,9 @@ def case_data(run, destination, previous=None):
 
 
 def sources(run_root):
-    primary = ('physics_iq_720p24fps','physics_iq_4k24fps','physics_iq_512w24fps_gpt_native', 'physics_iq', 'physics_iq_gpt_native_v2',
+    primary = ('physics_iq_720p24fps','physics_iq_4k24fps',
+               'robojudge_main720p24fps','pcve_standard720p24fps','phygenbench_t2v_main720p24fps',
+               'physics_iq_512w24fps_gpt_native', 'physics_iq', 'physics_iq_gpt_native_v2',
                'physics_iq_seed21_native_v2', 'robojudge', 'robojudge_seed21_native_v2', 'pcve_smoke')
     values = [(name, run_root / 'generations' / name) for name in primary]
     paired = run_root.parent / 'phygen_pixelspace_v2_20261112/generations'
