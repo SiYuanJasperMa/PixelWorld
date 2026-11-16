@@ -140,7 +140,13 @@ def _last_event(path: Path) -> dict | None:
 
 def _provider_infra_failure(events: Path) -> str | None:
     try:
-        text = events.read_text(encoding="utf-8", errors="replace")
+        # Provider failures terminate the turn and therefore live at the tail.
+        # Some 4K agent traces are hundreds of MiB; scanning them in full stalls
+        # finalization and historical reclassification on network storage.
+        with events.open('rb') as stream:
+            stream.seek(0,os.SEEK_END)
+            stream.seek(max(0,stream.tell()-512*1024))
+            text=stream.read().decode('utf-8',errors='replace')
     except OSError:
         return None
     if "request queue size is exceed" in text or "Code 4050" in text or '"code": 4050' in text:
