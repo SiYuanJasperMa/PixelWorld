@@ -166,30 +166,74 @@
     if(box.innerHTML!==body)box.innerHTML=body;
     box.querySelectorAll('[data-phygen-filter]').forEach(button=>button.onclick=()=>{window.__phygenLiveFilter=button.dataset.phygenFilter;renderPhygenGallery(catalogue);});
   }
+  const trackName=track=>track==='text'?'Text':'Vision';
+  const groupUrl=g=>'/pixelworld/live.html?'+new URLSearchParams({suite:g.suite,model:g.model_key,track:g.track});
+  function progressCell(g){
+    if(!g)return '<span class="status">尚无记录</span>';
+    const c=g.counts||{},total=g.cases_total||198,done=c.complete||0,pct=100*done/total;
+    return `<div class="pw-cell"><strong>${done}/${total}</strong> <span class="${c.running?'live':'status'}">${c.running?'● '+c.running+' active':''}</span><div class="pw-progress"><span style="width:${pct.toFixed(1)}%"></span></div><span class="status">${c.pending||0} pending · ${c.exhausted||0} 未交付<br>均时 ${g.mean_duration_seconds!=null?(g.mean_duration_seconds/60).toFixed(1)+'m':'—'} · 均输出 ${g.mean_output_tokens_cached!=null?Math.round(g.mean_output_tokens_cached).toLocaleString():'—'} tok</span><br><a href="${groupUrl(g)}">视频与 trace →</a></div>`;
+  }
+  function matrixMarkup(groups,suite){
+    const selected=groups.filter(g=>g.suite===suite),models=['gpt61-sol','gpt56-sol','deepseek-v41'].filter(model=>selected.some(g=>g.model_key===model));
+    let body='<table class="matrix"><tr><th>模型</th><th>Text</th><th>Vision</th></tr>';
+    for(const model of models){body+=`<tr><td><strong>${esc(label(model))}</strong></td>`;for(const track of ['text','vision-agent'])body+='<td>'+progressCell(selected.find(g=>g.model_key===model&&g.track===track))+'</td>';body+='</tr>';}
+    return body+'</table>';
+  }
+  let resolutionVideoMark='';
+  async function renderResolution(catalogue){
+    if(!location.pathname.endsWith('/physics_iq_resolution.html'))return;
+    const groups=catalogue.groups,main=groups.filter(g=>g.suite==='physics_iq_720p24fps');
+    if(!main.length)return;
+    const count=name=>main.reduce((sum,g)=>sum+(g.counts?.[name]||0),0),total=main.reduce((sum,g)=>sum+(g.cases_total||0),0),complete=count('complete'),remaining=count('pending');
+    const eta=Math.max(0,...main.map(g=>((g.counts?.pending||0)+(g.counts?.running||0))*(g.mean_duration_seconds||0)))/3600;
+    const summary=document.querySelector('#resolution-main-summary');
+    if(summary)summary.innerHTML=`<div class="pw-kpi"><strong>${complete.toLocaleString()} / ${total.toLocaleString()}</strong><span>有效视频 · ${(100*complete/total).toFixed(1)}%</span></div><div class="pw-kpi"><strong>${remaining.toLocaleString()}</strong><span>待生成</span></div><div class="pw-kpi"><strong>${count('running')}</strong><span>当前 active</span></div><div class="pw-kpi"><strong>${eta?eta.toFixed(1)+'h':'—'}</strong><span>按各 cohort 当前均时粗略 ETA</span></div>`;
+    const table=document.querySelector('#resolution-main-table');if(table)table.innerHTML=matrixMarkup(groups,'physics_iq_720p24fps')+`<p class="status" style="padding:0 16px 12px">实时记录：${esc(catalogue.updated_utc)} · pending 不计失败；infra failure 单独记录。</p>`;
+    const ablation=document.querySelector('#resolution-ablation-4k');if(ablation)ablation.innerHTML='<h3>4K · 3840×2160 · 24 FPS</h3><div class="scroll">'+matrixMarkup(groups,'physics_iq_4k24fps')+'</div>';
+    const indexes=await Promise.all(main.map(async g=>({g,index:await get(g.path)})));
+    const previews=[];
+    for(const {g,index} of indexes){
+      const attempts=Object.values(index.cases||{}).flat().filter(a=>a.status==='complete'&&a.detail);
+      if(!attempts.length)continue;
+      const selected=attempts[0],detail=await get(selected.detail),candidate=detail.candidates?.at(-1);
+      if(candidate)previews.push({g,selected,detail,candidate});
+    }
+    const mark=JSON.stringify(previews.map(p=>[p.g.model_key,p.g.track,p.selected.detail,p.candidate.preview_mp4]));
+    const grid=document.querySelector('#resolution-latest-grid');
+    if(grid&&mark!==resolutionVideoMark&&!grid.querySelector('[data-state=playing]')){
+      resolutionVideoMark=mark;
+      grid.innerHTML=previews.map(p=>{const url=href(p.g.suite,p.g.model_key,p.g.track,p.detail.case_id,p.detail.attempt),v=p.candidate;
+        return `<article class="sample"><video controls preload="metadata" src="${asset(v.preview_mp4)}" poster="${asset(v.poster)}"></video><div class="sample-body"><span class="badge">${trackName(p.g.track)}</span><h3>${esc(label(p.g.model_key))} · ${esc(p.detail.case_id)}</h3><p>${Number(p.detail.output_tokens||0).toLocaleString()} output tokens · ${p.detail.candidates.length} 保存候选</p><a href="${url}">全部候选、代码与工具记录 →</a></div></article>`;}).join('')||'<p class="note">成功视频预览仍在同步。</p>';
+      initializePlayers();
+    }
+  }
+  async function renderResolutionCosts(){
+    if(!location.pathname.endsWith('/physics_iq_resolution.html'))return;
+    const box=document.querySelector('#resolution-token-time');if(!box)return;
+    try{
+      const response=await fetch('/pixelworld/physics_iq_resolution_stats.json?t='+Math.floor(Date.now()/60000),{cache:'no-store'});if(!response.ok)throw Error('HTTP '+response.status);const report=await response.json();
+      const suites=[['physics_iq_256x144_4fps','256×144 · 4 FPS'],['physics_iq_720p24fps','720p · 24 FPS'],['physics_iq_4k24fps','4K · 24 FPS']],models=['gpt61-sol','gpt56-sol','deepseek-v41'];
+      let body='<h3>Token、时间与闭合交付率</h3><div class="scroll"><table><tr><th>模型</th>'+suites.map(s=>'<th>'+s[1]+'</th>').join('')+'</tr>';
+      for(const model of models){body+='<tr><td><strong>'+esc(label(model))+'</strong></td>';for(const [suite] of suites){const g=report.groups.find(x=>x.suite===suite&&x.model===model),closed=g.valid+g.failed_model_attempts,rate=closed?100*g.valid/closed:0;body+=`<td><strong>${(g.output_tokens.mean/1000).toFixed(1)}k tok · ${g.successful_attempt_minutes.mean.toFixed(1)}m</strong><br><span class="status">${g.valid}/${closed} · ${rate.toFixed(1)}% 闭合交付</span></td>`;}body+='</tr>';}
+      body+='</table></div><p class="status">成功耗时包含API等待、代码执行、保存与验证；output_tokens不重复叠加reasoning。pending与已确认infra failure不进入闭合交付率分母。统计快照：'+esc(report.checked_utc)+'</p>';
+      box.innerHTML=body;
+    }catch(error){box.innerHTML='<p class="note">成本统计暂未读取：'+esc(error.message)+'</p>';}
+  }
   function summary(catalogue) {
     const groups=catalogue.groups;
     const homeMatrix=document.querySelector('#home-resolution-models');
     if(homeMatrix){
-      const selected=groups.filter(g=>['physics_iq_720p24fps','physics_iq_4k24fps'].includes(g.suite));
-      let body='<table><tr><th>模型</th><th>720p Text</th><th>720p Vision</th><th>4K Text</th><th>4K Vision</th></tr>';
+      const selected=groups.filter(g=>g.suite==='physics_iq_720p24fps');
+      let body='<table><tr><th>模型</th><th>Text</th><th>Vision</th></tr>';
       for(const model of [...new Set(selected.map(g=>g.model_key))]){
         body+='<tr><td>'+esc(label(model))+'</td>';
-        for(const suite of ['physics_iq_720p24fps','physics_iq_4k24fps'])for(const track of ['text','vision-agent']){
-          const g=selected.find(x=>x.model_key===model&&x.suite===suite&&x.track===track),c=g?.counts||{};
+        const suite='physics_iq_720p24fps';for(const track of ['text','vision-agent']){
+          const g=selected.find(x=>x.model_key===model&&x.track===track),c=g?.counts||{};
           const url='/pixelworld/live.html?'+new URLSearchParams({suite,model,track});
           body+=`<td><a href="${url}"><strong>${c.complete||0}/${g?.cases_total||198}</strong></a><br><span class="note">${g?.paused?0:c.running||0} active · ${c.pending||0} pending</span></td>`;
         }body+='</tr>';
-      }body+='</table><p class="note">实时记录更新：'+esc(catalogue.updated_utc)+'</p>';
+      }body+='</table><p class="note">720p主实验实时记录：'+esc(catalogue.updated_utc)+' · 256×144与4K见分辨率消融。</p>';
       if(homeMatrix.innerHTML!==body)homeMatrix.innerHTML=body;
-    }
-    if(location.pathname.endsWith('/physics_iq_resolution.html')){
-      const container=document.querySelector('#resolution-runs');
-      if(container){let body='';for(const [suite,title] of [['physics_iq_720p24fps','720p · 1280×720 · 24 FPS'],['physics_iq_4k24fps','4K · 3840×2160 · 24 FPS']]){
-        const selected=groups.filter(g=>g.suite===suite);body+='<section id="'+suite+'"><h2>'+title+'</h2><div class="scroll"><table><tr><th>模型</th><th>Text</th><th>Vision</th></tr>';
-        for(const model of [...new Set(selected.map(g=>g.model_key))]){body+='<tr><td>'+esc(label(model))+'</td>';for(const track of ['text','vision-agent']){const g=selected.find(x=>x.model_key===model&&x.track===track),c=g?.counts||{},link='/pixelworld/live.html?'+new URLSearchParams({suite,model,track});body+=`<td><strong>${c.complete||0}/${g?.cases_total||198}</strong> · ${c.running||0} active<br>${c.pending||0} pending · ${c.exhausted||0} 未交付<br><a href="${link}">视频、修订与工具记录 →</a></td>`}body+='</tr>'}
-        body+='</table></div></section>';}
-        if(container.innerHTML!==body)container.innerHTML=body;
-      }
     }
     if(location.pathname.endsWith('/physics_iq_512w24fps.html')) {
       const selected=groups.filter(g=>g.suite==='physics_iq_512w24fps_gpt_native');
@@ -201,16 +245,16 @@
       const selected=groups.filter(g=>g.suite.startsWith('phygen_'));
       if(table && selected.length) table.innerHTML='<tr><th>条件</th><th>模型</th><th>Track</th><th>有效视频</th><th>运行中</th><th>待生成</th><th>查看</th></tr>'+selected.map(g=>`<tr><td>${g.suite.includes('i2v')?'I2V · Qwen 首帧':'T2V'}</td><td>${esc(label(g.model_key))}</td><td>${g.track==='text'?'Text':'Vision'}</td><td>${g.counts.complete || 0}/${g.cases_total}</td><td>${g.counts.running || 0}</td><td>${g.counts.pending || 0}</td><td><a href="/pixelworld/live.html?suite=${g.suite}&model=${g.model_key}&track=${g.track}">实时视频与候选 →</a></td></tr>`).join('');
     }
-    const routes={'Physics-IQ · 720p / 4K · 24 FPS':['physics_iq_720p24fps','physics_iq_4k24fps'],'Physics-IQ 512w24fps':['physics_iq_512w24fps_gpt_native'],'Physics-IQ Verified':['physics_iq','physics_iq_gpt_native_v2','physics_iq_seed21_native_v2'],'RoboJudge shared-50':['robojudge','robojudge_seed21_native_v2'],'PCVE-RigidBench · 必跑':['pcve_smoke'],'PhyGenBench · T2V + I2V':groups.filter(g=>g.suite.startsWith('phygen_')).map(g=>g.suite)};
+    const routes={'Physics-IQ · 720p / 24 FPS · 主实验':['physics_iq_720p24fps'],'Physics-IQ 512w24fps':['physics_iq_512w24fps_gpt_native'],'Physics-IQ Verified':['physics_iq','physics_iq_gpt_native_v2','physics_iq_seed21_native_v2'],'RoboJudge shared-50':['robojudge','robojudge_seed21_native_v2'],'PCVE-RigidBench · 必跑':['pcve_smoke'],'PhyGenBench · T2V + I2V':groups.filter(g=>g.suite.startsWith('phygen_')).map(g=>g.suite)};
     document.querySelectorAll('article.card.feature').forEach(card=>{const scopes=routes[card.querySelector('h3')?.textContent];if(!scopes)return;const selected=groups.filter(g=>scopes.includes(g.suite));if(!selected.length)return;const total=selected.reduce((a,g)=>a+(g.cases_total || 0),0),count=name=>selected.reduce((a,g)=>a+(name==='running'&&g.paused?0:g.counts[name] || 0),0);const badge=card.querySelector('.badge');if(badge)badge.textContent=count('running')?'running · '+count('running')+' active':count('complete')===total?(selected.some(g=>g.suite.startsWith('phygen_'))?'smoke 已完成':'生成完成'):selected.every(g=>g.paused)?'已暂停':'进度已更新';let facts=card.querySelector('.facts');if(!facts){facts=document.createElement('div');facts.className='facts';card.querySelector('a')?.before(facts);}facts.innerHTML=`<div><strong>${count('complete')} / ${total}</strong>有效视频</div><div><strong>${count('running')}</strong>运行中</div><div><strong>${count('pending')}</strong>待生成</div>`;});
   }
   function renderEvaluation(data) {
     let rows=data.cohorts || [];
     if(context)rows=rows.filter(r=>r.suite===context.suite&&r.model_key===context.model&&r.track===context.track);
-    else if(document.querySelector('#home-resolution-models'))rows=rows.filter(r=>['physics_iq_720p24fps','physics_iq_4k24fps'].includes(r.suite));
+    else if(document.querySelector('#home-resolution-models'))rows=rows.filter(r=>r.suite==='physics_iq_720p24fps');
     else if(location.pathname.endsWith('/physics_iq_baseline.html'))rows=rows.filter(r=>r.suite.startsWith('physics_iq')&&!r.suite.includes('512'));
     else if(location.pathname.endsWith('/physics_iq_512w24fps.html'))rows=rows.filter(r=>r.suite.includes('512w24fps'));
-    else if(location.pathname.endsWith('/physics_iq_resolution.html'))rows=rows.filter(r=>r.suite==='physics_iq_720p24fps'||r.suite==='physics_iq_4k24fps');
+    else if(location.pathname.endsWith('/physics_iq_resolution.html'))rows=rows.filter(r=>r.suite==='physics_iq_720p24fps');
     else if(location.pathname.endsWith('/robojudge.html'))rows=rows.filter(r=>r.suite.startsWith('robojudge'));
     else if(location.pathname.endsWith('/pcve_rigid.html'))rows=rows.filter(r=>r.suite==='pcve_smoke');
     else if(phygenGallery || location.pathname.endsWith('/phygen_pixelspace.html'))return;
@@ -236,7 +280,7 @@
   async function poll() {
     try {
       if(context){const group=await get(`${context.suite}/${context.model}/${context.track}/index.json`);if(context.case){const attempt=(group.cases[context.case] || []).find(a=>String(a.attempt)===String(context.attempt));if(attempt){const detail=await get(attempt.detail);if(attempt.status==='stale')detail.delivery_status='stale';renderCase(detail);}}else renderGroup(group);}
-      else {const catalogue=await get('catalogue.json');summary(catalogue);if(phygenGallery)await renderPhygenGallery(catalogue);}
+      else {const catalogue=await get('catalogue.json');summary(catalogue);if(phygenGallery)await renderPhygenGallery(catalogue);await renderResolution(catalogue);await renderResolutionCosts();}
       if(!phygenGallery&&!location.pathname.endsWith('/phygen_pixelspace.html')){
         try{renderEvaluation(await get('evaluation.json'));}catch(_){/* Preserve the last verified score snapshot. */}
       }

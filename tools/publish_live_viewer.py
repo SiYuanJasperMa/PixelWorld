@@ -38,16 +38,10 @@ def publish(checkout: Path):
             '<a href="/pixelworld/phygen_pixelspace.html">协议与进度 →</a></p>'
             '<p id="live-poll-time" class="note">正在读取当前模型与四个条件的进度…</p>'))
         changed.append(gallery)
+        from tools.home_resolution_navigation import resolution_body
         resolution='pixelworld/physics_iq_resolution.html'
-        (checkout/resolution).write_text(document('Physics-IQ · 720p / 4K · 24 FPS',
-            '<section class=hero><p class=eyebrow>PHYSICS-IQ · RESOLUTION ABLATION</p>'
-            '<h1>Physics-IQ · 720p / 4K</h1><p>两档都采用24 FPS、120帧、5秒；'
-            'GPT-6.1-Sol、GPT-5.6-Sol、DeepSeek-V4.1-Flash × Text/Vision。</p></section>'
-            '<p><a href="/pixelworld/index.html">← PixelWorld 总览</a></p>'
-            '<div class=card><strong>2,376 条全量视频</strong><p>每档198条官方BPP/I2V任务 × 三模型 × 两Track。'
-            '首帧来自官方原始4K照片；720p直接缩小，4K保留原始RGB。分辨率ablation只用于Physics-IQ。</p></div>'
-            '<section id="resolution-runs"><p>正在读取两个独立实验组的进度…</p></section>'
-            '<p class=note>原生视频与保存候选分开记录。大像素流分块加载，不通过重复帧或放大低分辨率视频提交。</p>'))
+        (checkout/resolution).write_text(document('Physics-IQ · 720p / 24 FPS · Main Experiment',
+                                                  resolution_body()))
         changed.append(resolution)
         smoke='pixelworld/physics_iq_4k_smoke/index.html';(checkout/smoke).parent.mkdir(parents=True,exist_ok=True)
         (checkout/smoke).write_text(document('Physics-IQ · GPT-6.1-Sol · 4K Smoke',
@@ -60,7 +54,7 @@ def publish(checkout: Path):
             if p.exists():
                 text=p.read_text()
                 if 'id="physics-resolution-entry"' not in text:
-                    card='<article class="card feature" id="physics-resolution-entry"><span class="badge">独立全量实验</span><h3>Physics-IQ · 720p / 4K · 24 FPS</h3><p>三模型 × Text/Vision，两个分辨率各198条；合计2,376条视频。</p><a class="button" href="physics_iq_resolution.html">打开分辨率对照与实时进度 →</a></article>'
+                    card='<article class="card feature" id="physics-resolution-entry"><span class="badge">主实验</span><h3>Physics-IQ · 720p / 24 FPS · 主实验</h3><p>三模型 × Text/Vision，每组198条；4K作为分辨率消融。</p><a class="button" href="physics_iq_resolution.html">打开主实验与实时进度 →</a></article>'
                     p.write_text(text.replace('</main>',card+'</main>'));changed.append(name)
         from tools.home_resolution_navigation import integrate_home,integrate_physics
         for name in ['pixelworld/index.html','pixelworld/pixelworld-index.html']:
