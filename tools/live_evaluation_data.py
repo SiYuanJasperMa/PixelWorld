@@ -148,7 +148,10 @@ def collect(run_root: Path):
                 score=physics_score(read(cohort/'scores.json'),model,track)
             elif suite.startswith('robojudge'):
                 score=robo_score(read(cohort/'summary.json'),read(cohort/'plan.json'),execution,model,track)
-            else:score=pcve_score(read(cohort/'summary.json'),model,track)
+            elif suite.startswith('pcve'):
+                score=pcve_score(read(cohort/'summary.json'),model,track)
+            else:
+                score=None
             if score and row['accepted']==expected:
                 row.update(score=score,full_scope_scored=True,phase='complete',blocker='')
             elif score:
