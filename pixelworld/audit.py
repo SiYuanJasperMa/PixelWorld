@@ -29,7 +29,7 @@ NETWORK_PATTERN = re.compile(
 )
 ABSOLUTE_PATH_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_.*])(/[A-Za-z0-9_@%+=:.,-]+/[A-Za-z0-9_@%+=:,./-]*)")
-SYSTEM_READ_PREFIXES = ("/bin/", "/usr/", "/lib/", "/lib64/", "/dev/", "/proc/")
+SYSTEM_READ_PREFIXES = ("/bin/", "/usr/", "/lib/", "/lib64/", "/dev/", "/proc/", "/sys/")
 PLAYWRIGHT_SOFTWARE_CACHE = str(Path.home() / '.cache/ms-playwright')
 
 

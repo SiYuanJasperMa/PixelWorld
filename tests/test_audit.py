@@ -96,6 +96,7 @@ def test_command_classification_is_command_level():
     workspace = Path("/tmp/workspace")
     assert outside_command_paths("sed -n 1,20p /home/user/.codex/skills/SKILL.md", workspace)
     assert not outside_command_paths("/bin/bash -lc 'python3 generate.py'", workspace)
+    assert not outside_command_paths("cat /sys/fs/cgroup/memory.max",workspace)
     assert not outside_command_paths("find . -not -path './candidate/*' -not -path './.git/*'",workspace)
     assert outside_command_paths('cat /candidate/other.png',workspace)
 
