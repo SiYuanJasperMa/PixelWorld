@@ -8,25 +8,36 @@ from PIL import Image, ImageDraw
 def save(frames,case_dir,audio=None):
     case_dir=Path(case_dir);spec=json.loads((case_dir/'task_spec.json').read_text())
     n,h,w,fps=(spec[k]for k in ('frames','height','width','fps'))
-    frames=np.asarray(frames)
-    assert frames.shape==(n,h,w,3) and frames.dtype==np.uint8,frames.shape
+    assert len(frames)==n,len(frames)
     assert spec.get('audio') is None and audio is None
-    packed=np.empty((n,h,w),dtype=np.uint32)
+    # A 120-frame 4K uint8 video is about 3 GiB and its packed uint32 tensor is
+    # another 3.7 GiB. Keep the packed tensor on disk while constructing it so
+    # artifact serialization does not double each run's resident memory.
+    packing=case_dir/'pixels.packing.npy'
+    packed=np.lib.format.open_memmap(packing,mode='w+',dtype=np.uint32,shape=(h,w,n))
     folder=case_dir/'frames';folder.mkdir(exist_ok=True)
-    for index,frame in enumerate(frames):
-        packed[index]=frame[...,0].astype(np.uint32)<<16
-        packed[index]|=frame[...,1].astype(np.uint32)<<8
-        packed[index]|=frame[...,2].astype(np.uint32)
-        Image.fromarray(frame).save(folder/f'{index:02d}.png')
-    np.savez_compressed(case_dir/'pixels.npz',pixels=packed.transpose(1,2,0))
-    del packed
+    temporary=case_dir/'pixels.npz.partial'
+    try:
+        for index,frame in enumerate(frames):
+            frame=np.asarray(frame)
+            assert frame.shape==(h,w,3) and frame.dtype==np.uint8,(index,frame.shape,frame.dtype)
+            value=frame[...,0].astype(np.uint32);value<<=16
+            value|=frame[...,1].astype(np.uint32)<<8;value|=frame[...,2]
+            packed[:,:,index]=value
+            Image.fromarray(frame).save(folder/f'{index:02d}.png')
+        packed.flush()
+        with temporary.open('wb') as stream:np.savez_compressed(stream,pixels=packed)
+        temporary.replace(case_dir/'pixels.npz')
+    finally:
+        del packed
+        temporary.unlink(missing_ok=True);packing.unlink(missing_ok=True)
     tw=min(w,512);th=round(h*tw/w)
     def sheet(indices,name):
         image=Image.new('RGB',(tw*4,(th+21)*2),(25,28,35));draw=ImageDraw.Draw(image)
         for slot,index in enumerate(indices):
             x,y=(slot%4)*tw,(slot//4)*(th+21)
             draw.text((x+5,y+3),f'frame {index:02d} · {index/fps:.2f}s',fill='white')
-            image.paste(Image.fromarray(frames[index]).resize((tw,th),Image.Resampling.LANCZOS),(x,y+21))
+            image.paste(Image.fromarray(np.asarray(frames[index])).resize((tw,th),Image.Resampling.LANCZOS),(x,y+21))
         image.save(case_dir/name)
     sheet(np.linspace(0,n-1,8).round().astype(int),'inspection.png')
     sheet([min(i,n-1)for i in range(4)]*2,'transition_check.png')

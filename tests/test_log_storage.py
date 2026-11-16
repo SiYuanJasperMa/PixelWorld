@@ -60,3 +60,19 @@ def test_disk_exhaustion_and_backpressure_do_not_consume_model_attempts(tmp_path
         assert reason=='storage_infrastructure_failure'
         assert infrastructure_failure({'stop_reason':reason})
         assert not infrastructure_failure({'stop_reason':'output_token_budget_exhausted'})
+
+
+def test_large_local_proxy_request_is_infrastructure_not_model_failure(tmp_path):
+    events=tmp_path/'events.jsonl'
+    events.write_text(json.dumps({'type':'error','message':
+        'unexpected status 502 Bad Gateway: Request exceeds local size limit'}))
+    reason=_provider_infra_failure(events)
+    assert reason=='local_proxy_request_limit'
+    assert infrastructure_failure({'stop_reason':reason})
+
+
+def test_stream_send_disconnect_is_infrastructure(tmp_path):
+    events=tmp_path/'events.jsonl'
+    events.write_text(json.dumps({'type':'error','message':
+        'stream disconnected before completion: error sending request'}))
+    assert _provider_infra_failure(events)=='provider_connection_failed'

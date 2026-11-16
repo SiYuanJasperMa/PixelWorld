@@ -147,6 +147,16 @@ def _provider_infra_failure(events: Path) -> str | None:
         return "provider_queue_exceeded"
     if "Connection failed: error sending request" in text:
         return "provider_connection_failed"
+    if "stream disconnected before completion: error sending request" in text:
+        return "provider_connection_failed"
+    if "Request exceeds local size limit" in text:
+        return "local_proxy_request_limit"
+    if ("HTTPSConnectionPool" in text and any(value in text for value in
+            ("Read timed out", "Max retries exceeded", "SSLError"))):
+        return "provider_connection_failed"
+    if any(value in text for value in ("model service is unavailable",
+            "server overload", "unable to handle additional requests")):
+        return "provider_connection_failed"
     if "No space left on device" in text or "storage_backpressure:" in text:
         return "storage_infrastructure_failure"
     return None

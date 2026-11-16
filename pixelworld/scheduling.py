@@ -4,6 +4,35 @@ import fcntl
 import json
 import shlex
 import subprocess
+from pathlib import Path
+
+
+def cgroup_memory() -> tuple[int, int] | None:
+    """Return this container's memory usage and hard limit for cgroup v1/v2."""
+    candidates = [
+        (Path('/sys/fs/cgroup/memory/memory.usage_in_bytes'),
+         Path('/sys/fs/cgroup/memory/memory.limit_in_bytes')),
+        (Path('/sys/fs/cgroup/memory.current'),Path('/sys/fs/cgroup/memory.max')),
+    ]
+    for usage_path,limit_path in candidates:
+        try:
+            usage=int(usage_path.read_text().strip());raw=limit_path.read_text().strip()
+            if raw == 'max':continue
+            limit=int(raw)
+            # cgroup v1 reports a very large sentinel when no limit is active.
+            if 0 <= usage < limit < 1 << 60:return usage,limit
+        except (OSError,ValueError):
+            continue
+    return None
+
+
+def memory_launch_allowed(settings: dict) -> bool:
+    required=settings.get('min_cgroup_memory_headroom_bytes')
+    if required is None:return True
+    if not isinstance(required,int) or isinstance(required,bool) or required < 0:
+        raise ValueError('min_cgroup_memory_headroom_bytes must be a non-negative integer')
+    value=cgroup_memory()
+    return value is None or value[1]-value[0] >= required
 
 
 @contextmanager

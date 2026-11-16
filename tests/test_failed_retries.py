@@ -238,6 +238,33 @@ def test_shared_model_limit_defers_launch_until_an_existing_slot_is_free(tmp_pat
     assert len(launched) == 1 and not samples
 
 
+def test_shared_total_limit_defers_launch_across_models_and_suites(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from pixelworld import scheduling, supervisor
+    config, model = fixture(tmp_path)
+    root = tmp_path / 'experiment'
+    config = replace(config, source=root/'config.json', runs_root=root/'generations/suite')
+    root.mkdir()
+    (root/'scheduling_limits.json').write_text(json.dumps({
+        'max_per_model':4,'max_total_runs':2,
+    }))
+    existing=f'python -m pixelworld.cli run-case --config {root / "other.json"} --model other --case x --track text'
+    monkeypatch.setattr(scheduling.subprocess,'check_output',lambda *a,**k:existing+'\n'+existing)
+    launched=[]
+    monkeypatch.setattr(supervisor,'_launch',lambda *args:launched.append(args[3]) or 123)
+    (config.runs_root/'STOP').parent.mkdir(parents=True,exist_ok=True)
+    monkeypatch.setattr(supervisor.time,'sleep',lambda *_:(config.runs_root/'STOP').touch())
+    supervisor.run(config,interval=.001)
+    assert launched==[]
+
+
+def test_memory_headroom_defers_launch(tmp_path, monkeypatch):
+    from pixelworld import scheduling
+    monkeypatch.setattr(scheduling,'cgroup_memory',lambda:(28*1024**3,32*1024**3))
+    assert not scheduling.memory_launch_allowed({'min_cgroup_memory_headroom_bytes':8*1024**3})
+    assert scheduling.memory_launch_allowed({'min_cgroup_memory_headroom_bytes':4*1024**3})
+
+
 def test_repeated_failure_does_not_starve_an_unattempted_case(tmp_path, monkeypatch):
     from pixelworld import supervisor
     config, model = fixture(tmp_path)
