@@ -1,4 +1,11 @@
-# PixelWorld-Flash: evidence for each harness change
+# PixelWorld-Flash: development evidence for harness changes
+
+The final interface is still under validation. The exact five-line-plus-scratch
+arm has completed 20 valid RGB videos (92.9k input, 9.8k output, $0.74 at the
+stated measured-cache tariff); its official quality evaluation is pending.
+Do not assign the earlier guidance arm's quality or $0.65 cost to this arm.
+See [FLASH_VALIDATION_PLAN.md](FLASH_VALIDATION_PLAN.md) for attribution limits
+and the planned tool/process tests.
 
 This document records why each proposed Flash change is kept or dropped. The
 unit of evidence is a 20-case Physics-IQ A/B on GPT-5.6-Luna with identical
@@ -59,9 +66,9 @@ A paired bootstrap over the 20 cases (5,000 resamples) gives:
 | guidance_lean | +0.0022 | [-0.0033, +0.0068] | 13/7 | +0.0024 | [-0.0024, +0.0071] |
 | guidance_lean_tmp | +0.0009 | [-0.0021, +0.0037] | 10/10 | -0.0012 | [-0.0044, +0.0019] |
 
-Every confidence interval includes zero. The 20-case subset can rule out a large
-quality drop, not a small one; the full 198-case evaluation is the confirmatory
-test.
+Every confidence interval includes zero. This is not proof of equal quality.
+A preservation claim needs a stated loss tolerance and a paired interval that
+satisfies it; the reused development cases also require independent confirmation.
 
 ## Per-modification audit
 
@@ -115,10 +122,6 @@ caps and no-re-read bundle is therefore kept.
 - 20 cases, one model, one benchmark. The full 198-case Physics-IQ evaluation is
   the confirmatory test.
 - Absolute IoU is low because the task is hard; the relevant quantity is the
-  paired delta against the reference harness on the same cases.
-- The `.tmp/` line is a sandbox fact, not an efficiency prompt; it is justified
-  by the reference arm's ten policy warnings.
-he
   paired delta against the reference harness on the same cases.
 - The `.tmp/` line is a sandbox fact, not an efficiency prompt; it is justified
   by the reference arm's ten policy warnings.

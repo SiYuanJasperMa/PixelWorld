@@ -4,8 +4,9 @@ PixelWorld-Flash is a **harness variant**, not a benchmark, model or renderer.
 The task text, benchmark inputs, RGB output contract, evaluator and token budget
 stay fixed. Only the agent's process guidance changes.
 
-The final Flash is the five-line efficiency guidance plus one factual sandbox
-line. The tool interface described below was tested and dropped from the final
+The currently tested guidance candidate uses five efficiency lines plus one
+factual sandbox line. Further tool and process experiments are underway; see
+[the validation plan](FLASH_VALIDATION_PLAN.md). The tool interface described below was tested and dropped from the final
 definition. The full component evidence is in
 [`PIXELWORLD_FLASH_ANALYSIS.md`](PIXELWORLD_FLASH_ANALYSIS.md).
 
@@ -36,14 +37,17 @@ and evaluator. Cost uses measured cached tokens and the reference tariff
 | Arm | Policy warn | Input | Output | Commands | \$/attempt | IoU v1 |
 |---|---|---|---|---|---|---|
 | Reference (frozen task text) | 10 | 149k | 13.7k | 11.1 | 0.99 | 0.0466 |
-| **PixelWorld-Flash (5 lines + `.tmp`)** | 0 | 82k | 9.1k | 6.0 | **0.65** | **0.0496** |
+| Guidance (5 lines without `.tmp`) | 0 | 82k | 9.1k | 6.0 | 0.65 | 0.0496 |
+| Exact guidance candidate (5 lines + `.tmp`) | 0 | 92.9k | 9.8k | 7.35 | 0.74 | Pending |
 | Tool interface only | 0 | 143k | 15.4k | 9.3 | 1.05 | 0.0486 |
 | Flash + tool interface | 0 | 84k | 11.4k | 6.4 | 0.76 | 0.0531 |
 | 2 lines + tools | 0 | 126k | 13.6k | 9.7 | 0.92 | 0.0504 |
 | 2 lines only | 10 | 138k | 13.6k | 11.8 | 0.95 | 0.0488 |
 | 2 lines + `.tmp` | 1 | 132k | 13.2k | 10.3 | 0.93 | 0.0475 |
 
-Flash cuts cost per attempt by 34% and input tokens by 45%. The tool interface
+The earlier five-line arm cuts measured cost per attempt by 34% and input
+tokens by 45%. The exact candidate saves approximately 25% and 38%,
+respectively; its official quality evaluation is pending. The tool interface
 adds commands and tokens without improving delivery or quality, so it is not
 part of the final Flash. The 2-line ablations show that the caps and no-re-read
 bundle, not the `/tmp` line, accounts for most of the saving.
@@ -74,9 +78,9 @@ Every run records `harness_variant` and the helper hashes in
 ```bash
 # Final Flash
 python -m pixelworld.cli run-case \
-  --config runs/luna_cost_ab/configs/flash_guidance_lean_tmp.json \
+  --config runs/luna_cost_ab/configs/flash_final.json \
   --model gpt56-luna --track vision-agent --case 0001 \
-  --task-file runs/luna_cost_ab/task_flash_guidance_lean_tmp.md
+  --task-file runs/luna_cost_ab/task_flash_final.md
 
 # Optional tool variant
 python -m pixelworld.cli run-case \

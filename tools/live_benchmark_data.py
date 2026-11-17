@@ -603,6 +603,8 @@ def main():
     p.add_argument('--checkout', type=Path, required=True)
     p.add_argument('--interval', type=float, default=30)
     p.add_argument('--once', action='store_true')
+    p.add_argument('--local-only', action='store_true',
+                   help='Refresh the live website independently of Git uploads')
     args = p.parse_args()
     root = args.checkout.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -625,12 +627,13 @@ def main():
     pending={}
     render_root=root/'.render-cache'
     render_root.mkdir(exist_ok=True)
-    tracked=subprocess.check_output(['git','ls-files','-z','--','pixelworld/assets'],cwd=root).decode().split('\0')
+    tracked=([] if args.local_only else subprocess.check_output(
+        ['git','ls-files','-z','--','pixelworld/assets'],cwd=root).decode().split('\0'))
     published_assets={name.removeprefix('pixelworld/') for name in tracked if name}
-    for command in [
+    for command in ([] if args.local_only else [
         ['git','diff','--name-only','-z','--','pixelworld'],
         ['git','diff','--cached','--name-only','-z','--','pixelworld'],
-        ['git','ls-files','--others','--exclude-standard','-z','--','pixelworld']]:
+        ['git','ls-files','--others','--exclude-standard','-z','--','pixelworld']]):
         PUBLICATION_DIRTY.update(p for p in subprocess.check_output(command,cwd=root).decode().split('\0') if p)
     while True:
         start = time.monotonic()
@@ -639,7 +642,8 @@ def main():
             # while this process is alive. Pull only missing immutable records;
             # live in-memory stamps always remain authoritative.
             merge_external_cache(cache, read(cache_path))
-            published_revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+            published_revision = (None if args.local_only else subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip())
             async_update(args.run_root.resolve(),destination,cache,pool,pending,render_root,
                          history_pool,history_pending,history_cursor,published_assets)
             if evaluation_future is not None and evaluation_future.done():
@@ -651,8 +655,23 @@ def main():
                 evaluation_future=None
             if evaluation_future is None:
                 evaluation_future=evaluation_pool.submit(collect_evaluation,args.run_root.resolve())
-            save_head_pointer(destination, published_revision)
+            if published_revision is not None:
+                save_head_pointer(destination, published_revision)
             save(cache_path, cache)
+            if args.local_only:
+                with PUBLICATION_DIRTY_LOCK:
+                    PUBLICATION_DIRTY.clear()
+                save(root / '.publisher_status.json', {
+                    'pid': __import__('os').getpid(), 'updated_unix': time.time(),
+                    'duration_seconds': time.monotonic() - start,
+                    'groups': len(cache), 'status': 'ok', 'mode': 'local-only',
+                    'pending_case_reads': len(pending),
+                    'pending_history_batches': len(history_pending),
+                    'evaluation_reader_error': evaluation_error})
+                if args.once:
+                    break
+                time.sleep(args.interval)
+                continue
             with PUBLICATION_DIRTY_LOCK:
                 changed=sorted(p for p in PUBLICATION_DIRTY if not p.endswith('.tmp'))
             for batch_start in range(0,len(changed),1000):

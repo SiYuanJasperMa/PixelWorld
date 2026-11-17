@@ -32,7 +32,8 @@ their recorded 100k budget and are reused without regeneration; analyses must
 separate attempts by the per-run `output_token_budget` value.
 
 Current confirmed models: GPT-6.1-Sol, GPT-5.6-Sol, DeepSeek-V4.1-Flash,
-GPT-6-Astra, Seed-2.1-Pro-0915. Additional exact-version models such as Kimi,
+GPT-6-Astra, Seed-2.1-Pro-0915, GPT-5.6-Luna and GPT-5.6-Terra.
+Additional exact-version models such as Kimi,
 GLM or Qwen are appended under the same protocol by changing only the model and
 provider configuration.
 
@@ -65,6 +66,20 @@ They are published separately:
 - Live dashboard:
   [HuggingFace Space](https://huggingface.co/spaces/HuggingFriends/PixelWorld-dashboard)
   — live progress, per-model counts and playable candidates.
+- Full sanitized trace bundles:
+  [Dataset traces](https://huggingface.co/datasets/HuggingFriends/PixelWorld/tree/main/traces)
+  — per-benchmark/model archives; uploads continue separately from inference.
+- GitHub dashboard source:
+  [gh-pages](https://github.com/SiyuanMaCS/PixelWorld/tree/gh-pages)
+  — small HTML/CSS/JS and progress snapshots; media resolves from HF.
+
+The live exporter refreshes independently of uploads. GitHub and HF receive
+progress snapshots in separate background jobs. GitHub Pages deployment is
+defined in `.github/workflows/pages.yml`; an account-level Actions restriction
+currently prevents that deployment. The HF dashboard remains the public
+monitoring entry while this restriction is unresolved. A snapshot timestamp
+describes the exported data; it does not certify that every media upload has
+finished.
 
 Each published case keeps its playable candidate, poster, `run_manifest.json`,
 token accounting, tool events and runnable `generate.py`. Failed attempts keep
