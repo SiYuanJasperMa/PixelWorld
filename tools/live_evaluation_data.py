@@ -1,6 +1,7 @@
 """Export sanitized full-cohort scores and evaluation stages for live Pages."""
 import json
 import math
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -122,6 +123,10 @@ def pcve_score(summary, model, track):
 def collect(run_root: Path):
     result={'updated_utc':datetime.now(timezone.utc).isoformat(),'cohorts':[]}
     commands=live_commands()
+    worker_health=read(run_root/'state/evaluator_worker_health.json')
+    age=time.time()-worker_health.get('checked_unix',0)
+    if 0<=age<180:
+        commands.extend((pid,argv) for pid,argv in worker_health.get('commands',[]))
     registry=read(run_root/'live_sources.json')
     sources={item['key']:Path(item['runs_root']) for item in registry.get('sources',[])}
     recovery=read(run_root/'state/main_evaluation_recovery.json')

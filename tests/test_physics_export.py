@@ -291,3 +291,21 @@ def test_evaluator_retry_reuses_only_identical_full_export(tmp_path,monkeypatch,
     if corrupt=='none':assert watcher.exported_videos(None,model,'text',output)==directory
     else:
         with pytest.raises(ValueError):watcher.exported_videos(None,model,'text',output)
+
+
+@pytest.mark.parametrize('missing_metric',[False,True])
+def test_full_csv_certificate_requires_all_view_metrics(tmp_path,missing_metric):
+    import csv,sys,subprocess,os
+    source=tmp_path/'source';package=source/'physiq';package.mkdir(parents=True)
+    (package/'__init__.py').write_text('')
+    (package/'run_physics_iq.py').write_text('def validate_video_files(*args,**kwargs):return {"scene.mp4"}\ndef is_csv_complete(*args):return True\n')
+    videos=tmp_path/'videos';result=tmp_path/'result';folder=result/'physics-IQ-benchmark-verified/results';folder.mkdir(parents=True)
+    columns=['weighted_spatial_iou_'+v+'_'+view for v in ['v1','v2']for view in ['perspective-left','perspective-center','perspective-right']]
+    if missing_metric:columns.pop()
+    with (folder/'videos.csv').open('w') as file:
+        writer=csv.DictWriter(file,fieldnames=columns);writer.writeheader();writer.writerow(dict.fromkeys(columns,.2))
+    runtime={'source':source,'python':Path(sys.executable),'benchmark_parent':tmp_path,'descriptions':tmp_path/'descriptions.csv'}
+    env={**os.environ,'PYTHONPATH':str(source)}
+    if missing_metric:
+        with pytest.raises(subprocess.CalledProcessError):watcher.verify_full_csv(runtime,videos,result,24,env)
+    else:watcher.verify_full_csv(runtime,videos,result,24,env)

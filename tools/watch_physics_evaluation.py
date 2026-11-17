@@ -69,7 +69,7 @@ def validate_runtime(resource: Path | None = None, evaluator_ready: Path | None 
 
 def probe_runtime(runtime: dict) -> dict:
     env = os.environ.copy()
-    env['PYTHONPATH'] = str(runtime['source'])
+    env['PYTHONPATH'] = str(runtime['source'])+os.pathsep+env.get('PYTHONPATH','')
     command = [str(runtime['python']), '-c',
         'import json,sys,cv2,numpy,pandas,scipy,matplotlib; '
         'import physiq.run_physics_iq as evaluator; '
@@ -85,6 +85,54 @@ def probe_runtime(runtime: dict) -> dict:
     if not Path(record['evaluator']).resolve().is_relative_to(runtime['source'].resolve()):
         raise ValueError('Dependency probe imported an unrelated evaluator')
     return record
+
+
+def prepare_generated_masks(runtime, videos, fps, frames, env, log):
+    """Repair derived masks left incomplete by an evaluator interruption."""
+    script='''import json,sys
+from pathlib import Path
+import cv2
+from physiq.binary_mask_generator import generate_mask
+videos=Path(sys.argv[1]);dataset=Path(sys.argv[2]);fps=int(sys.argv[3]);frames=int(sys.argv[4])
+folder=dataset/'video-masks/generated'/videos.name/(str(fps)+'FPS');folder.mkdir(parents=True,exist_ok=True)
+repaired=[]
+for video in sorted(videos.glob('*.mp4')):
+ identifier,view,scenario=video.name.split('_',2)
+ mask=folder/(identifier+'_video-masks_'+str(fps)+'FPS_'+view+'_take-1_'+scenario)
+ valid=False
+ if mask.is_file():
+  cap=cv2.VideoCapture(str(mask))
+  valid=cap.isOpened() and round(cap.get(cv2.CAP_PROP_FPS))==fps and int(cap.get(cv2.CAP_PROP_FRAME_COUNT))==frames
+  if valid:
+   cap.set(cv2.CAP_PROP_POS_FRAMES,frames-1);valid=cap.read()[0]
+  cap.release()
+ if not valid:
+  generate_mask(str(video),str(folder/video.name),False);repaired.append(video.name)
+  cap=cv2.VideoCapture(str(mask));valid=cap.isOpened() and int(cap.get(cv2.CAP_PROP_FRAME_COUNT))==frames
+  cap.release()
+  if not valid:raise RuntimeError('Derived mask repair failed: '+video.name)
+print('Verified derived masks',len(list(videos.glob('*.mp4'))),'repaired',len(repaired),flush=True)
+'''
+    command=[str(runtime['python']),'-u','-c',script,str(videos),
+             str(runtime['benchmark_parent']/'physics-IQ-benchmark-verified'),str(fps),str(frames)]
+    subprocess.run(command,cwd=runtime['source'],env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
+
+
+def verify_full_csv(runtime, videos, result, fps, env):
+    script='''import sys
+import pandas as pd,numpy as np
+from physiq.run_physics_iq import validate_video_files,is_csv_complete
+expected=validate_video_files(sys.argv[1],sys.argv[2],'testing-videos',int(sys.argv[3]),include_take_2=True)
+if not is_csv_complete(sys.argv[4],expected):raise RuntimeError('Official full198 coverage check failed')
+table=pd.read_csv(sys.argv[4])
+columns=['weighted_spatial_iou_'+version+'_'+view for version in ['v1','v2'] for view in ['perspective-left','perspective-center','perspective-right']]
+if not set(columns)<=set(table.columns) or not np.isfinite(table[columns].to_numpy(dtype=float)).all():raise RuntimeError('Official full-view metrics are incomplete or nonfinite')
+'''
+    csv_path=result/'physics-IQ-benchmark-verified/results'/f'{videos.name}.csv'
+    command=[str(runtime['python']),'-c',script,
+        str(runtime['benchmark_parent']/f'physics-IQ-benchmark-verified/split-videos/testing/{fps}FPS'),
+        str(runtime['descriptions']),str(fps),str(csv_path)]
+    subprocess.run(command,cwd=runtime['source'],env=env,capture_output=True,text=True,check=True)
 
 
 def validate_reference_fps(runtime: dict, fps: int) -> None:
@@ -202,15 +250,17 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
                              '--descriptions_file',str(runtime['descriptions']),
                              '--benchmark_base_folder',str(runtime['benchmark_parent']),'--n_process',str(n_process)]
                     env=os.environ.copy()
-                    env.update(PYTHONPATH=str(runtime['source']),PATH=str(runtime['bin_dir'])+os.pathsep+env.get('PATH',''),
+                    env.update(PYTHONPATH=str(runtime['source'])+os.pathsep+env.get('PYTHONPATH',''),PATH=str(runtime['bin_dir'])+os.pathsep+env.get('PATH',''),
                                MPLBACKEND='Agg',OPENBLAS_NUM_THREADS='1',OMP_NUM_THREADS='2')
                     atomic_json(cohort/'evaluator_runtime.json', {**probe_runtime(runtime),
                         'upstream_commit':PHYSICS_IQ_COMMIT, 'dataset_revision':PHYSICS_IQ_DATASET_REVISION,
                         'started_utc':utc_now(), 'command':command})
                     with (cohort/'official_evaluation.log').open('ab') as log:
                         log.write(('\nEvaluation start '+utc_now()+'\n').encode())
+                        prepare_generated_masks(runtime,videos,run_spec['fps'],run_spec['frames'],env,log)
                         code=subprocess.call(command,cwd=runtime['source'],env=env,stdout=log,stderr=subprocess.STDOUT)
                     if code:raise RuntimeError(f'Original evaluator exited {code}; log retained')
+                    verify_full_csv(runtime,videos,result,run_spec['fps'],env)
                     metrics_path=result/'physics-IQ-benchmark-verified/results'/f'{videos.name}_metrics.json'
                     metrics=json.loads(metrics_path.read_text())
                     submission=json.loads((cohort/'generated_videos_5s/input_manifest.json').read_text())

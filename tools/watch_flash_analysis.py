@@ -21,9 +21,10 @@ if __name__ == '__main__':
     while True:
         try:
             operations = []
-            for name, root in [('legacy', args.legacy_root), ('confirmation', args.cohort)]:
-                output = root / 'analysis' / 'report.json'
-                build(root, output, args.descriptions, root / 'analysis/trace_cache.json')
+            for name, root,checkpoint in [('legacy',args.legacy_root,None),('confirmation',args.cohort,None),
+                ('confirmation_native24',args.cohort,args.cohort/'quality/flash_quality_native24_checkpoint.json')]:
+                output = root / 'analysis' / ('report_native24.json' if checkpoint else 'report.json')
+                build(root, output, args.descriptions, root / 'analysis/trace_cache.json',checkpoint)
                 raw = output.read_bytes()
                 temporary = args.web_root / ('flash_' + name + '.tmp')
                 temporary.write_bytes(raw)

@@ -55,3 +55,13 @@ def test_failed_attempt_spend_is_included_in_cost_per_protocol_delivery(tmp_path
     assert result['cost_usage_complete_for_closed_attempts']
     assert result['cost_per_protocol_delivery_normalized70']==pytest.approx(.00261)
     assert result['mean_cost_normalized70']==pytest.approx(.001305)
+
+
+def test_custom_patch_calls_and_returns_are_counted_once(tmp_path):
+    path=tmp_path/'rollout.jsonl'
+    call={'type':'response_item','payload':{'type':'custom_tool_call','name':'apply_patch',
+          'call_id':'patch','input':'*** Begin Patch\n*** End Patch'}}
+    result={'type':'response_item','payload':{'type':'custom_tool_call_output','call_id':'patch','output':'Success'}}
+    path.write_text('\n'.join(json.dumps(x)for x in [call,call,result]))
+    trace=recorded_trace(path)
+    assert trace['calls']['apply_patch']==1 and trace['tool_text_bytes']==7

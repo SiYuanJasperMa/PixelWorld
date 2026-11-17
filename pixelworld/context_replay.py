@@ -15,7 +15,8 @@ PROTECTED_INPUTS = ('prompt.txt','GENERATION_RULES.md','task_spec.json','first_f
                     'source_info.json','source_pixels.npz','conditioning_info.json')
 
 
-def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None):
+def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None,
+            retain_tool_calls=False):
     if keep_recent < 1:
         raise ValueError('Keep at least one recent complete tool interaction')
     calls = {}
@@ -78,9 +79,14 @@ def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None):
                    'Current source and saved RGB artifacts remain in the workspace. '
                    'Read the archive if earlier details are needed.'+
                    (' Archived generated inspection: '+', '.join(image_paths)+'.' if image_paths else '')+']')
-        replaced[call_index] = {'type': 'message', 'role': 'assistant',
-                               'content': [{'type': 'output_text', 'text': receipt}]}
-        removed.add(output_index)
+        if retain_tool_calls:
+            # Keep the exact executable code and call identity in history.
+            # Only its old return value is replaced by a retrievable receipt.
+            replaced[output_index] = {**deepcopy(output), 'output':receipt}
+        else:
+            replaced[call_index] = {'type': 'message', 'role': 'assistant',
+                                   'content': [{'type': 'output_text', 'text': receipt}]}
+            removed.add(output_index)
         archived.append({'relative_path': relative, 'sha256': identity, 'original': original,
                          'image_paths':image_paths})
     result = [deepcopy(replaced.get(index, item)) for index, item in enumerate(items) if index not in removed]
@@ -88,4 +94,5 @@ def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None):
     after = len(json.dumps(result, ensure_ascii=False).encode())
     return result, {'tool_pairs_compacted': len(archived), 'serialized_bytes_before': before,
                     'serialized_bytes_after': after, 'saved_bytes': before-after,
-                    'archived': archived, 'quality_validated': False}
+                    'archived': archived, 'quality_validated': False,
+                    'retain_tool_calls':retain_tool_calls}

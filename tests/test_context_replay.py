@@ -64,3 +64,29 @@ def test_task_and_rules_file_results_remain_in_replay():
                   {'type':'function_call_output','call_id':str(i),'output':'ordinary result'}]
     result,_=compact(items,keep_recent=2)
     assert protected[0] in result and protected[1] in result
+
+
+def test_return_only_compaction_keeps_executable_patch_and_call_identity(tmp_path):
+    patch={'type':'custom_tool_call','name':'apply_patch','call_id':'patch',
+           'input':'*** Begin Patch\n'+'generated program\n'*200+'*** End Patch'}
+    items=[patch,{'type':'custom_tool_call_output','call_id':'patch','output':'Success. Updated generate.py.'}]
+    for i in range(4):
+        items += [{'type':'function_call','name':'exec_command','call_id':str(i),'arguments':'{}'},
+                  {'type':'function_call_output','call_id':str(i),'output':'Process exited with code 0'}]
+    result,report=compact(items,keep_recent=2,archive_dir=tmp_path,retain_tool_calls=True)
+    assert result[0]==patch
+    assert result[1]['call_id']=='patch' and result[1]['type']=='custom_tool_call_output'
+    assert 'Full original call and result archived' in result[1]['output']
+    assert report['retain_tool_calls']
+    assert {x.get('call_id') for x in result if x.get('type') in ('function_call','custom_tool_call')}=={'patch','0','1','2','3'}
+
+
+def test_return_only_compaction_keeps_input_and_latest_generated_images(tmp_path):
+    items=[]
+    for i,name in enumerate(['first_frame.png','inspection.png','inspection.png','inspection.png']):
+        items += [{'type':'function_call','name':'view_image','call_id':str(i),'arguments':json.dumps({'path':name})},
+                  {'type':'function_call_output','call_id':str(i),'output':[{'type':'input_image','image_url':'data:image/png;base64,cG5n'}]}]
+    result,_=compact(items,keep_recent=1,keep_generated_images=2,archive_dir=tmp_path,retain_tool_calls=True)
+    assert result[:2]==items[:2]
+    assert result[-4:]==items[-4:]
+    assert result[2]==items[2] and isinstance(result[3]['output'],str)

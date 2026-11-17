@@ -1,4 +1,5 @@
 import json
+import time
 from tools import live_evaluation_data as live
 
 
@@ -77,3 +78,18 @@ def test_reference_recovery_shows_preparation_without_a_score(tmp_path,monkeypat
     row=live.collect(tmp_path)['cohorts'][0]
     assert row['phase']=='preparing_evaluation'
     assert not row['full_scope_scored'] and row['score'] is None
+
+
+def test_fresh_verified_worker_commands_show_remote_scoring_and_stale_probes_do_not(tmp_path,monkeypatch):
+    monkeypatch.setattr(live,'COHORTS',{'physics_iq':('Physics-IQ','scheduler',198)})
+    monkeypatch.setattr(live,'live_commands',lambda:[])
+    gen=tmp_path/'generations/physics_iq';gen.mkdir(parents=True)
+    (gen/'status.json').write_text(json.dumps({'groups':{'m/text':{'counts':{'complete':198}}}}))
+    evalroot=tmp_path/'evaluation/scheduler';cohort=evalroot/'m/text';cohort.mkdir(parents=True)
+    (evalroot/'scheduler.json').write_text(json.dumps({'pid':123,'cohorts':{'m/text':{'phase':'official_full_evaluation'}}}))
+    state=tmp_path/'state';state.mkdir()
+    health={'checked_unix':time.time(),'commands':[[456,['python','-m','physiq.run_physics_iq','--input_folders',str(cohort/'videos')]]]}
+    (state/'evaluator_worker_health.json').write_text(json.dumps(health))
+    assert live.collect(tmp_path)['cohorts'][0]['evaluator_active']
+    health['checked_unix']-=600;(state/'evaluator_worker_health.json').write_text(json.dumps(health))
+    assert not live.collect(tmp_path)['cohorts'][0]['evaluator_active']

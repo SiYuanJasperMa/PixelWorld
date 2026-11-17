@@ -65,7 +65,7 @@ def recorded_trace(path):
                 usages.append(last)
         if record.get('type') != 'response_item':
             continue
-        if value.get('type') == 'function_call' and value.get('call_id') not in seen_calls:
+        if value.get('type') in ('function_call','custom_tool_call') and value.get('call_id') not in seen_calls:
             seen_calls.add(value.get('call_id'))
             name = value.get('name') or 'unknown'
             calls[name] += 1
@@ -91,11 +91,11 @@ def recorded_trace(path):
                 image_results['helper_digest_failures'] += 1
             else:
                 image_results['other_or_unresolved'] += 1
-        if value.get('type') == 'function_call_output' and isinstance(value.get('output'), str):
+        if value.get('type') in ('function_call_output','custom_tool_call_output') and isinstance(value.get('output'), str):
             text_bytes += len(value['output'].encode())
     total_input = sum(v.get('input_tokens', 0) for v in usages)
     initial = usages[0]['input_tokens'] if usages else None
-    return {'calls': dict(calls), 'image_calls': dict(images), 'image_results': dict(image_results), 'source_reads': dict(reads),
+    return {'trace_schema_version':2,'calls': dict(calls), 'image_calls': dict(images), 'image_results': dict(image_results), 'source_reads': dict(reads),
             'tool_text_bytes': text_bytes, 'model_requests': len(usages),
             'rollout_input_tokens': total_input,
             'rollout_output_tokens': sum(v.get('output_tokens', 0) for v in usages),
@@ -133,10 +133,10 @@ def paired_quality(reference, current, scenario, seed=6141):
     return result
 
 
-def build(root, output, descriptions=None, cache_path=None):
+def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=None):
     cache = read(cache_path) if cache_path else {}
-    quality = read(root / 'quality/flash_quality_checkpoint_v2.json')
-    if quality.get('mask_assignment') != 'per-case-v2':
+    quality = read(quality_checkpoint or root / 'quality/flash_quality_checkpoint_v2.json')
+    if quality_checkpoint is None and quality.get('mask_assignment') != 'per-case-v2':
         quality = read(root / 'quality/flash_quality.json')
     scored = {}
     if quality.get('mask_assignment') == 'per-case-v2':
@@ -157,6 +157,8 @@ def build(root, output, descriptions=None, cache_path=None):
         definitions['replay']=('generations/replay','Replay pilot · task-read regression')
     if experiment and 'taskpack' in experiment.get('arms',[]):
         definitions['taskpack']=('generations/taskpack','Exact initial task pack')
+    for key,label in [('replay_keepcalls','Retained calls · replay'),('core_tools','Core task tools')]:
+        if experiment and key in experiment.get('arms',[]):definitions[key]=('generations/'+key,label)
     reference_key = 'baseline' if experiment else 'reference'
     arms = []
     for key, (folder, label) in definitions.items():
@@ -198,17 +200,18 @@ def build(root, output, descriptions=None, cache_path=None):
                 cache_key = folder + '/' + path.parent.name
                 stamp = [path.stat().st_mtime_ns, trace.stat().st_mtime_ns, trace.stat().st_size]
                 saved = cache.get(cache_key)
-                if saved is None or saved.get('stamp') != stamp or 'image_results' not in saved.get('data', {}):
+                if saved is None or saved.get('stamp') != stamp or saved.get('data',{}).get('trace_schema_version')!=2:
                     saved = {'stamp': stamp, 'data': recorded_trace(trace)}
                     cache[cache_key] = saved
                 trace_rows.append(saved['data'])
         current = scored.get(key, {})
         measured_deliveries=sum(r['protocol_delivery'] for r in rows)
         cost_complete=len(rows)==closed_noninfra
+        expected_cases=len(experiment.get('arm_case_ids',{}).get(key,experiment.get('case_ids',[]))) if experiment else 20
         entry = {'excluded_from_acceptance': key=='replay' and bool(experiment and experiment.get('replay_status','').startswith('Initial pilot')), 'key': key, 'label': label, 'model': 'GPT-5.6-Luna', 'track': 'Vision',
-            'expected_cases': 20, 'counts': dict(statuses), 'valid_rgb': valid_rgb,
+            'expected_cases': expected_cases, 'counts': dict(statuses), 'valid_rgb': valid_rgb,
             'original_protocol_pass': valid_protocol, 'infrastructure_interruptions': infra,
-            'pending': max(0, 20-len(manifests)), 'usage_measured_cases': len(rows),
+            'pending': max(0, expected_cases-len(manifests)), 'usage_measured_cases': len(rows),
             'mean_input': mean([r['input'] for r in rows]), 'mean_output': mean([r['output'] for r in rows]),
             'mean_cached_input': mean([r['cached'] for r in rows]),
             'mean_reasoning_output': mean([r['reasoning'] for r in rows]),
@@ -227,6 +230,7 @@ def build(root, output, descriptions=None, cache_path=None):
             'trace': {'cases': len(trace_rows),
                 'mean_model_requests': mean([r.get('model_requests') for r in trace_rows]),
                 'mean_exec_calls': mean([r.get('calls', {}).get('exec_command', 0) for r in trace_rows]),
+                'mean_patch_calls': mean([r.get('calls',{}).get('apply_patch',0) for r in trace_rows]),
                 'mean_image_calls': mean([sum(r.get('image_calls', {}).values()) for r in trace_rows]),
                 'mean_returned_image_messages': mean([r.get('image_results', {}).get('returned_image_messages', 0) for r in trace_rows]),
                 'mean_image_helper_failures': mean([r.get('image_results', {}).get('helper_digest_failures', 0) for r in trace_rows]),
@@ -241,6 +245,9 @@ def build(root, output, descriptions=None, cache_path=None):
         'scope': ('Independent Physics-IQ subset with verified working image tools' if experiment else 'Physics-IQ 20-case development subset with failed output image tools; not the 198-case Verified score'),
         'cohort': 'confirmation' if experiment else 'legacy-development',
         'mask_assignment': quality.get('mask_assignment'), 'canvas': '1280x720,24fps,120frames',
+        'quality_scoring_fps':quality.get('scoring_fps',24 if quality_checkpoint else 4),
+        'quality_scoring_frames':quality.get('scoring_frames',120 if quality_checkpoint else 20),
+        'quality_temporal_sampling':quality.get('temporal_sampling','native submission frames' if quality_checkpoint else 'integer decimation to4FPS'),
         'reference_tariff_usd_per_m': {'uncached_input': 10, 'cached_input': 1, 'output': 50},
         'normalized_cache_rate': 0.7, 'quality_target': 'Confirm with independent held-out cases; proposed relative loss tolerance 5%',
         'accepted_flash': None, 'arms': arms}

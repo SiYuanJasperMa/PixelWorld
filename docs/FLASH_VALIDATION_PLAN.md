@@ -137,3 +137,51 @@ cross-model validation.
 A one-scenario smoke has no bootstrap confidence interval and cannot satisfy
 the quality-preservation criterion. Twenty matched scenario groups are the
 minimum for reporting the planned development interval check.
+
+
+## Native temporal scoring and transport probes
+
+The earlier functioning-image comparison uses the canonical4FPS development
+adapter: generated120-frame/24FPS videos are decimated to20 frames, with
+matching official4FPS reference videos and masks. These are valid development
+measurements, distinct from official scoring at the native submission FPS.
+The final720p/24FPS quality-preservation decision additionally requires native
+24FPS/120-frame matched scores. `--native-scoring` retains a separate checkpoint
+and uses the same pinned `process_view`, all120 frames, and matching official
+24FPS references/masks. No model video is regenerated. Both sampling conditions
+are explicit in the live report and selector.
+
+Two further one-case mechanism probes retain the baseline task and output
+contract. One keeps every original tool call, including executable patch text,
+and replaces only older eligible tool returns with retrievable archives. Task
+discovery, source images, and recent generated inspections remain intact. The
+other keeps the full history and exposes only exec, write_stdin, apply_patch,
+and view_image; general user-input/goal tool definitions are omitted. Actual
+request logs showed8142 bytes of tool schemas, of which4572 bytes belonged to
+those four general workflow tools. Schema byte reduction is not yet provider
+token savings or quality evidence. These probes are exploratory single cases,
+selected for high observed input overhead, and are not held-out acceptance.
+
+Trace counts now include custom apply_patch calls as well as ordinary function
+calls. Report shell execution, patches and actual image returns separately.
+Future `python -m` launches use the frozen snapshot as cwd as well as PYTHONPATH;
+cwd can otherwise shadow the intended package. The active probe package bytes
+were checked against its snapshot before subsequent changes.
+
+
+Native24 backfill is now complete for the baseline, compact API, receipt and
+aggressive-guidance arms. No Flash version is accepted: the receipt meets the
+proposed development quality interval but has no standalone cost reduction;
+the aggressive arm saves tokens without meeting the quality-loss criterion.
+Both transport smoke cases pass RGB/protocol/native24 scoring and have expanded
+to the same20 development scenes. Their single-case comparison is exploratory;
+the two interventions remain separate until matched results support selection.
+
+The scoring worker has a verified100-core/900GiB allocation. The devbox's actual
+cgroup limit was32GiB, so using physical host memory to select parallel score
+workers was unsuitable. Evaluation now checks exposed container limits, stages
+needed evaluator dependencies on cloud storage, and uses worker process probes
+for live status. Interrupted derived masks are checked and repaired with the
+original mask function, without regenerating agent video outputs. Full-score
+publication requires official scenario coverage and finite metrics for all three
+views.
