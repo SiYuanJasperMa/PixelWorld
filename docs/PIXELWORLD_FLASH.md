@@ -1,5 +1,11 @@
 # PixelWorld-Flash harness variant
 
+> Quality revalidation: the previous subset adapter selected generated masks
+> from a shared directory. Its quality figures are unverified and must not
+> support preservation claims. All arms are being rescored with unique
+> per-case mask directories (`per-case-v2`); token measurements are unaffected.
+
+
 PixelWorld-Flash is a **harness variant**, not a benchmark, model or renderer.
 The task text, benchmark inputs, RGB output contract, evaluator and token budget
 stay fixed. Only the agent's process guidance changes.

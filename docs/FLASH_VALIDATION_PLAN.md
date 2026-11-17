@@ -1,5 +1,11 @@
 # PixelWorld-Flash validation
 
+> Quality revalidation: the previous subset adapter selected generated masks
+> from a shared directory. Its quality figures are unverified and must not
+> support preservation claims. All arms are being rescored with unique
+> per-case mask directories (`per-case-v2`); token measurements are unaffected.
+
+
 The baseline cohort remains fixed. Flash is an analysis variant of the same
 RGB task, output contract, input, model and evaluator. It is accepted only
 after measuring both token usage and Physics-IQ quality.

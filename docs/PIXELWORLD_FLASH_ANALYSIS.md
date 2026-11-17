@@ -1,5 +1,11 @@
 # PixelWorld-Flash: development evidence for harness changes
 
+> Quality revalidation: the previous subset adapter selected generated masks
+> from a shared directory. Its quality figures are unverified and must not
+> support preservation claims. All arms are being rescored with unique
+> per-case mask directories (`per-case-v2`); token measurements are unaffected.
+
+
 The final interface is still under validation. The exact five-line-plus-scratch
 arm has completed 20 valid RGB videos (92.9k input, 9.8k output, $0.74 at the
 stated measured-cache tariff); its official quality evaluation is pending.
