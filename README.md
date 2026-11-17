@@ -58,10 +58,12 @@ public benchmark reference is
 Generated videos and RGB tensors are **not** stored in this code repository.
 They are published separately:
 
+- Hugging Face dataset:
+  [HuggingFriends/PixelWorld](https://huggingface.co/datasets/HuggingFriends/PixelWorld)
+  — public catalogue, per-case JSON, tool events, runnable code, token records,
+  previews and posters.
 - Live dashboard: temporary tunnel URL while the public hosting migration is
   completed.
-- Hugging Face dataset: public results and traces; the link will be added here
-  once the upload is complete.
 
 Each published case keeps its playable candidate, poster, `run_manifest.json`,
 token accounting, tool events and runnable `generate.py`. Failed attempts keep
