@@ -1,0 +1,68 @@
+{
+  "expected_models": 6,
+  "models": [
+    {
+      "key": "gpt61-sol",
+      "label": "GPT-6.1-Sol"
+    },
+    {
+      "key": "deepseek-v41",
+      "label": "DeepSeek-V4.1-Flash"
+    },
+    {
+      "key": "gpt56-sol",
+      "label": "GPT-5.6-Sol"
+    },
+    {
+      "key": "gpt6-astra",
+      "label": "GPT-6-Astra"
+    },
+    {
+      "key": "seed21-pro",
+      "label": "Seed-2.1-Pro-0915"
+    },
+    {
+      "key": "awaiting-model",
+      "label": "第六个模型 · 待确认",
+      "pending": true
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "physics_iq",
+      "name": "Physics-IQ Verified",
+      "short": "Physics-IQ",
+      "cases": 198,
+      "suite": "physics_iq_720p24fps",
+      "page": "physics_iq_baseline.html",
+      "spec": "1280×720 · 24 FPS · 5 秒 · I2V"
+    },
+    {
+      "id": "robojudge",
+      "name": "RoboJudge shared-50",
+      "short": "RoboJudge",
+      "cases": 50,
+      "suite": "robojudge_main720p24fps",
+      "page": "robojudge.html",
+      "spec": "保留比例，短边 720 · 24 FPS · 5 秒 · I2V"
+    },
+    {
+      "id": "pcve",
+      "name": "PCVE-RigidBench",
+      "short": "PCVE",
+      "cases": 129,
+      "suite": "pcve_standard720p24fps",
+      "page": "pcve_rigid.html",
+      "spec": "1280×720 · 24 FPS · 4 秒 · Video Editing"
+    },
+    {
+      "id": "phygenbench",
+      "name": "PhyGenBench",
+      "short": "PhyGenBench",
+      "cases": 160,
+      "suite": "phygenbench_t2v_main720p24fps",
+      "page": "phygen_pixelspace.html",
+      "spec": "1280×720 · 24 FPS · 5 秒 · T2V"
+    }
+  ]
+}
