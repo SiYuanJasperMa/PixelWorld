@@ -32,7 +32,9 @@ def publish(cohort, api, limit=2):
             relative=f"flash_confirm_{arm}/{record['model_key']}/{record['track']}/{run.name}.json"
             stamp=hashlib.sha256(path.read_bytes()).hexdigest()
             if examples.get(relative,{}).get('source_sha256')==stamp:continue
-            jobs.append((record['case_id']!='0047',arm,run,relative,stamp))
+            priority=(0 if record['case_id']=='0047' else 1 if record.get('status')=='failed'
+                      else 2 if arm=='taskpack' else 3)
+            jobs.append((priority,arm,run,relative,stamp))
     for _,arm,run,relative,stamp in sorted(jobs)[:limit]:
         target=source/relative
         previous=json.loads(target.read_text()) if target.exists() else None
