@@ -103,11 +103,14 @@ resuming it, ignores user rules/config, disables
 bundled skills and memory, restricts tool networking and disallows visual tools
 in the Text Track. Tool logs are audited for violations.
 
-`workspace-write` principally limits writes. It is not an OS guarantee that
+Older configurations use `workspace-write`, which principally limits writes. It is not an OS guarantee that
 only the five workspace files are readable: filesystem reads outside the
 workspace are also restricted by the task contract and audit. Do not describe
 this harness as having a physical five-file-only read mount. Stronger read
-isolation would require a separate sandbox change and verification.
+isolation is selected in new formal configs through `filesystem_policy: case-only-v1`.
+That native Codex profile declares only the case workspace and required runtime
+libraries readable; the exact profile and hash are recorded externally. See
+[filesystem isolation](FILESYSTEM_ISOLATION.md) for validation and legacy boundaries.
 
 ## Track policy
 

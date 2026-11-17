@@ -6,6 +6,15 @@ import pytest
 
 from pixelworld.log_storage import SpoolBudget, StorageBackpressure
 from pixelworld.runner import _provider_infra_failure
+
+
+def test_native_4055_is_infrastructure_not_model_non_delivery(tmp_path):
+    import json
+    events=tmp_path/'events.jsonl'
+    events.write_text(json.dumps({'type':'turn.failed','error':{'message':'Upstream error: Code 4055: Too many requests were sent in a short period.'}})+'\n')
+    assert _provider_infra_failure(events)=='provider_rate_limited'
+    events.write_text(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'I think Code 4055 happened'}})+'\n')
+    assert _provider_infra_failure(events) is None
 from pixelworld.retries import infrastructure_failure
 from tools.spool_api_logs import copy_record, prune_record
 
@@ -85,3 +94,9 @@ def test_local_proxy_auth_mismatch_is_infrastructure(tmp_path):
     reason=_provider_infra_failure(events)
     assert reason=='local_proxy_auth_failure'
     assert infrastructure_failure({'stop_reason':reason})
+
+
+def test_first_token_stall_is_infrastructure_not_model_failure():
+    from pixelworld.retries import infrastructure_failure
+    assert infrastructure_failure({'stop_reason':'provider_first_token_stall'})
+    assert not infrastructure_failure({'stop_reason':'output_token_budget_exhausted'})

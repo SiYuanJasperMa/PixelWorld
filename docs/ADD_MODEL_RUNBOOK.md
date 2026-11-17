@@ -6,9 +6,9 @@ keys; it launches the user's `codex` executable in clean per-case workspaces.
 
 ## 1. Install and verify Codex
 
-Use Codex CLI **0.167.x** for new runs. Current live runs record 0.167.1, and
-0.167.0 is the validated baseline. Other versions may work, but must pass a
-smoke in both `text` and `vision-agent` before full dispatch.
+Use Codex CLI **0.169.0** for the frozen main experiment. Do not silently
+upgrade within a cohort. Another version requires a separately named protocol
+and a new smoke; it cannot be pooled into the current main table.
 
 ```bash
 codex --version
@@ -31,7 +31,7 @@ export MY_MODEL_API_KEY='...'
   "model": "provider/model-id",
   "reasoning_effort": "high",
   "cli_backend": "codex",
-  "tracks": ["text", "vision-agent"],
+  "tracks": ["vision-agent"],
   "provider": {
     "type": "responses",
     "id": "my_gateway",
@@ -42,16 +42,22 @@ export MY_MODEL_API_KEY='...'
 }
 ```
 
+For Kimi, GLM, Qwen or another collaborator model, use the provider's exact
+versioned API model ID. Do not replace a requested version by a family alias.
+The model may use a built-in Codex provider or an explicit Responses-compatible
+provider; other wire protocols need a Codex-compatible adapter first. Do not
+change benchmark instructions to make a specific model submit successfully.
+
 ## 2. Choose the benchmark config
 
 Start from the closest template:
 
 | Benchmark | Template | Notes |
 |---|---|---|
-| Physics-IQ Verified | `configs/benchmark.example.json` | 198 I2V cases; 256x144, 4 FPS, 20 frames. |
-| RoboJudge shared-50 | `configs/robojudge.baseline.example.json` | 50 I2V cases; width 256, aspect preserved, 4 FPS, 20 frames. |
-| PCVE-RigidBench | `configs/pcve-full.example.json` | 129 video-editing cases; 256x144, 24 FPS, 96 frames. |
-| PhyGenBench T2V/I2V | see `docs/PHYGENBENCH_PIXELSPACE_PAIRED_V2.md` | Official T2V plus PixelWorld I2V extension. |
+| Physics-IQ Verified | frozen 720p adapter config | 198 I2V cases; 1280x720, 24 FPS, 120 frames / 5 s. |
+| RoboJudge shared-50 | frozen 720-short-edge adapter config | 50 I2V cases; aspect preserved, 24 FPS, 120 frames / 5 s. |
+| PCVE-RigidBench | frozen standard adapter config | 129 video-editing cases; source-native 1280x720, 24 FPS, 96 frames / 4 s. |
+| PhyGenBench T2V | frozen photographic pixel-space adapter config | 160 official prompts; 1280x720, 24 FPS, 120 frames / 5 s. |
 
 Use a new output root for every new model/batch. Do not write into another
 model's completed directory.
@@ -75,15 +81,11 @@ counting as model attempts.
 
 ## 3. Run a smoke
 
-Run one representative case per enabled track before launching the full matrix.
+Run one representative case in the main `vision-agent` track before launching
+the full matrix. The paper-facing name is **Vision**. Text is a separate
+analysis condition and is not required for a new main-table model.
 
 ```bash
-python -m pixelworld.cli run-case \
-  --config configs/my-model.local.json \
-  --model my-model \
-  --track text \
-  --case 0001
-
 python -m pixelworld.cli run-case \
   --config configs/my-model.local.json \
   --model my-model \
@@ -114,6 +116,38 @@ own run root. The current long-running run uses:
 runs/bench_codex_20261109/benchmark_services.json
 tools/watch_benchmark_services.py
 tools/watch_failed_retries.py --max-total-attempts 5
+```
+
+The recommended portable entrypoint is `tools/final_experiments.py`. Copy
+`configs/collaborator-model.example.json` to an ignored local roster and replace
+only its exact model/provider fields. The frozen benchmark input
+config root is distributed separately because licensed benchmark inputs are not
+stored in Git.
+
+```bash
+cp configs/collaborator-model.example.json configs/my-model-roster.local.json
+# Set one exact model/version; do not put the API key in this file.
+python tools/final_experiments.py prepare \
+  --input-config-root /path/to/frozen-720p-adapter-configs \
+  --bundle runs/final_my_model_YYYYMMDD \
+  --roster configs/my-model-roster.local.json
+
+pixelworld doctor \
+  --config runs/final_my_model_YYYYMMDD/configs/physics_iq_smoke.json
+python tools/final_experiments.py start \
+  --bundle runs/final_my_model_YYYYMMDD
+```
+
+Review all four smoke deliveries before enabling the reviewed full launch. A
+collaborator should not edit `READINESS.json` to bypass a failing runtime,
+filesystem or usage-accounting check.
+
+After those generation gates are recorded as passed, the full Vision matrix is:
+
+```bash
+python tools/final_experiments.py start \
+  --bundle runs/final_my_model_YYYYMMDD \
+  --full --review-approved --generation-only
 ```
 
 ## 5. Evaluate
@@ -179,7 +213,8 @@ Do not commit:
 - PCVE target videos or evaluator-only ground truth;
 - per-case raw traces unless explicitly sampled and size-bounded.
 
-For sharing a finished model run with collaborators, package a manifest with:
+For returning a finished Kimi/GLM/Qwen run to the benchmark owner, package a
+manifest with:
 
 - config JSON and git commit;
 - model id/provider id;
@@ -187,3 +222,7 @@ For sharing a finished model run with collaborators, package a manifest with:
 - status JSON;
 - evaluation result JSON;
 - dashboard URL.
+
+Generated tensors and videos belong in the agreed artifact store, not a pull
+request. The owner adds the exact model key to the same dashboard registry;
+model rows are not special-cased in page code.

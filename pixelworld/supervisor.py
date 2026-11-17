@@ -68,6 +68,15 @@ def _pid_alive(path: Path, expected_arguments: tuple[str, ...] = ()) -> bool:
 
 
 def inspect(config: Benchmark, model: Model, track: str, case_id: str) -> dict:
+    from .reuse import delivery
+    reused = delivery(config.runs_root, model.key, track, case_id)
+    if reused is not None:
+        item, manifest = reused
+        return {'state': 'complete', 'attempt': item['original_attempt'],
+                'run': item['source'], 'reused': True,
+                'original_filesystem_policy': item['original_filesystem_policy'],
+                'duration_seconds': manifest.get('duration_seconds'),
+                'completed_utc': manifest.get('completed_utc')}
     stale = 0
     failed = 0
     model_attempts = 0
@@ -144,11 +153,13 @@ def snapshot(config: Benchmark, supervisor_pid: int | None = None) -> tuple[dict
         key = f"{model.key}/{track}"
         counts = Counter()
         running, exhausted, durations, completed = [], [], [], []
+        reused = 0
         for case_id in identifiers:
             item = inspect(config, model, track, case_id)
             info[(model.key, track, case_id)] = item
             counts[item["state"]] += 1
             totals[item["state"]] += 1
+            reused += bool(item.get('reused'))
             if item["state"] == "running":
                 running.append(case_id)
             elif item["state"] == "exhausted":
@@ -162,6 +173,7 @@ def snapshot(config: Benchmark, supervisor_pid: int | None = None) -> tuple[dict
             "model": model.model,
             "track": track,
             "counts": dict(counts),
+            "reused_cases": reused,
             "running_cases": running,
             "exhausted_cases": exhausted,
             "mean_duration_seconds": sum(durations) / len(durations) if durations else None,
@@ -219,6 +231,9 @@ def run(config: Benchmark, interval: float = 5.0) -> None:
         if capacity > 0:
             candidates = []
             for model, track in configurations(config):
+                paused = settings.get('paused_models_by_config', {}).get(config.source.name, [])
+                if model.key in paused:
+                    continue
                 key = f"{model.key}/{track}"
                 group_running = status["groups"][key]["counts"].get("running", 0)
                 available = config.max_per_config - group_running
@@ -257,7 +272,14 @@ def run(config: Benchmark, interval: float = 5.0) -> None:
                         break
                     if not memory_launch_allowed(settings):
                         break
-                    if model_limit is not None and model_counts.get(model.key, 0) >= model_limit:
+                    overrides = settings.get('max_per_model_overrides', {})
+                    if not isinstance(overrides, dict):
+                        raise ValueError('max_per_model_overrides must be an object')
+                    effective_limit = overrides.get(model.key, model_limit)
+                    if effective_limit is not None and (not isinstance(effective_limit, int)
+                            or isinstance(effective_limit, bool) or effective_limit < 1):
+                        raise ValueError('Model concurrency override must be a positive integer')
+                    if effective_limit is not None and model_counts.get(model.key, 0) >= effective_limit:
                         continue
                     current = inspect(config, model, track, case_id)
                     if current["state"] != "pending":

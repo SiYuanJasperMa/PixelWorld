@@ -171,7 +171,16 @@
   function progressCell(g){
     if(!g)return '<span class="status">尚无记录</span>';
     const c=g.counts||{},total=g.cases_total||198,done=c.complete||0,pct=100*done/total;
-    return `<div class="pw-cell"><strong>${done}/${total}</strong> <span class="${c.running?'live':'status'}">${c.running?'● '+c.running+' active':''}</span><div class="pw-progress"><span style="width:${pct.toFixed(1)}%"></span></div><span class="status">${c.pending||0} pending · ${c.exhausted||0} 未交付<br>均时 ${g.mean_duration_seconds!=null?(g.mean_duration_seconds/60).toFixed(1)+'m':'—'} · 均输出 ${g.mean_output_tokens_cached!=null?Math.round(g.mean_output_tokens_cached).toLocaleString():'—'} tok</span><br><a href="${groupUrl(g)}">视频与 trace →</a></div>`;
+    const wait=g.upstream_wait||{},queued=wait.waiting||0;
+    const runLabel=c.running?(queued?`● ${c.running} active · ${queued} 等上游`:`● ${c.running} active`):'';
+    return `<div class="pw-cell"><strong>${done}/${total}</strong> <span class="${queued?'warn':'live'}">${runLabel}</span><div class="pw-progress"><span style="width:${pct.toFixed(1)}%"></span></div><span class="status">${c.pending||0} pending · ${c.exhausted||0} 未交付<br>均时 ${g.mean_duration_seconds!=null?(g.mean_duration_seconds/60).toFixed(1)+'m':'—'} · 均输出 ${g.mean_output_tokens_cached!=null?Math.round(g.mean_output_tokens_cached).toLocaleString():'—'} tok</span><br><a href="${groupUrl(g)}">视频与 trace →</a></div>`;
+  }
+  function providerBanner(catalogue){
+    const health=catalogue.provider_health;if(!health||!health.models)return '';
+    const rows=Object.entries(health.models).map(([model,v])=>({model,age:v.age_seconds||0}));
+    const stale=rows.filter(r=>r.age>600).sort((a,b)=>b.age-a.age);
+    if(!stale.length)return '';
+    return `<p class="note" id="provider-health">上游排队中：${stale.map(r=>`${esc(label(r.model))} 最近成功 ${Math.round(r.age/60)} 分钟前`).join(' · ')}。请求保持排队、不计为模型失败，恢复后自动继续。</p>`;
   }
   function matrixMarkup(groups,suite){
     const selected=groups.filter(g=>g.suite===suite),models=['gpt61-sol','gpt56-sol','deepseek-v41'].filter(model=>selected.some(g=>g.model_key===model));
@@ -186,6 +195,11 @@
     if(!main.length)return;
     const count=name=>main.reduce((sum,g)=>sum+(g.counts?.[name]||0),0),total=main.reduce((sum,g)=>sum+(g.cases_total||0),0),complete=count('complete'),remaining=count('pending');
     const eta=Math.max(0,...main.map(g=>((g.counts?.pending||0)+(g.counts?.running||0))*(g.mean_duration_seconds||0)))/3600;
+    const banner=providerBanner(catalogue);
+    const host=document.querySelector('#resolution-main-overview');
+    let holder=document.querySelector('#provider-health');
+    if(banner){if(!holder&&host){holder=document.createElement('p');holder.id='provider-health';holder.className='note';host.prepend(holder);}if(holder)holder.outerHTML=banner;}
+    else if(holder)holder.remove();
     const summary=document.querySelector('#resolution-main-summary');
     if(summary)summary.innerHTML=`<div class="pw-kpi"><strong>${complete.toLocaleString()} / ${total.toLocaleString()}</strong><span>有效视频 · ${(100*complete/total).toFixed(1)}%</span></div><div class="pw-kpi"><strong>${remaining.toLocaleString()}</strong><span>待生成</span></div><div class="pw-kpi"><strong>${count('running')}</strong><span>当前 active</span></div><div class="pw-kpi"><strong>${eta?eta.toFixed(1)+'h':'—'}</strong><span>按各 cohort 当前均时粗略 ETA</span></div>`;
     const table=document.querySelector('#resolution-main-table');if(table)table.innerHTML=matrixMarkup(groups,'physics_iq_720p24fps')+`<p class="status" style="padding:0 16px 12px">实时记录：${esc(catalogue.updated_utc)} · pending 不计失败；infra failure 单独记录。</p>`;
@@ -225,6 +239,9 @@
     const suite=host.dataset.suite,groups=catalogue.groups.filter(g=>g.suite===suite);if(!groups.length)return;
     const count=name=>groups.reduce((sum,g)=>sum+(g.counts?.[name]||0),0),total=groups.reduce((sum,g)=>sum+(g.cases_total||0),0),complete=count('complete');
     const eta=Math.max(0,...groups.map(g=>((g.counts?.pending||0)+(g.counts?.running||0))*(g.mean_duration_seconds||0)))/3600;
+    const banner=providerBanner(catalogue);let holder=document.querySelector('#provider-health');
+    if(banner){if(!holder){holder=document.createElement('p');holder.className='note';holder.id='provider-health';host.prepend(holder);}holder.outerHTML=banner;}
+    else if(holder)holder.remove();
     const summary=document.querySelector('#benchmark-main-summary');if(summary)summary.innerHTML=`<div><strong>${complete}/${total}</strong>有效视频 · ${(100*complete/total).toFixed(1)}%</div><div><strong>${count('running')}</strong>运行中</div><div><strong>${count('pending')}</strong>待生成</div><div><strong>${eta?eta.toFixed(1)+'h':'—'}</strong>粗略ETA</div>`;
     const table=document.querySelector('#benchmark-main-table');if(table)table.innerHTML=matrixMarkup(catalogue.groups,suite)+`<p class="status" style="padding:0 16px 12px">实时记录：${esc(catalogue.updated_utc)}</p>`;
     const indexes=await Promise.all(groups.map(async g=>({g,index:await get(g.path)}))),previews=[];

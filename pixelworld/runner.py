@@ -20,12 +20,42 @@ from .media import contract, task_rules
 
 
 FILE_CHANGE_STALL_SECONDS = 20 * 60
+# Queued provider requests may legitimately wait a long time before the first
+# token. Do not kill them; queueing is expected and recovers on its own.
+FIRST_TOKEN_STALL_SECONDS = 20 * 60
 WATCHDOG_POLL_SECONDS = 10
 CLI_TEARDOWN_GRACE_SECONDS = 60
 
 
 def _toml(value: str) -> str:
     return json.dumps(value)
+
+
+def generation_task_text(track: str, spec: dict, *, legacy: bool = False,
+                         token_budget_enabled: bool = True, override: Path | None = None) -> str:
+    root = ASSET_ROOT / 'legacy_v1' if legacy else ASSET_ROOT
+    text = (root / {'text':'TASK_TEXT.md','vision-input':'TASK_VISION_INPUT.md',
+                    'vision-agent':'TASK_VISION_AGENT.md'}[track]).read_text()
+    if spec['task_type'] == 'v2v':
+        text = ('Generate the future RGB continuation requested in `prompt.txt`, following `GENERATION_RULES.md`. '
+                'The supplied conditioning video and frames contain only the historical segment. '
+                'Use the permitted tools and choose your own approach to generation, checking and revision.\n')
+    elif spec['task_type'] == 'video_edit':
+        text = ('Edit the complete source video as requested in `prompt.txt`, following `GENERATION_RULES.md`. '
+                'You must create and run `generate.py`, and call `artifact_io.save(...)` at least once before finishing. '
+                'If you revise the video, save each revised candidate before continuing. '
+                + ('Visual image tools are available.\n' if track == 'vision-agent' else
+                   'The source is available through local code and numeric RGB operations; visual image tools are disabled.\n'))
+    elif spec['task_type'] == 't2v':
+        text = ('Generate the RGB video requested in `prompt.txt`, following `GENERATION_RULES.md` and `task_spec.json`. '
+                'There is no input image. Choose your own approach. '
+                + ('Visual image tools are available; choose whether to inspect your output.\n' if track == 'vision-agent'
+                   else 'Visual image tools are disabled.\n'))
+    if override:
+        return override.read_text()
+    if token_budget_enabled and not legacy:
+        text += '\nAim for high-quality output while considering efficiency.\n'
+    return text
 
 
 def _seed_provider_env(environment: dict[str, str], config: Benchmark, model: Model) -> None:
@@ -51,9 +81,15 @@ def _seed_provider_env(environment: dict[str, str], config: Benchmark, model: Mo
 
 
 def codex_command(model: Model, track: str, workspace: Path,
-                  codex_binary: str = "codex", has_image: bool = True) -> list[str]:
+                  codex_binary: str = "codex", has_image: bool = True,
+                  filesystem_policy: str = "workspace-write") -> list[str]:
     if track not in TRACKS or track not in model.tracks:
         raise ValueError(f"Track {track} is not enabled for {model.key}")
+    from .permissions import CASE_ONLY_POLICY, WORKSPACE_WRITE_POLICY
+    if filesystem_policy not in (CASE_ONLY_POLICY, WORKSPACE_WRITE_POLICY):
+        raise ValueError("Unknown filesystem policy")
+    if filesystem_policy == CASE_ONLY_POLICY and (model.cli_backend != "codex" or track == "vision-input"):
+        raise ValueError("case-only-v1 requires native Codex Text/Vision tracks")
     if model.cli_backend == "trae":
         command = [codex_binary, "exec", "-", "--model", model.model,
                    "--ephemeral", "--ignore-user-config", "--ignore-rules",
@@ -93,6 +129,32 @@ def codex_command(model: Model, track: str, workspace: Path,
         "-c", f"shell_environment_policy.set.PATH={_toml(safe_path)}",
         "-c", 'web_search="disabled"',
     ]
+    if filesystem_policy == CASE_ONLY_POLICY:
+        from .permissions import case_permissions, permission_args
+        index = command.index("--sandbox")
+        del command[index:index + 2]
+        # A named profile owns the filesystem and network rules; do not mix it
+        # with the deprecated workspace-write permission selection.
+        command += permission_args(case_permissions(workspace))
+    # Library imports can create caches without an explicit agent file write.
+    # Keep scratch/cache output inside this run on the cloud filesystem.
+    scratch = workspace / ".tmp"
+    isolated_environment = {
+        "TMPDIR": str(scratch),
+        "XDG_CACHE_HOME": str(scratch / "cache"),
+        "XDG_CONFIG_HOME": str(scratch / "config"),
+        "MPLCONFIGDIR": str(scratch / "matplotlib"),
+        "NUMBA_CACHE_DIR": str(scratch / "numba"),
+        "HF_HOME": str(scratch / "hf"),
+        "PYTHONPYCACHEPREFIX": str(scratch / "pycache"),
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "OPENCV_FOR_THREADS_NUM": "2",
+    }
+    for key, value in isolated_environment.items():
+        command += ["-c", f"shell_environment_policy.set.{key}={_toml(value)}"]
     if model.provider.type == "responses":
         provider = model.provider
         command.extend([
@@ -149,6 +211,16 @@ def _provider_infra_failure(events: Path) -> str | None:
             text=stream.read().decode('utf-8',errors='replace')
     except OSError:
         return None
+    for line in text.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get('type') not in ('error', 'turn.failed'):
+            continue
+        error = json.dumps(event, ensure_ascii=False).lower()
+        if 'code 4055' in error or 'too many requests were sent in a short period' in error:
+            return 'provider_rate_limited'
     if "request queue size is exceed" in text or "Code 4050" in text or '"code": 4050' in text:
         return "provider_queue_exceeded"
     if "Connection failed: error sending request" in text:
@@ -170,10 +242,33 @@ def _provider_infra_failure(events: Path) -> str | None:
     return None
 
 
+def _execution_infra_failure(logs: Path) -> str | None:
+    """Identify native sandbox-launch errors, never an assistant's excuse."""
+    archive = logs / 'full_rollout.jsonl'
+    if not archive.is_file():
+        return None
+    for line in archive.open(encoding='utf-8', errors='replace'):
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        payload = event.get('payload') or {}
+        values = payload.get('items', []) if event.get('type') == 'history_mutation' else (
+            [payload] if event.get('type') == 'response_item' else [])
+        for item in values:
+            if item.get('type') not in ('function_call_output', 'custom_tool_call_output'):
+                continue
+            output = str(item.get('output', ''))
+            if 'linux-sandbox/src/launcher.rs' in output and 'bubblewrap is unavailable' in output:
+                return 'sandbox_dependency_missing'
+    return None
+
+
 def _wait(agent: subprocess.Popen, events: Path, logs: Path,
           stall_seconds: int = FILE_CHANGE_STALL_SECONDS,
           token_monitor=None,
-          teardown_grace_seconds: int = CLI_TEARDOWN_GRACE_SECONDS) -> tuple[int, dict | None]:
+          teardown_grace_seconds: int = CLI_TEARDOWN_GRACE_SECONDS,
+          first_token_stall_seconds: int = FIRST_TOKEN_STALL_SECONDS) -> tuple[int, dict | None]:
     watchdog = None
     last_records = -1
     while agent.poll() is None:
@@ -361,21 +456,8 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         shutil.copy2(rules_file,workspace/'GENERATION_RULES.md')
     # Keep the exact supplied task text outside the model's workspace for audit.
     task_snapshot = run / "task_prompt.txt"
-    task_text = task.read_text()
-    if spec['task_type']=='v2v':
-        task_text='Generate the future RGB continuation requested in `prompt.txt`, following `GENERATION_RULES.md`. The supplied conditioning video and frames contain only the historical segment. Use the permitted tools and choose your own approach to generation, checking and revision.\n'
-    if spec['task_type']=='video_edit':
-        task_text=('Edit the complete source video as requested in `prompt.txt`, following `GENERATION_RULES.md`. '
-                   'You must create and run `generate.py`, and call `artifact_io.save(...)` at least once before finishing. '
-                   'If you revise the video, save each revised candidate before continuing. '
-                   + ('Visual image tools are available.\n' if track=='vision-agent' else
-                      'The source is available through local code and numeric RGB operations; visual image tools are disabled.\n'))
-    if not has_image:
-        task_text = "Generate the RGB video requested in `prompt.txt`, following `GENERATION_RULES.md` and `task_spec.json`. There is no input image. Choose your own approach. " + ("Visual image tools are available; choose whether to inspect your output.\n" if track == "vision-agent" else "Visual image tools are disabled.\n")
-    if task_file:
-        task_text=task_file.read_text()
-    elif token_limit is not None and not legacy_contract:
-        task_text += '\nAim for high-quality output while considering efficiency.\n'
+    task_text = generation_task_text(track, spec, legacy=legacy_contract,
+                                    token_budget_enabled=token_limit is not None, override=task_file)
     task_snapshot.write_text(task_text)
     # Preserve only the supplied workspace inputs, before the model can edit them.
     # This directory stays outside the agent's visible workspace.
@@ -400,7 +482,14 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         shutil.copy2(catalog_source,catalog_snapshot)
         model_catalog_record={'file':'model_catalog.json','sha256':sha256(catalog_snapshot)}
         model=replace(model,provider=replace(model.provider,model_catalog_json=str(catalog_snapshot)))
-    command = codex_command(model, track, workspace, binary, has_image)
+    command = codex_command(model, track, workspace, binary, has_image,
+                            filesystem_policy=config.filesystem_policy)
+    permissions_record = None
+    if config.filesystem_policy == 'case-only-v1':
+        from .permissions import case_permissions
+        permissions_file = run / 'permissions_profile.json'
+        atomic_json(permissions_file, case_permissions(workspace))
+        permissions_record = {'file': permissions_file.name, 'sha256': sha256(permissions_file)}
     # Persist an external full rollout for new runs. Fresh contexts, memory and
     # history-reuse settings stay unchanged; the stdout projection omits some
     # nested tools and image returns. Preserve legacy launch settings.
@@ -434,6 +523,8 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         "workspace": str(workspace),
         "codex_version": version,
         "isolated_codex_home": str(codex_home),
+        "filesystem_policy": config.filesystem_policy,
+        "permissions_profile": permissions_record,
         "command": command,
         "task_sha256": sha256(task_snapshot),
         "task_prompt_file": "task_prompt.txt",
@@ -569,6 +660,11 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     provider_infra_failure = (
         None if budget_stopped or validation["pass"] else _provider_infra_failure(logs / "events.jsonl")
     )
+    if not provider_infra_failure and not budget_stopped and not validation['pass']:
+        provider_infra_failure = _execution_infra_failure(logs)
+    if (not provider_infra_failure and not budget_stopped and not validation["pass"]
+            and watchdog and watchdog.get("reason") == "provider_first_token_stall"):
+        provider_infra_failure = "provider_first_token_stall"
     if provider_infra_failure:
         validation["infra_error"] = provider_infra_failure
     atomic_json(logs / "token_usage.json", token_usage)

@@ -26,6 +26,7 @@ from tools.build_bench_review import export_pixels
 from pixelworld.smoke_web import clean
 from tools.live_evaluation_data import collect as collect_evaluation
 from tools.live_case_diagnostics import diagnostics as case_diagnostics, VERSION as DIAGNOSTICS_VERSION
+from pixelworld.reuse import run_sources, registry as reuse_registry, public_provenance
 
 PUBLIC_SCHEMA = 3
 LARGE_MEDIA_RENDER_LOCK = threading.Lock()
@@ -90,6 +91,14 @@ def save(path, value):
     tmp.replace(path)
     mark_publication_dirty(path)
     return True
+
+
+def merge_external_cache(current, external):
+    """Accept newly imported immutable entries without losing live updates."""
+    for identity, entries in external.items():
+        group = current.setdefault(identity, {})
+        for key, value in entries.items():
+            group.setdefault(key, value)
 
 
 def save_head_pointer(destination, revision, now=None):
@@ -228,6 +237,10 @@ def case_data(run, destination, previous=None):
             'started_utc': manifest.get('started_utc'),
             'completed_utc': manifest.get('completed_utc'),
             'output_tokens': budget.get('reported_output_tokens', usage.get('output_tokens')),
+            'input_tokens': budget.get('reported_input_tokens', usage.get('input_tokens')),
+            'cached_input_tokens': usage.get('cached_input_tokens'),
+            'reasoning_output_tokens': usage.get('reasoning_output_tokens'),
+            'duration_seconds': manifest.get('duration_seconds'),
             'budget_exhausted': budget.get('exhausted', False),
             'diagnostics':case_diagnostics(run,manifest,budget,events),
             'validation': {k: v for k, v in (manifest.get('validation') or {}).items()
@@ -239,7 +252,77 @@ def case_data(run, destination, previous=None):
             'schema_version': PUBLIC_SCHEMA}
 
 
+def upstream_wait(folder: Path, running_cases) -> dict:
+    """Distinguish 'generating' from 'queued at the provider with no first token'."""
+    oldest = 0
+    waiting = 0
+    for case in running_cases or []:
+        events = None
+        for candidate in sorted(folder.glob(f"case_{case}_attempt_*/logs/events.jsonl")):
+            events = candidate
+        if events is None:
+            continue
+        try:
+            lines = [line for line in events.read_text(errors="replace").splitlines() if line.strip()]
+            age = max(0.0, time.time() - events.stat().st_mtime)
+        except OSError:
+            continue
+        kinds = []
+        for line in lines[-4:]:
+            try:
+                kinds.append(json.loads(line).get("type"))
+            except ValueError:
+                pass
+        if len(lines) <= 2 and kinds and kinds[-1] == "turn.started":
+            waiting += 1
+            oldest = max(oldest, age)
+    return {"waiting": waiting, "oldest_seconds": round(oldest)}
+
+
+def provider_health() -> dict:
+    """Last successful upstream call per model, from the local proxy spool."""
+    roots = [Path.home() / ".cache/pixelworld-api-spool-active",
+             Path.home() / ".cache/pixelworld-api-spool-4k"]
+    latest = {}
+    now = time.time()
+    for root in roots:
+        try:
+            files = sorted(root.glob("requests*.jsonl"), key=lambda p: p.stat().st_mtime)[-3:]
+        except OSError:
+            continue
+        for path in files:
+            try:
+                lines = path.read_text(errors="replace").splitlines()[-4000:]
+            except OSError:
+                continue
+            for line in lines:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                model, started = row.get("model"), row.get("started")
+                if not isinstance(started, (int, float)) or now - started > 7200:
+                    continue
+                if row.get("http_status") != 200:
+                    continue
+                if model not in latest or started > latest[model]:
+                    latest[model] = started
+    models = {}
+    for model, started in latest.items():
+        models[model] = {"last_success_utc": datetime.fromtimestamp(started, timezone.utc).isoformat(),
+                         "age_seconds": round(now - started)}
+    return {"checked_utc": datetime.now(timezone.utc).isoformat(), "models": models}
+
+
 def sources(run_root):
+    registry = run_root / 'live_sources.json'
+    if registry.is_file():
+        records = json.loads(registry.read_text())['sources']
+        keys = [record['key'] for record in records]
+        if len(keys) != len(set(keys)):
+            raise ValueError('Duplicate suite in live_sources registry')
+        return [(record['key'], Path(record['runs_root'])) for record in records
+                if (Path(record['runs_root']) / 'status.json').is_file()]
     primary = ('physics_iq_720p24fps','physics_iq_4k24fps',
                'robojudge_main720p24fps','pcve_standard720p24fps','phygenbench_t2v_main720p24fps',
                'physics_iq_512w24fps_gpt_native', 'physics_iq', 'physics_iq_gpt_native_v2',
@@ -250,6 +333,27 @@ def sources(run_root):
                      ('t2v', 'i2v_qweninit', 't2v_deepseek', 'i2v_qweninit_deepseek')]
     values = values[:1] + paired_values + values[1:]
     return [(key, path) for key, path in values if (path / 'status.json').is_file()]
+
+
+def delivered_usage_means(folder):
+    """Means over first successful attempts, independent of media-export timing."""
+    delivered = {}
+    if folder.exists():
+        for run, _, provenance in run_sources(folder):
+            path = run / 'run_manifest.json'
+            manifest = read(path)
+            if manifest.get('status') != 'complete' or not manifest.get('validation', {}).get('pass'):
+                continue
+            case = manifest.get('case_id')
+            if provenance or case not in delivered or manifest.get('attempt', 0) < delivered[case].get('attempt', 0):
+                delivered[case] = manifest
+    output = {'mean_scope': 'first_successful_attempt', 'delivered_usage_cases': len(delivered)}
+    for field in ('input_tokens', 'output_tokens', 'cached_input_tokens', 'reasoning_output_tokens'):
+        values = [(m.get('token_usage') or {}).get(field) for m in delivered.values()]
+        values = [x for x in values if isinstance(x, (int, float)) and not isinstance(x, bool)]
+        output['mean_' + field] = sum(values) / len(values) if values else None
+        output[field + '_measured_cases'] = len(values)
+    return output
 
 
 def update(run_root, destination, cache, initial_limit=2, suites=None):
@@ -271,15 +375,13 @@ def update(run_root, destination, cache, initial_limit=2, suites=None):
             already_complete = (status.get('cases', 0) > 4 and
                                 group.get('counts', {}).get('complete') == status.get('cases'))
             folder = source / model / track
-            manifests = ([] if already_complete and not stored or not folder.exists() else
-                         [p / 'run_manifest.json' for p in folder.iterdir()
-                          if p.name.startswith('case_') and '_attempt_' in p.name])
-            manifests.sort(key=lambda p: (p.parent.name.rsplit('_attempt_', 1)[0][5:] not in priority, p.parent.name))
+            manifests = ([] if already_complete and not stored or not folder.exists() else run_sources(folder))
+            manifests.sort(key=lambda p: (p[0].name.rsplit('_attempt_', 1)[0][5:] not in priority, p[1]))
             missed = 0
-            for path in manifests:
-                run = path.parent
+            for run, cache_key, provenance in manifests:
+                path = run / 'run_manifest.json'
                 case = run.name.rsplit('_attempt_', 1)[0][5:]
-                if case not in priority and run.name not in stored:
+                if case not in priority and cache_key not in stored:
                     if missed >= initial_limit:
                         continue
                     missed += 1
@@ -290,15 +392,18 @@ def update(run_root, destination, cache, initial_limit=2, suites=None):
                          token.stat().st_mtime_ns if token.exists() else 0,
                          [(p.name, p.stat().st_mtime_ns) for p in (run / 'trace').glob('round_*/snapshot.json')],
                          (run / 'logs/events.jsonl').stat().st_mtime_ns if (run / 'logs/events.jsonl').exists() else 0]
-                if stored.get(run.name, {}).get('stamp') != stamp:
+                if stored.get(cache_key, {}).get('stamp') != stamp:
                     try:
-                        relative = identity + '/' + run.name + '.json'
+                        relative = identity + '/' + cache_key + '.json'
                         detail = case_data(run, destination, previous=read(destination / relative))
                     except (OSError, ValueError, KeyError, EOFError, BadZipFile):
                         continue
-                    relative = identity + '/' + run.name + '.json'
+                    if provenance:
+                        detail['reused'] = True
+                        detail['provenance'] = public_provenance(provenance)
+                    relative = identity + '/' + cache_key + '.json'
                     save(destination / relative, detail)
-                    stored[run.name] = {'stamp': stamp, 'detail': relative, 'case': case,
+                    stored[cache_key] = {'stamp': stamp, 'detail': relative, 'case': case,
                                         'attempt': detail['attempt'], 'status': detail['delivery_status'],
                                         'raw_status': detail['status'],
                                         'output_tokens': detail['output_tokens'],
@@ -320,11 +425,13 @@ def update(run_root, destination, cache, initial_limit=2, suites=None):
                        'mean_duration_seconds': group.get('mean_duration_seconds'),
                        'mean_output_tokens_cached': sum(measured) / len(measured) if measured else None,
                        'token_mean_cases': len(measured),
+                       'upstream_wait': upstream_wait(folder, group.get('running_cases')),
                        'updated_utc': status.get('updated_utc'), 'cases': cases}
             relative = identity + '/index.json'
             save(destination / relative, payload)
-            catalogue['groups'].append({k: payload[k] for k in ('suite', 'model_key', 'track', 'counts', 'cases_total', 'mean_duration_seconds', 'mean_output_tokens_cached', 'token_mean_cases')})
+            catalogue['groups'].append({k: payload[k] for k in ('suite', 'model_key', 'track', 'counts', 'cases_total', 'mean_duration_seconds', 'mean_output_tokens_cached', 'token_mean_cases', 'upstream_wait')})
             catalogue['groups'][-1]['path'] = relative
+    catalogue['provider_health'] = provider_health()
     save(destination / 'catalogue.json', catalogue)
 
 
@@ -339,12 +446,11 @@ def render_case_set(folder, case, identity, render_root, saved):
 
 def _render_case_set(folder, case, identity, render_root, saved):
     rows = []
-    paths = list(folder.glob(f'case_{case}_attempt_*')) if case else list(folder.glob('case_*_attempt_*'))
-    for run in paths:
+    for run, cache_key, provenance in run_sources(folder, case):
         manifest = run / 'run_manifest.json'
         if not manifest.is_file():
             continue
-        relative = identity + '/' + run.name + '.json'
+        relative = identity + '/' + cache_key + '.json'
         token = run / 'logs/token_budget.json'
         events = run / 'logs/events.jsonl'
         stamp = [PUBLIC_SCHEMA, manifest.stat().st_mtime_ns,
@@ -352,15 +458,18 @@ def _render_case_set(folder, case, identity, render_root, saved):
                  events.stat().st_mtime_ns if events.exists() else 0,
                  [(p.parent.name,p.stat().st_mtime_ns) for p in (run/'trace').glob('round_*/snapshot.json')],
                  DIAGNOSTICS_VERSION]
-        if saved.get(run.name,{}).get('stamp') == stamp:
+        if saved.get(cache_key,{}).get('stamp') == stamp:
             continue
         try:
             previous=read(render_root/relative) or read(render_root.parent/'pixelworld'/relative)
             detail = case_data(run, render_root, previous=previous)
         except (OSError,ValueError,KeyError,EOFError,BadZipFile):
             continue
+        if provenance:
+            detail['reused'] = True
+            detail['provenance'] = public_provenance(provenance)
         save(render_root/relative,detail)
-        rows.append((run.name,relative,stamp,detail))
+        rows.append((cache_key,relative,stamp,detail))
     return rows
 
 
@@ -377,14 +486,14 @@ def referenced_assets(detail):
 def render_backfill_set(folder,identity,render_root,saved,excluded=(),limit=4):
     """Export a bounded historical batch in workers reserved for old cases."""
     cases=set()
-    for run in folder.glob('case_*_attempt_*'):
+    for run, cache_key, provenance in run_sources(folder):
         case=run.name[5:].rsplit('_attempt_',1)[0]
         if case in excluded:continue
         manifest=run/'run_manifest.json'
         try:
             stamp=manifest.stat().st_mtime_ns
         except OSError:continue
-        cached=saved.get(run.name,{}).get('stamp') or []
+        cached=saved.get(cache_key,{}).get('stamp') or []
         if len(cached)<2 or cached[0]!=PUBLIC_SCHEMA or cached[1]!=stamp or cached[-1]!=DIAGNOSTICS_VERSION:
             cases.add(case)
     rows=[]
@@ -418,6 +527,7 @@ def merge_render_jobs(destination,cache,pending,render_root,published_assets=Non
                 'case':detail['case_id'],'attempt':detail['attempt'],
                 'status':detail['delivery_status'],'raw_status':detail['status'],
                 'output_tokens':detail['output_tokens'],'candidate_count':len(detail['candidates']),
+                'reused':detail.get('reused',False),
                 'poster':detail['candidates'][-1]['poster'] if detail['candidates'] else detail['first_frame']}
         del pending[key]
 
@@ -463,10 +573,14 @@ def async_update(run_root,destination,cache,pool,pending,render_root,
                 'cases_total':status.get('cases'),'updated_utc':status.get('updated_utc'),'cases':cases,
                 'mean_duration_seconds':group.get('mean_duration_seconds'),
                 'mean_output_tokens_cached':sum(measured)/len(measured) if measured else None,
-                'token_mean_cases':len(measured)}
+                'token_mean_cases':len(measured),
+                'upstream_wait':upstream_wait(source/model/track,group.get('running_cases'))}
+            payload.update(delivered_usage_means(source/model/track))
+            payload['reused_cases'] = sum(k == model and t == track for k,t,c in reuse_registry(source))
             relative=identity+'/index.json';save(destination/relative,payload)
             catalogue['groups'].append({k:v for k,v in payload.items() if k not in ('cases','updated_utc')})
             catalogue['groups'][-1]['path']=relative
+    catalogue['provider_health']=provider_health()
     save(destination/'catalogue.json',catalogue)
     if history_pool is not None and history_pending is not None and historical:
         start=history_cursor[0] % len(historical) if history_cursor is not None else 0
@@ -519,6 +633,10 @@ def main():
     while True:
         start = time.monotonic()
         try:
+            # A one-time importer may add already-sanitized historical details
+            # while this process is alive. Pull only missing immutable records;
+            # live in-memory stamps always remain authoritative.
+            merge_external_cache(cache, read(cache_path))
             published_revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
             async_update(args.run_root.resolve(),destination,cache,pool,pending,render_root,
                          history_pool,history_pending,history_cursor,published_assets)

@@ -94,7 +94,8 @@ def freeze(workspace: Path, trace: Path, index: int, key, media: dict | None = N
             original = workspace.parent / 'input_snapshot/first_frame.png'
             if not original.is_file():
                 original = workspace / 'first_frame.png'
-            first = np.asarray(Image.open(original).convert('RGB'), dtype=np.uint32)
+            from .media import conditioning_image
+            first = np.asarray(conditioning_image(original, spec), dtype=np.uint32)
             if not np.array_equal((first[...,0]<<16)|(first[...,1]<<8)|first[...,2], frames[0]):
                 raise ValueError('Candidate first frame mismatch')
         if (sha256(workspace / 'generate.py'),sha256(workspace / 'pixels.npz')) != key[:2]:

@@ -25,8 +25,7 @@ The additional model-visible requirements are:
 > Construct the video directly in image/pixel space. Do not build a separate
 > scene/world model or physics simulation and render it into video.
 >
-> Aim for live-action photographic realism for the full scene, with coherent
-> appearance and motion.
+> Make the entire scene as photorealistic as possible.
 
 The existing Python and image/pixel tools remain available. Local coordinates,
 masks, interpolation, texture and motion calculations can support pixel

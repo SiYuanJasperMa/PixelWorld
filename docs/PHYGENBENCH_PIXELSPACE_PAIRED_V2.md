@@ -31,9 +31,9 @@ The comparison uses the same original PhyGenBench caption in two conditions:
 The task contract says only:
 
 > Construct the video directly in image/pixel space. Do not build a separate
-> scene/world model or physics simulation and render it into video. Aim for
-> live-action photographic realism for the full scene, with coherent
-> appearance and motion.
+> scene/world model or physics simulation and render it into video.
+>
+> Make the entire scene as photorealistic as possible.
 
 The ordinary PixelWorld prohibitions remain: no external image/video models,
 learned renderers, reference continuations, physics engines, network, or

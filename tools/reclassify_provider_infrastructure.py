@@ -12,6 +12,30 @@ from pixelworld.retries import infrastructure_failure
 from pixelworld.util import atomic_json, sha256, utc_now
 
 
+STALL_MIN_SECONDS = 20 * 60
+
+
+def _stall_only(manifest: dict, events: Path) -> bool:
+    """Provider accepted the turn but never emitted an item or token."""
+    duration = manifest.get('duration_seconds')
+    if not isinstance(duration, (int, float)) or duration < STALL_MIN_SECONDS:
+        return False
+    usage = manifest.get('token_usage') or {}
+    if (usage.get('usage_events') or 0) != 0 or isinstance(usage.get('output_tokens'), int):
+        return False
+    try:
+        lines = [line for line in events.read_text(errors='replace').splitlines() if line.strip()]
+    except OSError:
+        return False
+    if not lines or len(lines) > 2:
+        return False
+    try:
+        kinds = [json.loads(line).get('type') for line in lines]
+    except ValueError:
+        return False
+    return kinds and kinds[-1] == 'turn.started' and all(k in ('thread.started', 'turn.started') for k in kinds)
+
+
 def reclassify(root: Path, apply: bool = False) -> dict:
     def inspect(manifest_path):
         try:manifest=json.loads(manifest_path.read_text())
@@ -23,6 +47,8 @@ def reclassify(root: Path, apply: bool = False) -> dict:
                     (manifest.get('validation') or {}).get('infra_error')}
         events=manifest_path.parent/'logs/events.jsonl'
         reason=_provider_infra_failure(events)
+        if not reason and _stall_only(manifest,events):
+            reason='provider_first_token_stall'
         if not reason:return None
         old=manifest.get('stop_reason');current=(manifest.get('validation') or {}).get('infra_error')
         if old==reason and current==reason:

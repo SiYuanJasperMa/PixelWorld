@@ -41,6 +41,7 @@ class Benchmark:
     case_ids: tuple[str, ...] | None
     models: tuple[Model, ...]
     output_token_budget: int | None = None
+    filesystem_policy: str = "workspace-write"
 
     def model(self, key: str) -> Model:
         matches = [item for item in self.models if item.key == key]
@@ -58,6 +59,11 @@ def load_config(path: str | Path) -> Benchmark:
     source = Path(path).resolve()
     raw = json.loads(source.read_text())
     protocol = raw.get("protocol", DEFAULT_PROTOCOL)
+    filesystem_policy = raw.get("filesystem_policy", "workspace-write")
+    if filesystem_policy not in ("workspace-write", "case-only-v1"):
+        raise ValueError("Unknown filesystem_policy")
+    if filesystem_policy == "case-only-v1" and protocol in LEGACY_TRACK_PROTOCOLS:
+        raise ValueError("Legacy protocols preserve their original filesystem policy")
     token_budget = raw.get('output_token_budget', None if protocol in LEGACY_TRACK_PROTOCOLS else 100000)
     if token_budget is not None and (not isinstance(token_budget, int) or isinstance(token_budget, bool) or token_budget < 1):
         raise ValueError('output_token_budget must be a positive integer or null')
@@ -94,6 +100,9 @@ def load_config(path: str | Path) -> Benchmark:
                             provider=provider, tracks=tracks, cli_backend=cli_backend))
     if not models:
         raise ValueError("At least one model is required")
+    if filesystem_policy == "case-only-v1" and any(
+            model.cli_backend != "codex" or "vision-input" in model.tracks for model in models):
+        raise ValueError("case-only-v1 requires native Codex Text/Vision tracks")
     result = Benchmark(
         source=source,
         protocol=protocol,
@@ -107,6 +116,7 @@ def load_config(path: str | Path) -> Benchmark:
         case_ids=tuple(raw["case_ids"]) if raw.get("case_ids") else None,
         models=tuple(models),
         output_token_budget=token_budget,
+        filesystem_policy=filesystem_policy,
     )
     if min(result.max_concurrency, result.max_per_config, result.max_attempts) < 1:
         raise ValueError("Concurrency and attempt limits must be positive")

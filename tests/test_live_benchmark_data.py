@@ -169,3 +169,38 @@ def test_historical_work_has_separate_slots_from_live_candidates(tmp_path):
     async_update(tmp_path,tmp_path/'public',{},live,pending,tmp_path/'render',history,backfill,[0])
     assert live.calls==[render_case_set] and history.calls==[render_backfill_set]
     assert len(pending)==1 and len(backfill)==1
+
+
+def test_reused_detail_is_distinct_from_new_attempt_and_means_select_history(tmp_path,monkeypatch):
+    import hashlib
+    import shutil
+    from tools import live_benchmark_data as live
+    run=make_run(tmp_path,status='failed',video=False)
+    old=tmp_path/'historical'/run.name
+    shutil.copytree(run,old)
+    p=old/'run_manifest.json';data=json.loads(p.read_text())
+    data.update(status='complete',validation={'pass':True},token_usage={'output_tokens':321})
+    p.write_text(json.dumps(data))
+    root=run.parents[2]
+    row={'model_key':'m','track':'text','case_id':'0001','source':str(old),
+         'manifest_sha256':hashlib.sha256(p.read_bytes()).hexdigest(),
+         'original_attempt':1,'source_suite':'previous','original_filesystem_policy':'workspace-write'}
+    (root/'reuse_registry.json').write_text(json.dumps({'schema':'pixelworld-compatible-history-v1','entries':[row]}))
+    monkeypatch.setattr(live,'export_candidate',lambda *_:None)
+    rows=live.render_case_set(run.parent,'0001','suite/m/text',tmp_path/'render',{})
+    assert len(rows)==2 and len({r[1]for r in rows})==2
+    detail=next(r[3]for r in rows if r[3].get('reused'))
+    assert detail['provenance']['original_filesystem_policy']=='workspace-write'
+    assert str(tmp_path) not in json.dumps(detail)
+    assert live.delivered_usage_means(run.parent)['mean_output_tokens']==321
+
+
+def test_external_cache_import_adds_history_without_overwriting_live_state():
+    from tools.live_benchmark_data import merge_external_cache
+    current={'suite/m/vision-agent':{'case_live':{'status':'running','stamp':[2]}}}
+    external={'suite/m/vision-agent':{
+        'case_live':{'status':'stale','stamp':[1]},
+        'history_old':{'status':'complete','stamp':[3]}}}
+    merge_external_cache(current,external)
+    assert current['suite/m/vision-agent']['case_live']['status']=='running'
+    assert current['suite/m/vision-agent']['history_old']['status']=='complete'

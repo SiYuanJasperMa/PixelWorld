@@ -12,5 +12,6 @@ vendor/
 runs/
 site/
 evaluation_outputs/
+configs/*.local.json
 *.log
 *.pid

@@ -22,7 +22,7 @@ def _print(value) -> None:
     print(json.dumps(value, ensure_ascii=False, indent=2, default=str))
 
 
-def doctor(config_path: str | None = None) -> dict:
+def doctor(config_path: str | None = None, require_sandbox: bool = False) -> dict:
     tools = {}
     for name in ("codex", "git", "ffmpeg", "uv"):
         path = os.environ.get("PIXELWORLD_CODEX") if name == "codex" else shutil.which(name)
@@ -39,8 +39,19 @@ def doctor(config_path: str | None = None) -> dict:
         value = load_config(config_path)
         config = {"protocol": value.protocol, "models": len(value.models),
                   "configurations": sum(len(model.tracks) for model in value.models),
-                  "inputs_root": value.inputs_root, "runs_root": value.runs_root}
+                  "inputs_root": value.inputs_root, "runs_root": value.runs_root,
+                  "filesystem_policy": value.filesystem_policy}
     ok = all(tools[name]["ok"] for name in ("codex", "git", "ffmpeg"))
+    if require_sandbox:
+        path = shutil.which('bwrap')
+        tools['bwrap'] = {'path': path, 'ok': bool(path)}
+        if path:
+            result = subprocess.run([path, '--unshare-user', '--unshare-net', '--ro-bind', '/', '/',
+                                     '--proc', '/proc', '--dev', '/dev', '/bin/true'],
+                                    capture_output=True, text=True, timeout=15)
+            tools['bwrap'].update(ok=result.returncode == 0,
+                                  probe_exit_code=result.returncode, probe_error=result.stderr[:500])
+        ok = ok and tools['bwrap']['ok']
     return {"ok": ok, "tools": tools, "config": config}
 
 
@@ -49,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     check = commands.add_parser("doctor")
     check.add_argument("--config")
+    check.add_argument('--require-sandbox', action='store_true')
 
     case = commands.add_parser("run-case")
     case.add_argument("--config", required=True)
@@ -117,7 +129,7 @@ def main() -> None:
         _print(write_bundle(args.run.resolve()))
         return
     if args.command == "doctor":
-        value = doctor(args.config)
+        value = doctor(args.config, require_sandbox=args.require_sandbox)
         _print(value)
         raise SystemExit(0 if value["ok"] else 1)
     if args.command == "run-case":

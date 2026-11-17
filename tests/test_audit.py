@@ -24,6 +24,16 @@ def test_failed_scratch_denial_does_not_hide_existing_or_reference_reads(tmp_pat
     assert not failed_scratch_path(str(existing),{'aggregated_output':str(existing)+': Read-only file system'})
 
 
+def test_shell_denied_creation_and_missing_python_scratch_is_not_access(tmp_path):
+    path='/tmp/pixelworld_denied_creation_fixture_57c8.py'
+    item={'exit_code':2,'command':f"cat > {path} <<'PY'\nprint(1)\nPY\npython {path}",
+          'aggregated_output':f"/bin/bash: line 1: {path}: No such file or directory\npython: can't open file '{path}': [Errno 2] No such file or directory"}
+    assert failed_scratch_path(path,item)
+    assert not failed_scratch_path(path,{**item,'command':f'python {path}'})
+    assert not failed_scratch_path('/other/case/reference.png',item)
+    assert not failed_scratch_path(path,{**item,'aggregated_output':'an unrelated file: No such file or directory'})
+
+
 def test_installed_browser_cache_is_tool_software_only(tmp_path):
     assert outside_command_paths(f'python "{PLAYWRIGHT_SOFTWARE_CACHE}/browser/chrome"',tmp_path)==[]
     assert outside_command_paths(f'cat "{PLAYWRIGHT_SOFTWARE_CACHE}_other/reference.png"',tmp_path)

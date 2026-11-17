@@ -1,0 +1,40 @@
+# Codex filesystem isolation
+
+New formal configurations select `"filesystem_policy": "case-only-v1"`.
+The native Codex 0.169.0 permission profile grants read/write access to the
+current case workspace and read access to the required Python libraries and
+runtime executable directories. `:minimal` supplies the standard Linux sandbox
+mounts. Direct tool networking is disabled.
+
+Other run directories, the evaluator, references, scores, API keys, and the
+Codex session/archive directory are outside the declared readable roots. The
+Codex client retains its own API connection and external session archive; those
+are not inherited by the shell tool environment.
+
+The runner writes `permissions_profile.json` outside the agent workspace and
+records its hash, the filesystem policy, and the exact command in
+`run_manifest.json`. Paths are resolved before building the profile. The profile
+includes executable/library directories, not the whole runtime directory, so
+sibling credentials and API diagnostics do not become readable.
+
+Configuration preparation through `tools/final_experiments.py` selects this
+policy. Existing configurations without the field preserve `workspace-write`;
+that older policy limits writes but does not provide workspace-only reads.
+Legacy protocols and Vision-Input cannot silently select the new policy.
+Changing the execution boundary does not change pinned evaluators or datasets.
+
+Validate positive and negative controls with real native tools: Python imports,
+workspace reads/writes, reading the agent's own image, outside absolute and
+relative paths, symlink escapes, and an outside image. An outside path becoming
+invisible is a valid denial only when it exists in the host control. Synthetic
+parent directories in the sandbox may be writable; verify an outside write
+against the real host filesystem before calling it an escape.
+
+The pinned CLI's `:minimal` support is necessary for system symlinks and device
+mounts. Explicit writable device-file roots or `/dev` overrides interfere with
+protected-subpath handling and the image read helper; do not add them.
+
+Run `pytest -q`, `pixelworld doctor --config CONFIG --require-sandbox`, and a
+single real generation smoke before applying the policy to a matrix. A config
+being accepted is not evidence that every tool or dependency works. API usage
+and output artifacts remain recorded by the external harness.

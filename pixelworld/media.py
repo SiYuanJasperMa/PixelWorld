@@ -12,13 +12,16 @@ def contract(source: Path) -> dict:
     path = source / "task_spec.json" if source.is_dir() else source
     raw = json.loads(path.read_text()) if path.is_file() else {}
     result = DEFAULT_MEDIA | raw
-    allowed = set(DEFAULT_MEDIA) | {"benchmark", "turn", "action", "visual_target"}
+    allowed = set(DEFAULT_MEDIA) | {"benchmark", "turn", "action", "visual_target", "conditioning_resize_filter"}
     if set(raw) - allowed:
         raise ValueError(f"Unsupported task fields: {set(raw) - allowed}")
     if result["task_type"] not in ("i2v", "v2v", "t2v", "video_edit"):
         raise ValueError("task_type must be i2v, v2v, t2v or video_edit")
     if 'visual_target' in raw and (raw['visual_target'] != 'photoreal' or result['task_type'] not in ('t2v', 'i2v')):
         raise ValueError('visual_target=photoreal is an opt-in target for separately versioned T2V/I2V runs')
+    if 'conditioning_resize_filter' in raw and (raw['conditioning_resize_filter'] != 'lanczos'
+                                               or result['task_type'] != 'i2v'):
+        raise ValueError('conditioning_resize_filter=lanczos is an I2V output-only scaling option')
     for key in ("width", "height", "frames"):
         value = result[key]
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
@@ -34,10 +37,23 @@ def contract(source: Path) -> dict:
     return result
 
 
+def conditioning_image(path: Path, spec: dict):
+    """Canonical output frame zero, while retaining the original input image."""
+    from PIL import Image
+    with Image.open(path) as source:
+        image = source.convert('RGB')
+    if spec.get('conditioning_resize_filter') == 'lanczos':
+        image = image.resize((spec['width'], spec['height']), Image.Resampling.LANCZOS)
+    return image
+
+
 def task_rules(spec: dict) -> str:
     w, h, n, fps = (spec[k] for k in ("width", "height", "frames", "fps"))
     inputs = "`first_frame.png`, `prompt.txt` and `task_spec.json`" if spec["task_type"] == "i2v" else "`prompt.txt` and `task_spec.json`"
     first = " Frame 00 must be pixel-identical to `first_frame.png`." if spec["task_type"] == "i2v" else " Generate all frames from the text."
+    if spec.get('conditioning_resize_filter') == 'lanczos':
+        first = (' Frame 00 must equal `first_frame.png` converted to RGB and resized to the output '
+                 'canvas with PIL Image.Resampling.LANCZOS. Keep the supplied input image unchanged.')
     if spec['task_type']=='v2v':
         inputs='`conditioning.mp4`, `conditioning_frames/`, `conditioning_info.json`, `conditioning_inspection.png`, `first_frame.png`, `prompt.txt` and `task_spec.json`'
         first=' Generate only the future continuation after the conditioning clip, without including the historical segment. `first_frame.png` is the last historical frame for reference; output frame 00 is a future prediction, not a required copy.'
@@ -54,7 +70,7 @@ def task_rules(spec: dict) -> str:
     realism = ''
     if spec.get('visual_target') == 'photoreal':
         realism = ('\n- Construct the video directly in image/pixel space. Do not build a separate scene/world model or physics simulation and render it into video.'
-                   '\n- Aim for live-action photographic realism for the full scene, with coherent appearance and motion.')
+                   '\n- Make the entire scene as photorealistic as possible.')
     return f"""# PixelWorld generation contract v2
 
 - Use only {inputs}. Work inside this workspace. No network, other cases, reference continuations, masks, scores, memory, external AI models, learned weights, external simulation/rendering engines, or subagents.

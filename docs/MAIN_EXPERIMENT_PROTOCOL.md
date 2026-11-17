@@ -18,18 +18,21 @@ The current cohort is:
 | `seed21-pro` | Seed-2.1-Pro-0915 | `traex/Seed-2.1-Pro-0915` |
 
 Gemini-3.8-Flash was an experimental add-on and is no longer part of the active
-full-run cohort or public monitoring pages.
+full-run cohort or public monitoring pages. Additional exact-version models
+such as Kimi, GLM and Qwen may be appended by collaborators under this same
+protocol. Their concrete API IDs must be recorded; family names alone are not
+model identities.
 
 All runs request `reasoning_effort="high"` through Codex. This is a requested
 harness setting, not a claim that every provider spends equivalent compute.
 Actual input/output/reasoning tokens are recorded from provider reports.
 
-## Two native tracks
+## Main track and analysis control
 
 | Track | Image attachment | Visual inspection tools | Purpose |
 |---|---:|---:|---|
-| `text` | No | Disabled | Text-only coding-agent baseline; images are available only through local files and numeric RGB operations. |
-| `vision-agent` | Yes | Enabled | Same task, but the agent may use its own multimodal inspection on the provided/generated images. |
+| `vision-agent` | Yes | Enabled | **Main experiment (paper-facing: Vision).** The agent may use its own multimodal inspection on provided/generated images. |
+| `text` | No | Disabled | Separate analysis control for selected free models; not required for every main-table model. |
 
 The paper-facing name for `vision-agent` is **Vision**. Historical
 `vision-input` runs are legacy only and are not part of this main protocol.
@@ -60,11 +63,11 @@ The active budget policy is:
 
 | Benchmark | Type | Scope | Output spec | Evaluation status |
 |---|---|---:|---|---|
-| Physics-IQ Verified | I2V physical continuation | 198 official BPP/I2V cases per model/track | 256x144, 4 FPS, 20 frames, 5 s by frame hold | Pinned official Verified evaluator after complete 198-case cohort. |
-| RoboJudge shared-50 | I2V embodied manipulation | 50 shared prompts per model/track | Width 256, aspect preserved; current shared50 inputs are 256x192, 4 FPS, 20 frames | Original RoboJudge-9B path after complete 50-case cohort. |
-| PCVE-RigidBench | Physical video editing | 129 official quantitative-English edits per model/track | 256x144, 24 FPS, 96 frames, 4 s; preserves official source-video timeline | Official PCVE metrics after complete 129-case cohort. |
-| PhyGenBench official T2V | Text-to-video physical concept generation | 160 official prompts per model/track | 256x144, 4 FPS, 20 frames for PixelWorld submissions | Official PhyGenBench scoring after complete 160-prompt T2V cohort. |
-| + PhyGenBench I2V extension | Paired initialization analysis | Same 160 prompts, with selected pre-action Qwen-Image-2.1 initial frames | 256x144, 4 FPS, 20 frames; frame 0 exactly matches the selected initial image | Reported as an extra PixelWorld paired condition, not as an official T2V leaderboard row. |
+| Physics-IQ Verified | I2V physical continuation | 198 official BPP/I2V cases per model | 1280x720, 24 FPS, 120 frames / 5 s | Pinned official Verified evaluator after complete 198-case cohort. |
+| RoboJudge shared-50 | I2V embodied manipulation | 50 shared prompts per model | Preserve aspect ratio with 720-pixel short edge, 24 FPS, 120 frames / 5 s | Original RoboJudge-9B path after complete 50-case cohort. |
+| PCVE-RigidBench | Physical video editing | 129 official quantitative-English edits per model | Original source aspect/timeline; current set is 1280x720, 24 FPS, 96 frames / 4 s | Official PCVE metrics after complete 129-case cohort. |
+| PhyGenBench official T2V | Text-to-video physical concept generation | 160 official prompts per model | 1280x720, 24 FPS, 120 frames / 5 s; direct pixel-space photographic target | Official PhyGenBench scoring after complete 160-prompt T2V cohort. |
+| + PhyGenBench I2V extension | Paired initialization analysis | Same 160 prompts, with selected pre-action Qwen-Image-2.1 initial frames | Same 1280x720, 24 FPS, 120-frame output; frame 0 matches the selected initial image | Extra analysis, not an official T2V leaderboard row. |
 
 The shorthand is **4+1**: four official benchmark axes
 (Physics-IQ, RoboJudge, PCVE-RigidBench, PhyGenBench T2V) plus one paired
@@ -112,10 +115,10 @@ non-delivery, and quarantined infrastructure/recovery attempts.
 
 ## Reviewer-facing notes
 
-The output FPS and resolution are benchmark-specific, not retrofitted after
-generation. Physics-IQ and PhyGenBench T2V/I2V use the 4-FPS PixelWorld video
-setting; RoboJudge uses the same temporal setting but preserves input aspect;
-PCVE uses the official four-second, 96-frame video-editing timeline.
+The output FPS and resolution are frozen before generation, not retrofitted.
+Physics-IQ and PhyGenBench use 720p/24 FPS for five seconds; RoboJudge uses a
+720-pixel short edge at 24 FPS for five seconds; PCVE keeps its official
+four-second, 96-frame, 24-FPS editing timeline.
 
 Do not report a complete official score for a model/track until the required
 case count for that benchmark is delivered and the pinned evaluator has run.

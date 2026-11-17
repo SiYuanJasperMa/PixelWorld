@@ -44,8 +44,9 @@ The current main benchmark portfolio is fixed as **4+1** in
 [PCVE-RigidBench](docs/PCVE_RIGIDBENCH.md) is required for physical counterfactual
 editing: 129 official tasks, quantitative English prompts, a native 96-frame /
 24-FPS / four-second timeline, and strict separation of target/physics ground
-truth from generation. Full generation uses five models across both native
-Tracks, with byte-identical successful smoke submissions reused.
+truth from generation. The final main table uses the Vision track; Text is a
+selected-model analysis control. Compatible successful deliveries are audited
+and reused without rewriting their original provenance.
 
 [PhyGenBench paired](docs/PHYGENBENCH_PIXELSPACE_PAIRED_V2.md) keeps the
 official T2V benchmark and adds an I2V extension over the same prompts. Qwen is
@@ -72,9 +73,11 @@ the independent live candidate viewer and local API spool with background archiv
 
 - Two default capability Tracks: Text and Vision-Agent; historical Vision-Input runs remain supported.
 - One clean Codex session per case; empty output workspace; no memory, network tools, subagents, other cases, references, masks, or scores.
-- Direct `256×144 × 20` RGB output at 4 fps / 5 seconds.
-- Benchmark-specific output specs when required: RoboJudge preserves input
-  aspect at width 256, and PCVE uses 256×144 × 96 frames at 24 fps / 4 seconds.
+- Main Physics-IQ and PhyGenBench output: `1280×720 × 120` direct RGB frames at
+  24 FPS / 5 seconds.
+- Benchmark-specific output specs: RoboJudge preserves aspect ratio with a
+  720-pixel short edge; PCVE preserves the official 1280×720, 96-frame,
+  24-FPS / 4-second editing timeline.
 - Exact PNG ↔ `uint32 0xRRGGBB` tensor validation and frame-00 equality.
 - Unlimited autonomous revision with every stable candidate frozen into an observable Trace.
 - Fair, restartable matrix scheduling with bounded concurrency and independent retries.
@@ -125,7 +128,7 @@ For a model in the local Codex catalog:
   "model": "model-id-visible-to-codex",
   "reasoning_effort": "high",
   "provider": {"type": "builtin"},
-  "tracks": ["text", "vision-agent"]
+  "tracks": ["vision-agent"]
 }
 ```
 
@@ -143,7 +146,7 @@ For a Responses-compatible gateway:
     "base_url": "https://api.example.com/v1",
     "env_key": "MY_RESPONSES_API_KEY"
   },
-  "tracks": ["text", "vision-agent"]
+  "tracks": ["vision-agent"]
 }
 ```
 

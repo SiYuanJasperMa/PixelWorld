@@ -72,10 +72,11 @@ configurations preserve their historical defaults.
 The initial attachment and `view_image` feature gate are command-level differences. JSONL audit is the second layer. Do not implement Tracks by changing prose only.
 
 Codex capabilities evolve. `pixelworld doctor` checks the installed version and
-`view_image` feature. Current live validation uses separately installed Codex
-**0.167.0**, with successful Text and Vision-Agent runs through an explicit
-Responses provider. Historical 0.166.0 runs remain valid legacy artifacts;
-other versions should rerun checks and a smoke in every enabled Track.
+`view_image` feature. The frozen main experiment uses Codex **0.169.0**.
+Historical 0.166.0/0.167.x runs remain valid only in their named legacy
+cohorts; they are not silently pooled with the main table. A collaborator model
+must pass `pixelworld doctor` and a real Vision smoke with the exact executable
+before full dispatch.
 
 For API-backed providers, an optional `model_catalog_json` is copied into a
 per-run immutable snapshot outside the workspace. The command refers to that

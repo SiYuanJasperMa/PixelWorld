@@ -1,0 +1,25 @@
+{
+  "protocol": "pixelworld-final-review-v1",
+  "main_track": "vision-agent",
+  "models": [
+    {
+      "key": "replace-with-stable-key",
+      "model": "provider/exact-versioned-model-id",
+      "reasoning_effort": "high",
+      "analysis": false
+    }
+  ],
+  "provider": {
+    "type": "responses",
+    "id": "collaborator_gateway",
+    "name": "Collaborator Responses gateway",
+    "base_url": "https://api.example.com/v1",
+    "env_key": "PIXELWORLD_COLLABORATOR_API_KEY",
+    "stream_idle_timeout_ms": 3600000
+  },
+  "output_token_budget": 100000,
+  "max_total_model_attempts": 5,
+  "codex_version": "0.169.0",
+  "filesystem_policy": "case-only-v1",
+  "note": "Replace only the exact model identity and provider route. Never put credentials in this file."
+}

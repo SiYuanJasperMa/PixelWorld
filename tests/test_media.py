@@ -30,6 +30,32 @@ def output(tmp_path, task_type="t2v", audio=None, n=6):
     return contract(tmp_path), events
 
 
+def test_output_only_scaling_preserves_input_and_checks_resized_frame_zero(tmp_path):
+    rng = np.random.default_rng(7)
+    original = rng.integers(0, 256, (48, 64, 3), dtype=np.uint8)
+    initial = tmp_path / 'first_frame.png'
+    Image.fromarray(original).save(initial)
+    before = initial.read_bytes()
+    expected = np.asarray(Image.fromarray(original).resize((32, 24), Image.Resampling.LANCZOS))
+    frames = np.repeat(expected[None], 3, axis=0)
+    spec = {'task_type':'i2v','width':32,'height':24,'fps':3,'frames':3,'audio':None}
+    (tmp_path/'task_spec.json').write_text(json.dumps(spec))
+    (tmp_path/'prompt.txt').write_text('Controlled output-only resolution test.')
+    (tmp_path / 'generate.py').write_text('# test output\n')
+    module_spec = importlib.util.spec_from_file_location('scale_helper', ASSET_ROOT / 'artifact_io.py')
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    module.save(frames, tmp_path)
+    events = tmp_path / 'events.jsonl'
+    events.write_text('{"type":"turn.completed"}\n')
+    # Existing I2V rules stay strict; scaling requires a named protocol option.
+    assert not validate(tmp_path, events, 0, 'vision-agent', False, spec)['pass']
+    scaled = spec | {'conditioning_resize_filter':'lanczos'}
+    assert validate(tmp_path, events, 0, 'vision-agent', False, scaled)['pass']
+    assert freeze(tmp_path, tmp_path/'trace', 0, candidate_key(tmp_path, scaled), scaled)
+    assert initial.read_bytes() == before
+
+
 def test_t2v_audio_and_snapshot(tmp_path):
     spec, events = output(tmp_path, audio={"sample_rate": 8000, "channels": 1})
     assert validate(tmp_path, events, 0, "vision-agent", False, spec)["pass"]
@@ -90,12 +116,12 @@ def test_export_derives_missing_inspection_without_mutating_candidate(tmp_path):
 
 def test_photographic_target_is_explicit_and_leaves_existing_task_modes_unchanged(tmp_path):
     base = DEFAULT_MEDIA | {'task_type':'t2v'}
-    assert 'photographic realism' not in task_rules(base)
+    assert 'photorealistic' not in task_rules(base)
     (tmp_path/'task_spec.json').write_text(json.dumps(base | {'visual_target':'photoreal'}))
     photo = contract(tmp_path)
     assert photo['visual_target'] == 'photoreal'
-    assert 'live-action photographic realism' in task_rules(photo)
+    assert 'Make the entire scene as photorealistic as possible.' in task_rules(photo)
     assert 'directly in image/pixel space' in task_rules(photo)
     assert 'Do not build a separate scene/world model' in task_rules(photo)
     for kind in ['i2v','v2v','video_edit']:
-        assert 'photographic realism' not in task_rules(DEFAULT_MEDIA | {'task_type':kind})
+        assert 'photorealistic' not in task_rules(DEFAULT_MEDIA | {'task_type':kind})

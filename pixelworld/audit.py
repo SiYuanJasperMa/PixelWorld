@@ -15,7 +15,7 @@ from PIL import Image
 
 from .constants import FRAMES, HEIGHT, TENSOR_SHAPE, WIDTH
 from .util import atomic_json, sha256
-from .media import DEFAULT_MEDIA
+from .media import DEFAULT_MEDIA, conditioning_image
 
 
 SUBAGENT_PATTERN = re.compile(
@@ -199,7 +199,10 @@ def failed_scratch_path(path: str, item: dict) -> bool:
     command = str(item.get('command',''))
     lines = str(item.get('aggregated_output', '')).splitlines()
     if (re.search(r'>\s*[\"\x27]?' + re.escape(path) + r'[\"\x27]?(?=\s|$|[;&|])', command)
-            and any(path in line and 'Read-only file system' in line for line in lines)):
+            and any(path in line and line.startswith(('/bin/bash:', 'bash:', '/bin/sh:', 'sh:'))
+                    and any(message in line for message in
+                            ('Read-only file system', 'No such file or directory', 'Permission denied'))
+                    for line in lines)):
         return True
     return _failed_python_scratch(path, item)
 
@@ -333,7 +336,7 @@ def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
             pixels = np.load(workspace / "pixels.npz")["pixels"]
             tensor_shape = list(pixels.shape)
             frame0_exact = spec["task_type"] != "i2v" or np.array_equal(
-                np.asarray(Image.open(initial_image).convert("RGB")),
+                np.asarray(conditioning_image(initial_image, spec)),
                 np.asarray(Image.open(workspace / "frames" / "00.png").convert("RGB")),
             )
             tensor_exact = pixels.shape == TENSOR_SHAPE and pixels.dtype == np.uint32
