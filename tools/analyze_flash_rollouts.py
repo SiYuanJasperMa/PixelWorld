@@ -122,12 +122,14 @@ def paired_quality(reference, current, scenario, seed=6141):
             keys = [key for index in indices for key in groups[labels[index]]]
             samples.append(sum(delta[key] for key in keys) / len(keys))
         ref_mean = mean([reference[k][metric] for k in shared])
-        interval = np.quantile(samples, [.025, .975]).tolist()
+        # A one-scenario smoke cannot estimate sampling uncertainty.
+        interval = np.quantile(samples, [.025, .975]).tolist() if len(labels) > 1 else None
         result[metric] = {'mean_delta': mean(list(delta.values())), 'reference_mean': ref_mean,
             'relative_mean_delta': mean(list(delta.values())) / ref_mean if ref_mean else None,
             'ci95': interval, 'wins': sum(v > 0 for v in delta.values()),
             'losses': sum(v < 0 for v in delta.values()),
-            'development_interval_within_margin': interval[0] >= -0.05 * ref_mean if ref_mean else False}
+            'development_interval_within_margin': bool(interval and len(labels) >= 20
+                and ref_mean and interval[0] >= -0.05 * ref_mean)}
     return result
 
 

@@ -2,11 +2,13 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import fcntl
+import hashlib
 import json
 from pathlib import Path
+import re
 import time
 
-from tools.publish_dashboard_snapshot import snapshot
+from tools.publish_dashboard_snapshot import snapshot, SHELLS
 from tools.prepare_hf_delivery import sanitize
 
 
@@ -41,11 +43,37 @@ def hf_progress(source, token_file):
         items.append(('live/' + group['path'],payload))
     items += [('live/catalogue.json', catalogue), ('metadata/catalogue.json', catalogue),
               ('live/experiment_plan.json',sanitize(json.loads((source/'experiment_plan.json').read_text())))]
+    if (source/'evaluation.json').is_file():
+        items.append(('live/evaluation.json',sanitize(json.loads((source/'evaluation.json').read_text()))))
     operations = [CommitOperationAdd(path_in_repo=name,
         path_or_fileobj=json.dumps(data, ensure_ascii=False).encode()) for name, data in items]
     commit = api.create_commit('HuggingFriends/PixelWorld', repo_type='dataset',
         operations=operations, commit_message='Refresh live model and benchmark progress')
     return {'updated_utc': catalogue['updated_utc'], 'commit': commit.oid}
+
+
+def hf_frontend(source, token_file):
+    """Publish changed frontend assets independently of progress and videos."""
+    from huggingface_hub import HfApi, CommitOperationAdd
+    live_base='https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/'
+    files={name:(source/name).read_text() for name in SHELLS}
+    for name, content in files.items():
+        if re.search(r'/mnt/|/home/tiger/|\bhf_[A-Za-z0-9]{20,}|\bghp_[A-Za-z0-9]{20,}',content):
+            raise ValueError('Private data in frontend asset '+name)
+        if name.endswith('.html'):
+            content=re.sub(r'\sdata-live-base="[^"]*"','',content,count=1)
+            files[name]=re.sub(r'<body\b','<body data-live-base="'+live_base+'"',content,count=1)
+    digest=hashlib.sha256(json.dumps(files,sort_keys=True).encode()).hexdigest()
+    state=source.parent.parent/'state/hf_frontend.json'
+    previous=json.loads(state.read_text()) if state.exists() else {}
+    if previous.get('digest')==digest:return previous
+    api=HfApi(token=token_file.read_text().strip() if token_file else None)
+    result=api.create_commit('HuggingFriends/PixelWorld-dashboard',repo_type='space',
+        operations=[CommitOperationAdd(path_in_repo=name,path_or_fileobj=text.encode())
+                    for name,text in files.items()],commit_message='Refresh PixelWorld monitoring frontend')
+    record={'digest':digest,'commit':result.oid,'updated_unix':time.time()}
+    temporary=state.with_suffix('.tmp');temporary.write_text(json.dumps(record));temporary.replace(state)
+    return record
 
 
 if __name__ == '__main__':
@@ -58,14 +86,15 @@ if __name__ == '__main__':
     args = parser.parse_args()
     with args.state.with_suffix('.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             futures = {}
             statuses = {}
             while True:
                 for name, function, values in (
                     ('github', snapshot, (args.source, args.checkout,
                         'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/')),
-                    ('hf', hf_progress, (args.source, args.token_file))):
+                    ('hf', hf_progress, (args.source, args.token_file)),
+                    ('hf_frontend', hf_frontend, (args.source, args.token_file))):
                     future = futures.get(name)
                     if future is not None and future.done():
                         try:

@@ -115,3 +115,25 @@ call/result pairs inside that case's `.tmp/harness-history/`. Older known
 generated inspection images can be restored from their archived image files.
 The original baseline gateway is unchanged. The smoke must pass artifact,
 streaming and official quality checks before any replay matrix is launched.
+
+
+## Functioning-image comparison and current selection decision
+
+The 20-scenario baseline, compact API, receipt, and four-call arms have completed
+generation and per-case-v2 scoring. The compact API has no measured cumulative
+token advantage; the aggressive guidance lowers cost but does not support
+quality preservation. No final Flash version is accepted. The live report on HF
+contains the paired means and scenario-bootstrap intervals, without putting raw
+scores in the code repository.
+
+The exact-task-pack arm includes the unchanged prompt, rules and task-spec text
+in the initial request. It changes task delivery, without a generated scene
+summary, scaffolding, inspection requirement or revision cap. Its one-case smoke
+is insufficient for sampling uncertainty; the remaining matched cases are
+running sequentially after the earlier matrix. Selection requires completing
+this matrix, investigating actual tool trajectories, then new held-out cases and
+cross-model validation.
+
+A one-scenario smoke has no bootstrap confidence interval and cannot satisfy
+the quality-preservation criterion. Twenty matched scenario groups are the
+minimum for reporting the planned development interval check.

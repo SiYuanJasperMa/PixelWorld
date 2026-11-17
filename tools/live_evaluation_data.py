@@ -124,6 +124,7 @@ def collect(run_root: Path):
     commands=live_commands()
     registry=read(run_root/'live_sources.json')
     sources={item['key']:Path(item['runs_root']) for item in registry.get('sources',[])}
+    recovery=read(run_root/'state/main_evaluation_recovery.json')
     for suite,(benchmark,folder,expected) in COHORTS.items():
         generation=read(sources.get(suite,run_root/'generations'/suite)/'status.json')
         scheduler=read(run_root/'evaluation'/folder/'scheduler.json')
@@ -171,5 +172,10 @@ def collect(run_root: Path):
                 row['phase']='waiting_for_evaluator'
             elif not counts.get('running',0) and not counts.get('pending',0) and row['accepted']<expected and counts.get('exhausted',0):
                 row.update(phase='incomplete_generation',blocker='Full official scope is incomplete; no missing-video score imputation')
+            if (suite=='physics_iq_720p24fps' and row['accepted']==expected
+                    and not row['full_scope_scored'] and not active
+                    and recovery.get('phase')=='waiting_for_reference_and_previous_export'):
+                row.update(phase='preparing_evaluation',
+                           blocker='Preparing pinned reference resources and preserving the current video export')
             result['cohorts'].append(row)
     return result

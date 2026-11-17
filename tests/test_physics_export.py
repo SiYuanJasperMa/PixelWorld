@@ -236,3 +236,58 @@ def test_ready_marker_cannot_substitute_another_reference_directory(tmp_path):
         'upstream':str(tmp_path/'source'),'benchmark_parent':str(tmp_path/'official'),
         'dataset':str(tmp_path/'unrelated')}))
     with pytest.raises(ValueError,match='dataset does not belong'):watcher.validate_runtime(evaluator_ready=marker)
+
+
+def test_evaluator_interpreter_keeps_virtualenv_symlink(tmp_path,monkeypatch):
+    source=tmp_path/'upstream';source.mkdir()
+    binary=tmp_path/'system-python';binary.write_text('fixture')
+    python=source/'.venv/bin/python';python.parent.mkdir(parents=True);python.symlink_to(binary)
+    parent=tmp_path/'data';dataset=parent/'physics-IQ-benchmark-verified';dataset.mkdir(parents=True)
+    marker=tmp_path/'ready.json'
+    marker.write_text(json.dumps({'upstream':str(source),'python':str(python),
+        'upstream_commit':PHYSICS_IQ_COMMIT,'dataset_revision':PHYSICS_IQ_DATASET_REVISION,
+        'benchmark_parent':str(parent),'dataset':str(dataset)}))
+    monkeypatch.setattr(watcher,'sha256',lambda _:PHYSICS_IQ_DESCRIPTIONS_SHA256)
+    monkeypatch.setattr(watcher.subprocess,'check_output',lambda argv,**kw:PHYSICS_IQ_COMMIT if 'rev-parse' in argv else '')
+    assert watcher.validate_runtime(evaluator_ready=marker)['python']==python
+    assert watcher.validate_runtime(evaluator_ready=marker,python_override=binary)['python']==binary
+
+
+def test_missing_precomputed_reference_fails_before_expensive_export(tmp_path):
+    csv=tmp_path/'descriptions.csv'
+    csv.write_text('scenario\n0001_perspective-left_take-1_scene.mp4\n')
+    runtime={'descriptions':csv,'benchmark_parent':tmp_path}
+    with pytest.raises(RuntimeError,match='30FPS: 1 missing'):
+        watcher.validate_reference_fps(runtime,24)
+
+
+@pytest.mark.parametrize('corrupt',['none','video','source','identity'])
+def test_evaluator_retry_reuses_only_identical_full_export(tmp_path,monkeypatch,corrupt):
+    model=SimpleNamespace(key='model')
+    cases=[{'id':f'{i:04d}','generated_video_name':f'{i:04d}_view_scene.mp4',
+            'prompt_sha256':'prompt'} for i in range(1,199)]
+    monkeypatch.setattr(watcher,'official_cases',lambda:cases)
+    output=tmp_path/'exports';directory=output/'pixelworld-model-text-bpp-run_01';directory.mkdir(parents=True)
+    runs={};rows=[]
+    spec={'width':1280,'height':720,'frames':120,'fps':24}
+    for case in cases:
+        run=tmp_path/'runs'/case['id'];(run/'workspace').mkdir(parents=True)
+        (run/'run_manifest.json').write_text('immutable source')
+        (run/'workspace/pixels.npz').write_bytes(b'RGB fixture')
+        video=directory/case['generated_video_name'];video.write_bytes(b'lossless video fixture')
+        runs[case['id']]=run
+        rows.append({'id':case['id'],'filename':video.name,'source_run':str(run),
+            'decoded_rgb_exact':True,'base_bpp_sha256':'prompt','media_contract':spec,
+            'video_sha256':sha256(video),'source_pixels_sha256':sha256(run/'workspace/pixels.npz'),
+            'source_run_manifest_sha256':sha256(run/'run_manifest.json')})
+    manifest={'model_key':'model','track':'text','count':198,'videos':rows,
+              'resolution':[1280,720],'fps':24,'frames':120,'duration_seconds':5}
+    if corrupt=='identity':manifest['track']='vision-agent'
+    (output/'input_manifest.json').write_text(json.dumps(manifest))
+    if corrupt=='video':(directory/cases[-1]['generated_video_name']).write_bytes(b'changed')
+    if corrupt=='source':(runs[cases[-1]['id']]/'run_manifest.json').write_text('changed')
+    monkeypatch.setattr(watcher,'inspect',lambda cfg,m,t,c:{'state':'complete','run':str(runs[c])})
+    monkeypatch.setattr(watcher,'export_videos',lambda *args:pytest.fail('Never regenerate existing export'))
+    if corrupt=='none':assert watcher.exported_videos(None,model,'text',output)==directory
+    else:
+        with pytest.raises(ValueError):watcher.exported_videos(None,model,'text',output)

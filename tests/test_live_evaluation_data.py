@@ -63,3 +63,17 @@ def test_stale_execution_file_does_not_claim_an_active_evaluator(tmp_path,monkey
     row=live.collect(tmp_path)['cohorts'][0]
     assert row['phase']=='stale_evaluation' and row['evaluator_active'] is False
     assert row['score'] is None
+
+
+def test_reference_recovery_shows_preparation_without_a_score(tmp_path,monkeypatch):
+    monkeypatch.setattr(live,'COHORTS',{'physics_iq_720p24fps':('Physics-IQ','scheduler',198)})
+    monkeypatch.setattr(live,'live_commands',lambda:[])
+    gen=tmp_path/'generations/physics_iq_720p24fps';gen.mkdir(parents=True)
+    (gen/'status.json').write_text(json.dumps({'groups':{'m/text':{'counts':{'complete':198}}}}))
+    evalroot=tmp_path/'evaluation/scheduler';evalroot.mkdir(parents=True)
+    (evalroot/'scheduler.json').write_text(json.dumps({'cohorts':{'m/text':{'phase':'failed'}}}))
+    state=tmp_path/'state';state.mkdir()
+    (state/'main_evaluation_recovery.json').write_text(json.dumps({'phase':'waiting_for_reference_and_previous_export'}))
+    row=live.collect(tmp_path)['cohorts'][0]
+    assert row['phase']=='preparing_evaluation'
+    assert not row['full_scope_scored'] and row['score'] is None

@@ -125,3 +125,20 @@ cohort with successful initial image attachment but failed output-image tools
 cannot establish autonomous visual-refinement effects under the full Vision
 protocol. Controlled Flash confirmation uses a separate repaired-runtime
 cohort rather than silently relabeling those observations.
+
+
+### Evaluator recovery without regenerating outputs
+
+The full Physics-IQ watcher validates the pinned source, dataset and description
+identity, then probes the selected interpreter before exporting videos.
+`--evaluator-python` selects an existing working environment; virtualenv symlink
+paths are preserved. It verifies that the imported evaluator belongs to the
+pinned source directory. Precomputed reference videos and masks must be complete
+at the actual submission FPS, with the official 30 FPS source retained.
+
+An evaluator-only retry uses `--retry-failed-cohort MODEL/TRACK`. Previous
+scheduler errors and evaluator logs remain preserved. A complete lossless export
+can be reused only when all 198 IDs, BPP identities, accepted source runs, source
+manifest/pixel hashes, video hashes and media contracts still agree. A changed
+or partial export is rejected for operator review; this never regenerates a
+completed model result.

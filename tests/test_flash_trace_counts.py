@@ -1,5 +1,5 @@
 import json
-from tools.analyze_flash_rollouts import recorded_trace
+from tools.analyze_flash_rollouts import recorded_trace, paired_quality
 
 
 def test_image_attempt_and_actual_delivery_are_distinct(tmp_path):
@@ -29,3 +29,13 @@ def test_duplicate_cumulative_usage_event_does_not_add_a_request(tmp_path):
     result = recorded_trace(path)
     assert result['model_requests'] == 1
     assert result['rollout_input_tokens'] == 100
+
+
+def test_single_case_smoke_has_no_sampling_interval_or_preservation_claim():
+    reference={'0047':{'v1':.25,'v2':.1}}
+    candidate={'0047':{'v1':.26,'v2':.11}}
+    result=paired_quality(reference,candidate,{'0047':'one-scenario'})
+    assert result['paired_cases']==1
+    assert result['v1']['ci95'] is None
+    assert not result['v1']['development_interval_within_margin']
+    assert not result['v2']['development_interval_within_margin']

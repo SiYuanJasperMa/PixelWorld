@@ -6,6 +6,7 @@ No generation, reference feedback, missing-output imputation, or baseline scorin
 from __future__ import annotations
 
 import argparse
+import csv
 import fcntl
 import json
 import math
@@ -24,7 +25,8 @@ from pixelworld.supervisor import inspect
 from pixelworld.util import atomic_json, sha256, utc_now
 
 
-def validate_runtime(resource: Path | None = None, evaluator_ready: Path | None = None) -> dict:
+def validate_runtime(resource: Path | None = None, evaluator_ready: Path | None = None,
+                     python_override: Path | None = None) -> dict:
     if (resource is None) == (evaluator_ready is None):
         raise ValueError('Select either legacy resource-root or the repository setup ready marker')
     if evaluator_ready is not None:
@@ -33,7 +35,8 @@ def validate_runtime(resource: Path | None = None, evaluator_ready: Path | None 
                 or ready.get('dataset_revision') != PHYSICS_IQ_DATASET_REVISION):
             raise ValueError('Setup ready marker has a different official source/dataset revision')
         source = Path(ready['upstream']).resolve()
-        python = Path(ready.get('python',source/'.venv/bin/python')).resolve()
+        # Resolving a venv interpreter symlink would discard its environment.
+        python = Path(ready.get('python',source/'.venv/bin/python')).absolute()
         descriptions = source/'descriptions/best_practice/descriptions_base.csv'
         benchmark_parent = Path(ready['benchmark_parent']).resolve()
         dataset_path = Path(ready['dataset']).resolve()
@@ -49,6 +52,8 @@ def validate_runtime(resource: Path | None = None, evaluator_ready: Path | None 
         benchmark_parent = resource/'data'
         dataset_path = benchmark_parent/'physics-IQ-benchmark-verified'
         bin_dir = resource/'tools/bin'
+    if python_override is not None:
+        python = python_override.absolute()
     if (not python.is_file() or revision != PHYSICS_IQ_DATASET_REVISION
             or sha256(descriptions) != PHYSICS_IQ_DESCRIPTIONS_SHA256):
         raise ValueError('Original evaluator runtime/data/description identity mismatch')
@@ -62,8 +67,84 @@ def validate_runtime(resource: Path | None = None, evaluator_ready: Path | None 
             'benchmark_parent':benchmark_parent,'bin_dir':bin_dir}
 
 
+def probe_runtime(runtime: dict) -> dict:
+    env = os.environ.copy()
+    env['PYTHONPATH'] = str(runtime['source'])
+    command = [str(runtime['python']), '-c',
+        'import json,sys,cv2,numpy,pandas,scipy,matplotlib; '
+        'import physiq.run_physics_iq as evaluator; '
+        'print(json.dumps({"python":sys.executable,"version":sys.version,'
+        '"cv2":cv2.__version__,"numpy":numpy.__version__,"pandas":pandas.__version__,'
+        '"scipy":scipy.__version__,"matplotlib":matplotlib.__version__,'
+        '"evaluator":evaluator.__file__}))']
+    result = subprocess.run(command, cwd=runtime['source'], env=env,
+                            capture_output=True, text=True, timeout=120)
+    if result.returncode:
+        raise RuntimeError('Evaluator dependency preflight failed: ' + result.stderr[-2000:])
+    record = json.loads(result.stdout.splitlines()[-1])
+    if not Path(record['evaluator']).resolve().is_relative_to(runtime['source'].resolve()):
+        raise ValueError('Dependency probe imported an unrelated evaluator')
+    return record
+
+
+def validate_reference_fps(runtime: dict, fps: int) -> None:
+    with runtime['descriptions'].open() as handle:
+        rows = list(csv.DictReader(handle))
+    dataset = runtime['benchmark_parent'] / 'physics-IQ-benchmark-verified'
+    for kind, rate, directory in [('testing-videos', 30, 'split-videos/testing/30FPS'),
+                                  ('testing-videos', fps, f'split-videos/testing/{fps}FPS'),
+                                  ('video-masks', fps, f'video-masks/real/{fps}FPS')]:
+        expected = set()
+        for row in rows:
+            identifier, view, take, scenario = row['scenario'].split('_')
+            expected.add(f'{identifier}_{kind}_{rate}FPS_{view}_{take}_{scenario}')
+        folder = dataset / directory
+        actual = {p.name for p in folder.glob('*.mp4') if p.stat().st_size > 0}
+        missing = expected - actual
+        if missing:
+            raise RuntimeError(f'Pinned reference resources incomplete: {directory}: '
+                               f'{len(missing)} missing of {len(expected)}')
+
+
+def exported_videos(config, model, track: str, output: Path) -> Path:
+    """Reuse a complete, unchanged lossless export after evaluator-only failures."""
+    manifest_path = output / 'input_manifest.json'
+    if not manifest_path.exists():
+        return export_videos(config, model.key, track, output)
+    record = json.loads(manifest_path.read_text())
+    cases = official_cases()
+    rows = record.get('videos', [])
+    if (record.get('model_key') != model.key or record.get('track') != track
+            or record.get('count') != 198 or len(rows) != 198
+            or {r.get('id') for r in rows} != {c['id'] for c in cases}):
+        raise ValueError('Existing export has a different cohort identity or scope')
+    directory = output / f'pixelworld-{model.key}-{track}-bpp-run_01'
+    expected = {c['id']: c for c in cases}
+    for row in rows:
+        case = expected[row['id']]
+        info = inspect(config, model, track, row['id'])
+        run = Path(info['run']) if info.get('run') else None
+        if (info.get('state') != 'complete' or run is None
+                or run.resolve() != Path(row['source_run']).resolve()
+                or not row.get('decoded_rgb_exact')
+                or row.get('base_bpp_sha256') != case['prompt_sha256']
+                or row.get('filename') != case['generated_video_name']):
+            raise ValueError('Existing export no longer matches current accepted generation')
+        for path, digest in [(run/'run_manifest.json', row['source_run_manifest_sha256']),
+                             (run/'workspace/pixels.npz', row['source_pixels_sha256']),
+                             (directory/row['filename'], row['video_sha256'])]:
+            if not digest or not path.is_file() or sha256(path) != digest:
+                raise ValueError('Existing export source or video changed; preserving old export')
+        spec = row['media_contract']
+        if ([spec['width'], spec['height']] != record['resolution']
+                or spec['fps'] != record['fps'] or spec['frames'] != record['frames']
+                or spec['frames']/spec['fps'] != record['duration_seconds']):
+            raise ValueError('Existing export media contract is inconsistent')
+    return directory
+
+
 def step(config, resource: Path | None, output: Path, states: dict, n_process: int = 4,
-         evaluator_ready: Path | None = None) -> dict:
+         evaluator_ready: Path | None = None, python_override: Path | None = None) -> dict:
     cases = official_cases()
     progress_path = config.runs_root/'status.json'
     progress = json.loads(progress_path.read_text()) if progress_path.exists() else {}
@@ -106,13 +187,15 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
                             or score.get('dataset_revision') != PHYSICS_IQ_DATASET_REVISION):
                         raise ValueError('Existing score does not attest complete pinned scope')
                 else:
-                    runtime = validate_runtime(resource,evaluator_ready)
+                    runtime = validate_runtime(resource,evaluator_ready,python_override)
                     if any(runtime[k].is_relative_to(config.runs_root.resolve()) for k in ('source','benchmark_parent')):
                         raise ValueError('Evaluator resources must remain outside generation workspaces')
+                    run_spec = json.loads((Path(inventory[0]['run'])/'media_contract.json').read_text())
+                    validate_reference_fps(runtime, run_spec['fps'])
                     entry['phase']='official_full_evaluation'
                     states[key]=entry
                     atomic_json(output/'scheduler.json',{'updated_utc':utc_now(),'pid':os.getpid(),'cohorts':states})
-                    videos = export_videos(config,model.key,track,cohort/'generated_videos_5s')
+                    videos = exported_videos(config,model,track,cohort/'generated_videos_5s')
                     result = cohort/'official_results'
                     command=[str(runtime['python']),'-u','-m','physiq.run_physics_iq',
                              '--input_folders',str(videos),'--output_folder',str(result),
@@ -121,7 +204,11 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
                     env=os.environ.copy()
                     env.update(PYTHONPATH=str(runtime['source']),PATH=str(runtime['bin_dir'])+os.pathsep+env.get('PATH',''),
                                MPLBACKEND='Agg',OPENBLAS_NUM_THREADS='1',OMP_NUM_THREADS='2')
-                    with (cohort/'official_evaluation.log').open('wb') as log:
+                    atomic_json(cohort/'evaluator_runtime.json', {**probe_runtime(runtime),
+                        'upstream_commit':PHYSICS_IQ_COMMIT, 'dataset_revision':PHYSICS_IQ_DATASET_REVISION,
+                        'started_utc':utc_now(), 'command':command})
+                    with (cohort/'official_evaluation.log').open('ab') as log:
+                        log.write(('\nEvaluation start '+utc_now()+'\n').encode())
                         code=subprocess.call(command,cwd=runtime['source'],env=env,stdout=log,stderr=subprocess.STDOUT)
                     if code:raise RuntimeError(f'Original evaluator exited {code}; log retained')
                     metrics_path=result/'physics-IQ-benchmark-verified/results'/f'{videos.name}_metrics.json'
@@ -152,6 +239,8 @@ def main() -> None:
     paths=parser.add_mutually_exclusive_group(required=True)
     paths.add_argument('--resource-root',type=Path,help='Existing original legacy runtime/resource directory')
     paths.add_argument('--evaluator-ready',type=Path,help='PIXELWORLD_EVALUATOR_READY.json created by repository setup')
+    parser.add_argument('--evaluator-python',type=Path,help='Existing dependency-checked interpreter; preserves official source pins')
+    parser.add_argument('--retry-failed-cohort',action='append',default=[],help='Explicit model/track evaluation retry; preserves prior logs and exports')
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--interval',type=float,default=60)
     parser.add_argument('--max-hours',type=float,default=24*14)
@@ -163,15 +252,23 @@ def main() -> None:
     output.mkdir(parents=True,exist_ok=True)
     resource=args.resource_root.resolve() if args.resource_root else None
     ready=args.evaluator_ready.resolve() if args.evaluator_ready else None
-    runtime=validate_runtime(resource,ready)
+    runtime=validate_runtime(resource,ready,args.evaluator_python)
+    probe_runtime(runtime)
     if any(runtime[k].is_relative_to(config.runs_root.resolve()) for k in ('source','benchmark_parent')):
         raise ValueError('Evaluator resources must remain outside generation workspaces')
     lock=(output/'scheduler.lock').open('a+')
     fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     path=output/'scheduler.json';states=json.loads(path.read_text())['cohorts'] if path.exists() else {}
+    if args.retry_failed_cohort:
+        atomic_json(output/('scheduler_before_retry_'+str(time.time_ns())+'.json'),states)
+        for key in args.retry_failed_cohort:
+            if key not in states or states[key].get('phase') != 'failed':
+                raise ValueError('Explicit retry requires an existing failed evaluator cohort: '+key)
+            states[key]={**states[key], 'phase':'waiting_for_generation', 'previous_error':states[key].get('error'),
+                         'retry_requested_utc':utc_now()}
     deadline=time.monotonic()+args.max_hours*3600
     while time.monotonic()<deadline and not (output/'STOP').exists():
-        states=step(config,resource,output,states,args.n_process,ready)
+        states=step(config,resource,output,states,args.n_process,ready,args.evaluator_python)
         if args.once or all(item['phase'] in ('complete','failed','incomplete_official_scope') for item in states.values()):break
         time.sleep(args.interval)
 
