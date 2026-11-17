@@ -16,7 +16,7 @@ PROTECTED_INPUTS = ('prompt.txt','GENERATION_RULES.md','task_spec.json','first_f
 
 
 def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None,
-            retain_tool_calls=False):
+            retain_tool_calls=False, only_if_smaller=False):
     if keep_recent < 1:
         raise ValueError('Keep at least one recent complete tool interaction')
     calls = {}
@@ -55,12 +55,8 @@ def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None,
         encoded = json.dumps(original, ensure_ascii=False, separators=(',', ':')).encode()
         identity = hashlib.sha256(encoded).hexdigest()
         relative = '.tmp/harness-history/' + identity[:20] + '.json'
-        if archive_dir is not None:
-            target = Path(archive_dir) / (identity[:20] + '.json')
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if not target.exists():
-                target.write_bytes(encoded)
         image_paths=[]
+        image_files=[]
         if image_mode and isinstance(output.get('output'),list):
             for block in output['output']:
                 url=block.get('image_url','')
@@ -69,7 +65,7 @@ def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None,
                 raw=base64.b64decode(body,validate=True)
                 suffix='.jpg' if 'jpeg' in header else '.png' if 'png' in header else '.webp'
                 filename=identity[:20]+'-'+str(len(image_paths))+suffix
-                if archive_dir is not None:(Path(archive_dir)/filename).write_bytes(raw)
+                image_files.append((filename,raw))
                 image_paths.append('.tmp/harness-history/'+filename)
         result = output.get('output', '')
         status = re.search(r'Process exited with code (\d+)', result) if isinstance(result,str) else None
@@ -79,6 +75,16 @@ def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None,
                    'Current source and saved RGB artifacts remain in the workspace. '
                    'Read the archive if earlier details are needed.'+
                    (' Archived generated inspection: '+', '.join(image_paths)+'.' if image_paths else '')+']')
+        if only_if_smaller and retain_tool_calls:
+            original_size=len(json.dumps(output.get('output'),ensure_ascii=False).encode())
+            receipt_size=len(json.dumps(receipt,ensure_ascii=False).encode())
+            if receipt_size>=original_size:
+                continue
+        if archive_dir is not None:
+            target=Path(archive_dir)/(identity[:20]+'.json')
+            target.parent.mkdir(parents=True,exist_ok=True)
+            if not target.exists():target.write_bytes(encoded)
+            for filename,raw in image_files:(Path(archive_dir)/filename).write_bytes(raw)
         if retain_tool_calls:
             # Keep the exact executable code and call identity in history.
             # Only its old return value is replaced by a retrievable receipt.
@@ -95,4 +101,4 @@ def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None,
     return result, {'tool_pairs_compacted': len(archived), 'serialized_bytes_before': before,
                     'serialized_bytes_after': after, 'saved_bytes': before-after,
                     'archived': archived, 'quality_validated': False,
-                    'retain_tool_calls':retain_tool_calls}
+                    'retain_tool_calls':retain_tool_calls,'only_if_smaller':only_if_smaller}

@@ -90,3 +90,15 @@ def test_return_only_compaction_keeps_input_and_latest_generated_images(tmp_path
     assert result[:2]==items[:2]
     assert result[-4:]==items[-4:]
     assert result[2]==items[2] and isinstance(result[3]['output'],str)
+
+
+def test_small_results_are_retained_when_receipt_would_increase_context(tmp_path):
+    items=[]
+    for i,output in enumerate(['Success','x'*4000,'recent']):
+        items += [{'type':'function_call','name':'exec_command','call_id':str(i),'arguments':'{}'},
+                  {'type':'function_call_output','call_id':str(i),'output':output}]
+    result,report=compact(items,keep_recent=1,archive_dir=tmp_path,retain_tool_calls=True,only_if_smaller=True)
+    assert result[0:2]==items[0:2] and result[-2:]==items[-2:]
+    assert result[2]==items[2] and len(result[3]['output'])<4000
+    assert report['tool_pairs_compacted']==1 and report['saved_bytes']>0
+    assert len(list(tmp_path.glob('*.json')))==1

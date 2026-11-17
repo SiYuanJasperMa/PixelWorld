@@ -78,7 +78,8 @@ class Relay(BaseHTTPRequestHandler):
                 if isinstance(items,list) and not self.server.no_history_compaction:
                     new_items,report=compact(items,keep_recent=4,keep_generated_images=2,
                         archive_dir=workspace/'.tmp/harness-history',
-                        retain_tool_calls=self.server.retain_tool_calls)
+                        retain_tool_calls=self.server.retain_tool_calls,
+                        only_if_smaller=self.server.only_shrinking_returns)
                     request['input']=new_items
                 if self.server.core_tools_only:
                     request,schemas=core_tools(request,workspace)
@@ -137,6 +138,7 @@ if __name__=='__main__':
     parser.add_argument('--retain-tool-calls',action='store_true')
     parser.add_argument('--no-history-compaction',action='store_true')
     parser.add_argument('--core-tools-only',action='store_true')
+    parser.add_argument('--only-shrinking-returns',action='store_true')
     args=parser.parse_args()
     server=ThreadingHTTPServer(('127.0.0.1',args.port),Relay)
     server.registry=args.registry;server.allowed_root=args.allowed_root
@@ -146,4 +148,5 @@ if __name__=='__main__':
     server.retain_tool_calls=args.retain_tool_calls
     server.no_history_compaction=args.no_history_compaction
     server.core_tools_only=args.core_tools_only
+    server.only_shrinking_returns=args.only_shrinking_returns
     server.serve_forever()

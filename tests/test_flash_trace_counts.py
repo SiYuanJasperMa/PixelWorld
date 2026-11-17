@@ -1,5 +1,5 @@
 import json
-from tools.analyze_flash_rollouts import recorded_trace, paired_quality, build
+from tools.analyze_flash_rollouts import recorded_trace, paired_quality, paired_economics, build
 import pytest
 
 
@@ -65,3 +65,28 @@ def test_custom_patch_calls_and_returns_are_counted_once(tmp_path):
     path.write_text('\n'.join(json.dumps(x)for x in [call,call,result]))
     trace=recorded_trace(path)
     assert trace['calls']['apply_patch']==1 and trace['tool_text_bytes']==7
+
+
+def test_partial_cost_comparison_uses_same_cases_and_preserves_failed_spend():
+    def row(cost,accepted=True):return {'input':cost*100,'output':cost*10,'duration_seconds':cost,
+        'cost_normalized70':cost,'protocol_delivery':accepted}
+    reference={'a':row(1),'b':row(1),'unmatched':row(100)}
+    current={'a':row(.5),'b':row(.5,False)}
+    result=paired_economics(reference,current)
+    assert result['paired_closed_cases']==2
+    assert result['reference']['cost_per_delivery_normalized70']==1
+    assert result['candidate']['mean_attempt_cost_normalized70']==.5
+    assert result['candidate']['cost_per_delivery_normalized70']==1
+    assert result['cost_per_delivery_normalized70_relative_delta']==0
+
+
+def test_unknown_failed_attempt_usage_prevents_complete_paired_cost_claim(tmp_path):
+    (tmp_path/'experiment_manifest.json').write_text(json.dumps({'arms':['baseline','api'],'case_ids':['0001']}))
+    for arm,attempt,status,usage in [('baseline',1,'complete',{'status':'recorded','input_tokens':100,'output_tokens':10}),
+        ('api',1,'failed',{'status':'partial'}),('api',2,'complete',{'status':'recorded','input_tokens':200,'output_tokens':20})]:
+        run=tmp_path/f'generations/{arm}/gpt56-luna/vision-agent/case_0001_attempt_{attempt:02d}';run.mkdir(parents=True)
+        (run/'run_manifest.json').write_text(json.dumps({'case_id':'0001','status':status,'token_usage':usage,
+            'validation':{'pass':status=='complete','frames':120,'png_tensor_exact':True,'frame0_exact':True}}))
+    result=next(x for x in build(tmp_path,tmp_path/'report.json')['arms']if x['key']=='api')
+    assert result['paired_economics'] is None
+    assert result['cost_per_protocol_delivery_normalized70'] is None

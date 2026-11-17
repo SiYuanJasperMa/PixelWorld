@@ -133,6 +133,23 @@ def paired_quality(reference, current, scenario, seed=6141):
     return result
 
 
+def paired_economics(reference,current):
+    shared=sorted(set(reference)&set(current))
+    if not shared:return None
+    result={'paired_closed_cases':len(shared),'scope':'Fully measured matched cases; unsuccessful-attempt expenditure included'}
+    for label,values in [('reference',reference),('candidate',current)]:
+        rows=[values[key]for key in shared]
+        deliveries=sum(row['protocol_delivery']for row in rows)
+        result[label]={'accepted_deliveries':deliveries,'mean_input':mean([r['input']for r in rows]),
+            'mean_output':mean([r['output']for r in rows]),'mean_seconds':mean([r['duration_seconds']for r in rows]),
+            'mean_attempt_cost_normalized70':mean([r['cost_normalized70']for r in rows]),
+            'cost_per_delivery_normalized70':sum(r['cost_normalized70']for r in rows)/deliveries if deliveries else None}
+    for metric in ['mean_input','mean_output','mean_attempt_cost_normalized70','cost_per_delivery_normalized70']:
+        base=result['reference'][metric];value=result['candidate'][metric]
+        result[metric+'_relative_delta']=value/base-1 if base and value is not None else None
+    return result
+
+
 def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=None):
     cache = read(cache_path) if cache_path else {}
     quality = read(quality_checkpoint or root / 'quality/flash_quality_checkpoint_v2.json')
@@ -157,13 +174,16 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
         definitions['replay']=('generations/replay','Replay pilot · task-read regression')
     if experiment and 'taskpack' in experiment.get('arms',[]):
         definitions['taskpack']=('generations/taskpack','Exact initial task pack')
-    for key,label in [('replay_keepcalls','Retained calls · replay'),('core_tools','Core task tools')]:
+    for key,label in [('replay_keepcalls','Retained calls · replay'),('core_tools','Core task tools'),
+                      ('replay_shrinking','Shrinking returns · corrective smoke')]:
         if experiment and key in experiment.get('arms',[]):definitions[key]=('generations/'+key,label)
     reference_key = 'baseline' if experiment else 'reference'
     arms = []
+    usages={}
     for key, (folder, label) in definitions.items():
         manifests = list((root / folder / 'gpt56-luna/vision-agent').glob('*/run_manifest.json'))
         rows = []
+        unmeasured_cases=set()
         statuses = Counter()
         valid_rgb = 0
         valid_protocol = 0
@@ -185,11 +205,16 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
                 continue
             closed_noninfra += int(not interrupted)
             usage = record.get('token_usage') or {}
+            case_identity=record.get('case_id') or path.parent.name
+            measured=(usage.get('status')=='recorded' and isinstance(usage.get('input_tokens'),int)
+                      and isinstance(usage.get('output_tokens'),int))
+            if not interrupted and not measured:unmeasured_cases.add(case_identity)
             if (not interrupted and usage.get('status') == 'recorded'
                     and isinstance(usage.get('input_tokens'), int)
                     and isinstance(usage.get('output_tokens'), int)):
                 cached = min(usage['input_tokens'], max(0, usage.get('cached_input_tokens') or 0))
                 rows.append({'input': usage['input_tokens'], 'output': usage['output_tokens'],
+                    'case':case_identity,
                     'protocol_delivery': status=='complete' and bool(validation.get('pass')),
                     'cached': cached, 'reasoning': usage.get('reasoning_output_tokens'),
                     'duration_seconds': record.get('duration_seconds'),
@@ -205,6 +230,18 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
                     cache[cache_key] = saved
                 trace_rows.append(saved['data'])
         current = scored.get(key, {})
+        usages[key]={}
+        for row in rows:
+            total=usages[key].get(row['case'])
+            if total is None:
+                usages[key][row['case']]=dict(row)
+            else:
+                for field in ['input','output','cached','cost_measured_cache','cost_normalized70']:
+                    total[field]+=row[field]
+                total['protocol_delivery']=total['protocol_delivery'] or row['protocol_delivery']
+                total['duration_seconds']=(total['duration_seconds']+row['duration_seconds']
+                    if total['duration_seconds'] is not None and row['duration_seconds'] is not None else None)
+        for case in unmeasured_cases:usages[key].pop(case,None)
         measured_deliveries=sum(r['protocol_delivery'] for r in rows)
         cost_complete=len(rows)==closed_noninfra
         expected_cases=len(experiment.get('arm_case_ids',{}).get(key,experiment.get('case_ids',[]))) if experiment else 20
@@ -240,6 +277,9 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
                 'source_reads': {name: sum(r.get('source_reads', {}).get(name, 0) for r in trace_rows)
                     for name in ('artifact_io.py', 'player_template.html', 'INPUT_SUMMARY.json', 'pixelworld_run.py', 'pixelworld_check.py')}}}
         arms.append(entry)
+    for entry in arms:
+        entry['paired_economics']=(paired_economics(usages.get(reference_key,{}),usages.get(entry['key'],{}))
+            if entry['key']!=reference_key else None)
     from datetime import datetime, timezone
     result = {'schema': 'pixelworld-flash-development-v2', 'updated_utc': datetime.now(timezone.utc).isoformat(),
         'scope': ('Independent Physics-IQ subset with verified working image tools' if experiment else 'Physics-IQ 20-case development subset with failed output image tools; not the 198-case Verified score'),

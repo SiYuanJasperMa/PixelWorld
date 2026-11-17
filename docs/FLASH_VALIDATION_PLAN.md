@@ -185,3 +185,24 @@ for live status. Interrupted derived masks are checked and repaired with the
 original mask function, without regenerating agent video outputs. Full-score
 publication requires official scenario coverage and finite metrics for all three
 views.
+
+
+## Matched economics and corrective replay
+
+Interim economics compare the exact same closed, fully measured cases. They do
+not compare a partial expensive subset against the baseline's full20-case mean.
+Unsuccessful-attempt expenditure is included in accepted-video cost; a case with
+unknown prior attempt usage is excluded from complete paired-cost claims.
+
+A trace audit of the retained-call replay found61 of109 requests with negative
+serialized byte savings.37 of40 archived returns were shorter than300 bytes.
+The corrective smoke therefore adds `--only-shrinking-returns`: preserve short
+returns when the archive receipt is not smaller. It changes no task, image,
+code-call identity, observation count or revision limit. The current matched20
+replay remains frozen; the correction is a separate one-case mechanism test.
+
+Independent confirmation is preregistered on20 unique scenarios with IDs>=103,
+cycling camera views and using no outcome-based selection. It will compare fresh
+baseline/candidate runs on GPT-5.6-Luna and GPT-5.6-Sol after a candidate is
+selected. This confirmation has not launched and cannot support current quality
+claims.
