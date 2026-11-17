@@ -6,7 +6,7 @@
   "max_per_config": 1,
   "max_attempts": 2,
   "max_total_attempts": 5,
-  "output_token_budget": 100000,
+  "output_token_budget": 1000000,
   "case_ids": [
     "0001",
     "0002",
