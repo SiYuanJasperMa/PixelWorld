@@ -39,7 +39,7 @@ def build(bundle: Path, checkout: Path):
     (root/'experiment_plan.json').write_text(json.dumps(plan,ensure_ascii=False,indent=2))
     (root/'formal.css').write_text(CSS)
     (root/'formal.js').write_text(JS)
-    shell='''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PixelWorld · Live Experiments</title><link rel="stylesheet" href="formal.css?v=20261117"></head><body DATA><header><nav><strong><a href="index.html">PixelWorld</a></strong><span><a href="index.html">主实验</a><a href="analyses.html">分析</a><a href="https://siyuanmacs.github.io/physics-iq-pixel-preview/">Legacy</a></span></nav></header><main><div id="headline"></div><p class="small muted" id="sync">正在加载实时数据…</p><div id="content"></div><div id="attempts"></div><div id="detail"></div><footer>新运行：Vision · Codex 0.169.0 · case-only-v1 · 100k output tokens / attempt · 最多 5 次真实 attempt。历史复用保留原始运行环境。</footer></main><script src="formal.js?v=20261117"></script></body></html>'''
+    shell='''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PixelWorld · Live Experiments</title><link rel="stylesheet" href="formal.css?v=20261117"></head><body DATA><header><nav><strong><a href="index.html">PixelWorld</a></strong><span><a href="index.html">主实验</a><a href="analyses.html">分析</a><a href="https://siyuanmacs.github.io/physics-iq-pixel-preview/">Legacy</a></span></nav></header><main><div id="headline"></div><p class="small muted" id="sync">正在加载实时数据…</p><div id="content"></div><div id="attempts"></div><div id="detail"></div><footer>新运行：Vision · Codex 0.169.0 · case-only-v1 · 100k output tokens / attempt · 最多 5 次真实 attempt。历史复用保留原始运行环境。</footer></main><script src="formal.js?v=20261117-delivery-age"></script></body></html>'''
     paths=['index.html','pixelworld-index.html']
     for name in paths:(root/name).write_text(shell.replace('DATA',''))
     for b in BENCHMARKS:
@@ -48,7 +48,7 @@ def build(bundle: Path, checkout: Path):
         (root/name).write_text(shell.replace('DATA','data-benchmark="physics_iq"'))
     (root/'phygenbench.html').write_text(shell.replace('DATA','data-benchmark="phygenbench"'))
     analysis='''<p class="eyebrow">ANALYSIS · TWO MODELS</p><h1>分析实验</h1><p class="muted">GPT-6.1-Sol · DeepSeek-V4.1-Flash</p><div class="table"><table><tr><th>问题</th><th>配置</th><th>当前阶段</th></tr><tr><td>Text vs Vision</td><td>四个 benchmark，补 Text；共享 Vision 主实验</td><td>准备 / 主实验优先</td></tr><tr><td>分辨率</td><td>Physics-IQ：480p / 720p / 1080p，24 FPS</td><td>准备</td></tr><tr><td>FPS</td><td>Physics-IQ：12 / 24 / 48 FPS，720p</td><td>准备</td></tr><tr><td>Thinking</td><td>原生支持的较低 / High / 较高档位</td><td>核对模型支持</td></tr><tr><td>初始化</td><td>PhyGenBench：T2V / QwenInit-I2V × Text / Vision</td><td>准备首帧与队列</td></tr><tr><td>自主修订与成本</td><td>首个有效候选 / 最终候选；真实调用与 token</td><td>复用已记录轨迹</td></tr></table></div><p><a href="index.html">← 主实验</a></p>'''
-    (root/'analyses.html').write_text(shell.replace('DATA','').replace('<div id="headline"></div>',analysis).replace('<script src="formal.js?v=20261117"></script>','').replace('正在加载实时数据…','分析配置尚未统一启动，不计入主实验进度。'))
+    (root/'analyses.html').write_text(shell.replace('DATA','').replace('<div id="headline"></div>',analysis).replace('<script src="formal.js?v=20261117-delivery-age"></script>','').replace('正在加载实时数据…','分析配置尚未统一启动，不计入主实验进度。'))
     return plan
 
 
