@@ -474,6 +474,10 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         from .flash import install as install_flash
         flash_record = install_flash(workspace, spec, source,
                                      include_summary=config.harness_variant == 'flash-v1')
+    elif config.harness_variant in ('flash-api', 'flash-api-receipt'):
+        from .flash import install_api
+        flash_record = install_api(workspace,
+                                   receipt=config.harness_variant == 'flash-api-receipt')
     # Keep the exact supplied task text outside the model's workspace for audit.
     task_snapshot = run / "task_prompt.txt"
     task_text = generation_task_text(track, spec, legacy=legacy_contract,
@@ -542,6 +546,8 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         "attempt": attempt,
         "workspace": str(workspace),
         "codex_version": version,
+        "runtime_helpers": ({"bwrap_sha256": sha256(Path(binary).resolve().parent / 'bwrap')}
+                            if (Path(binary).resolve().parent / 'bwrap').is_file() else {}),
         "isolated_codex_home": str(codex_home),
         "filesystem_policy": config.filesystem_policy,
         "harness_variant": config.harness_variant,

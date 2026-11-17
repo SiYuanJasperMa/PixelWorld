@@ -225,7 +225,18 @@ def failed_scratch_path(path: str, item: dict) -> bool:
     A failing compound shell's final status may be zero. Do not waive existing
     /tmp files, other case/reference paths, or paths without a specific denial.
     """
-    if not path.startswith('/tmp/') or Path(path).exists():
+    if not path.startswith('/tmp/'):
+        return False
+    if path.endswith('/'):
+        # A literal directory prefix can be concatenated with a loop filename.
+        # Accept only a failed first literal iteration, not an arbitrary prefix.
+        if item.get('exit_code') in (None, 0):
+            return False
+        output = str(item.get('aggregated_output', ''))
+        targets = re.findall(r"(?m)^(?:FileNotFoundError|PermissionError|OSError):[^\n]*['\"](/tmp/[^'\"\n]+)['\"]", output)
+        return any(target.startswith(path) and not Path(target).exists()
+                   and _denied_python_write(target, item, prefix=path) for target in targets)
+    if Path(path).exists():
         return False
     # It must be a creation/redirection target, not an attempted lookup of an
     # outside input. A missing Python file alone is insufficient evidence.
@@ -240,16 +251,26 @@ def failed_scratch_path(path: str, item: dict) -> bool:
     return _failed_python_scratch(path, item) or _denied_python_write(path, item)
 
 
-def _is_path_node(node, path: str, bindings: dict) -> bool:
-    if isinstance(node, ast.Constant):
-        return node.value == path
+def _static_string(node, bindings: dict, depth=0):
+    if depth > 6:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
     if isinstance(node, ast.Name) and len(bindings.get(node.id, [])) == 1:
-        value = bindings[node.id][0]
-        return isinstance(value, ast.Constant) and value.value == path
-    return False
+        return _static_string(bindings[node.id][0], bindings, depth+1)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _static_string(node.left, bindings, depth+1)
+        right = _static_string(node.right, bindings, depth+1)
+        if left is not None and right is not None:
+            return left + right
+    return None
 
 
-def _denied_python_write(path: str, item: dict) -> bool:
+def _is_path_node(node, path: str, bindings: dict) -> bool:
+    return _static_string(node, bindings) == path
+
+
+def _denied_python_write(path: str, item: dict, prefix: str | None = None) -> bool:
     """Waive one denied scratch-image write; never an outside read or a delivered artifact."""
     output = str(item.get('aggregated_output', ''))
     if path not in output or not any(message in output for message in
@@ -265,6 +286,16 @@ def _denied_python_write(path: str, item: dict) -> bool:
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
                 bindings.setdefault(node.targets[0].id, []).append(node.value)
+            if (prefix and isinstance(node, ast.For) and isinstance(node.iter, (ast.List, ast.Tuple))
+                    and node.iter.elts and not any(isinstance(n, ast.For) for statement in node.body
+                                                for n in ast.walk(statement))):
+                first = node.iter.elts[0]
+                if isinstance(node.target, ast.Name):
+                    bindings.setdefault(node.target.id, []).append(first)
+                elif isinstance(node.target, (ast.Tuple, ast.List)) and isinstance(first, (ast.Tuple, ast.List)):
+                    for target, value in zip(node.target.elts, first.elts):
+                        if isinstance(target, ast.Name):
+                            bindings.setdefault(target.id, []).append(value)
         def write_call(node):
             if not isinstance(node, ast.Call) or not node.args:
                 return False
@@ -286,6 +317,17 @@ def _denied_python_write(path: str, item: dict) -> bool:
         # Any other active use of the same path is an outside read/write.
         others = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and node.args
                   and node is not write and _is_path_node(node.args[0], path, bindings)]
+        if prefix:
+            # A prior read/write using the same prefix could have executed.
+            def starts_in_prefix(node):
+                value = _static_string(node, bindings)
+                if value is not None:
+                    return value.startswith(prefix)
+                while isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                    node = node.left
+                return isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith(prefix)
+            others += [node for node in ast.walk(tree) if isinstance(node, ast.Call) and node.args
+                       and node is not write and starts_in_prefix(node.args[0])]
         if others:
             continue
         return True

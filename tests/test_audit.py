@@ -317,3 +317,24 @@ def test_permitted_tool_roots_waive_only_granted_read_roots(tmp_path):
     assert outside_command_paths(f'{secret}/local.key', workspace, roots) == [f'{secret}/local.key']
     # Without the profile-derived roots the tool path stays blocked.
     assert outside_command_paths(f'{tool}/ffmpeg -version', workspace) == [f'{tool}/ffmpeg']
+
+
+def test_denied_first_literal_loop_scratch_write_is_a_warning():
+    from pixelworld.audit import failed_scratch_path
+    prefix = '/tmp/pixelworld_missing_loop_613948/'
+    command = "python - <<'PY'\nfrom PIL import Image\nfor name,box in [('ball',(0,0,4,4)),('block',(1,1,4,4))]:\n    Image.open('first_frame.png').crop(box).save('" + prefix + "'+name+'.png')\nPY"
+    item = {'command': command, 'exit_code': 1,
+        'aggregated_output': 'Traceback (most recent call last):\n  File "<stdin>", line 3, in <module>\nFileNotFoundError: [Errno 2] No such file or directory: ' + repr(prefix+'ball.png')}
+    assert failed_scratch_path(prefix, item)
+    assert not failed_scratch_path(prefix, {**item, 'aggregated_output':
+        item['aggregated_output'].replace('ball.png','block.png')})
+    assert not failed_scratch_path(prefix, {**item, 'exit_code': 0})
+    prior_read = command.replace("Image.open('first_frame.png')", "Image.open('"+prefix+"'+name+'.png')")
+    assert not failed_scratch_path(prefix, {**item, 'command': prior_read})
+
+
+def test_unknown_dynamic_scratch_name_stays_blocked():
+    from pixelworld.audit import failed_scratch_path
+    item = {'command': "python - <<'PY'\nimage.save('/tmp/'+unknown+'.png')\nPY", 'exit_code': 1,
+        'aggregated_output': '  File "<stdin>", line 1, in <module>\nFileNotFoundError: [Errno 2] No such file or directory: "/tmp/pixelworld_unknown_613948.png"'}
+    assert not failed_scratch_path('/tmp/', item)

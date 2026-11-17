@@ -143,3 +143,28 @@ def install(workspace: Path, spec: dict, source: Path, include_summary: bool = T
         "helpers": helpers,
         "rules_sha256": sha256(rules),
     }
+
+
+def install_api(workspace: Path, receipt: bool = False) -> dict:
+    """Expose a compact save API while retaining the exact original output writer.
+
+    The original implementation remains inspectable inside the case workspace.
+    No input summary, image synthesis, execution helper or refinement cap is added.
+    """
+    backend = workspace / '_pixelworld_io'
+    backend.mkdir()
+    (backend / '__init__.py').write_text('')
+    original = workspace / 'artifact_io.py'
+    original_hash = sha256(original)
+    shutil.copy2(original, backend / 'backend.py')
+    template = workspace / 'player_template.html'
+    if template.is_file():
+        shutil.copy2(template, backend / template.name)
+        template.unlink()
+    interface = ASSET_HELPERS / ('artifact_io_receipt.py' if receipt else 'artifact_io_api.py')
+    shutil.copy2(interface, original)
+    return {'schema': 'pixelworld-save-api-v1', 'receipt': receipt,
+            'original_writer_sha256': original_hash,
+            'backend_sha256': sha256(backend / 'backend.py'),
+            'interface_sha256': sha256(original),
+            'rules_sha256': sha256(workspace / 'GENERATION_RULES.md')}

@@ -1,0 +1,31 @@
+import json
+from tools.analyze_flash_rollouts import recorded_trace
+
+
+def test_image_attempt_and_actual_delivery_are_distinct(tmp_path):
+    path = tmp_path / 'rollout.jsonl'
+    events = [
+        {'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'view_image',
+            'call_id': 'a', 'arguments': '{"path":"first_frame.png"}'}},
+        {'type': 'response_item', 'payload': {'type': 'function_call_output', 'call_id': 'a',
+            'output': 'bundled bubblewrap digest mismatch'}},
+        {'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'view_image',
+            'call_id': 'b', 'arguments': '{"path":"inspection.png"}'}},
+        {'type': 'response_item', 'payload': {'type': 'function_call_output', 'call_id': 'b',
+            'output': [{'type': 'input_image', 'image_url': 'data:image/png;base64,AA=='}]}},
+    ]
+    path.write_text('\n'.join(json.dumps(e) for e in events))
+    result = recorded_trace(path)
+    assert result['calls']['view_image'] == 2
+    assert result['image_results'] == {'helper_digest_failures': 1, 'returned_image_messages': 1}
+
+
+def test_duplicate_cumulative_usage_event_does_not_add_a_request(tmp_path):
+    path = tmp_path / 'rollout.jsonl'
+    event = {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
+        'total_token_usage': {'input_tokens': 100, 'output_tokens': 5, 'cached_input_tokens': 0},
+        'last_token_usage': {'input_tokens': 100, 'output_tokens': 5}}}}
+    path.write_text(json.dumps(event)+'\n'+json.dumps(event)+'\n')
+    result = recorded_trace(path)
+    assert result['model_requests'] == 1
+    assert result['rollout_input_tokens'] == 100

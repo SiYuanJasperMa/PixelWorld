@@ -119,3 +119,59 @@ def test_lean_variant_skips_input_summary(tmp_path):
     assert 'Harness helpers:' in rules
     assert 'INPUT_SUMMARY.json' not in rules
     assert (workspace / 'pixelworld_run.py').is_file()
+
+
+def test_compact_api_keeps_exact_backend_and_rules(tmp_path):
+    from pixelworld.flash import install_api
+    from pixelworld.util import sha256
+    source = _case(tmp_path)
+    workspace = _workspace(tmp_path, source)
+    writer_hash = sha256(workspace / 'artifact_io.py')
+    rules_hash = sha256(workspace / 'GENERATION_RULES.md')
+    record = install_api(workspace)
+    assert record['backend_sha256'] == writer_hash
+    assert sha256(workspace / 'GENERATION_RULES.md') == rules_hash
+    assert not (workspace / 'player_template.html').exists()
+    assert (workspace / '_pixelworld_io/player_template.html').is_file()
+    assert not (workspace / 'INPUT_SUMMARY.json').exists()
+
+
+def test_save_api_preserves_exact_rgb_artifacts(tmp_path):
+    from pixelworld.flash import install_api
+    source = _case(tmp_path)
+    workspace = _workspace(tmp_path, source)
+    install_api(workspace, receipt=True)
+    script = """import numpy as np
+from PIL import Image
+import artifact_io
+from pathlib import Path
+frame = np.asarray(Image.open('first_frame.png').convert('RGB'))
+frames = np.repeat(frame[None], 4, axis=0)
+frames[1:, 10:14, 8:12, 1] = 255
+artifact_io.save(frames, Path('.'))
+"""
+    (workspace / 'generate.py').write_text(script)
+    result = subprocess.run([sys.executable, 'generate.py'], cwd=workspace,
+                            text=True, capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt['written'] == 'pixels.npz' and receipt['frames'] == 4
+    with np.load(workspace / 'pixels.npz') as archive:
+        pixels = archive['pixels']
+    for index in range(4):
+        rgb = np.asarray(Image.open(workspace / 'frames' / f'{index:02d}.png'), dtype=np.uint32)
+        packed = (rgb[:, :, 0] << 16) | (rgb[:, :, 1] << 8) | rgb[:, :, 2]
+        assert np.array_equal(packed, pixels[:, :, index])
+    assert (workspace / 'index.html').is_file()
+
+
+def test_api_reports_invalid_rgb_without_a_false_receipt(tmp_path):
+    from pixelworld.flash import install_api
+    source = _case(tmp_path)
+    workspace = _workspace(tmp_path, source)
+    install_api(workspace, receipt=True)
+    result = subprocess.run([sys.executable, '-c',
+        "import artifact_io, numpy as np; artifact_io.save(np.zeros((1,2,3,3),dtype=np.uint8))"],
+        cwd=workspace, text=True, capture_output=True, timeout=60)
+    assert result.returncode != 0
+    assert not result.stdout.strip()

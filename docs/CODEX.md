@@ -97,3 +97,31 @@ cap. See the runtime and accounting section of
 Legacy v1 settings remain unchanged unless explicitly configured. The separate
 20-minute stalled-file-change recovery is for local execution failure, not an
 equal-time model budget.
+
+
+## Worker runtime helper integrity
+
+Stage Codex from its complete pinned distribution. Copying only `bin/codex`
+is insufficient: the image filesystem helper verifies the release's bundled
+`bwrap`. A different system `bwrap` can allow shell commands to work while
+`view_image` fails its digest check. This occurred in an earlier worker staging.
+
+The same-version helper can be staged with:
+
+```bash
+python -m tools.stage_codex_helpers \
+  --source-codex <installed-release>/bin/codex \
+  --destination-bin <cloud-runtime>/bin --version 0.169.0
+```
+
+This verifies the pinned bundled hash; it does not disable integrity checks or
+change Codex versions. Before a new matrix, verify both a successful in-case
+read and a blocked out-of-case read, then verify an actual returned image in
+the persisted full rollout. CLI version and feature flags alone do not prove
+that output-image observation works. New runs record the helper hash.
+
+Preserve older deliveries with their original runtime and tool records. A
+cohort with successful initial image attachment but failed output-image tools
+cannot establish autonomous visual-refinement effects under the full Vision
+protocol. Controlled Flash confirmation uses a separate repaired-runtime
+cohort rather than silently relabeling those observations.

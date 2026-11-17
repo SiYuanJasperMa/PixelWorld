@@ -74,3 +74,24 @@ the margin, describe the uncertainty and collect additional held-out cases.
 
 The final publication should expose one accepted Flash version. Experimental
 arms and dropped designs remain documented for attribution and reproducibility.
+
+
+## Repaired-runtime confirmation
+
+The development traces contained real `view_image` attempts but no returned
+images: worker staging had supplied a different `bwrap` from the one expected
+by Codex 0.169.0. The bundled helper is now verified, positive and negative
+folder-access tests pass, and actual image returns are captured. Existing
+development results are retained as a separate runtime condition.
+
+Confirmation compares baseline, compact output API, API with a write receipt,
+and strict prompt guidance on 20 previously unused scenarios with balanced
+camera views. All share the same model, input, resolution, frame rate, token
+budget, functional visual tools and factual scratch-directory instruction.
+The compact API retains the exact original output writer in an inspectable
+workspace subdirectory; it generates no pixels. The receipt reports completed
+writing and does not certify final harness acceptance.
+
+[Live Flash monitoring](https://huggingface.co/spaces/HuggingFriends/PixelWorld-dashboard)
+provides progress, token measurements and matched subset quality. Score data
+is published on HF and kept outside the GitHub code repository.

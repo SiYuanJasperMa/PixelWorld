@@ -17,7 +17,7 @@ SHELLS = ('index.html', 'pixelworld-index.html', 'analyses.html',
           'physics_iq_baseline.html', 'physics_iq_resolution.html',
           'physics_iq_512w24fps.html', 'robojudge.html', 'pcve_rigid.html',
           'phygenbench.html', 'phygen_pixelspace.html', 'formal.js', 'formal.css',
-          'experiment_plan.json')
+          'experiment_plan.json', 'flash.html', 'flash.js')
 
 
 def snapshot(source, checkout, live_base):
