@@ -204,3 +204,10 @@ def test_external_cache_import_adds_history_without_overwriting_live_state():
     merge_external_cache(current,external)
     assert current['suite/m/vision-agent']['case_live']['status']=='running'
     assert current['suite/m/vision-agent']['history_old']['status']=='complete'
+
+
+def test_formal_dashboard_exposes_data_age_and_latest_delivery():
+    from tools.build_formal_dashboard import JS
+    assert '数据更新：' in JS
+    assert '最近交付：' in JS
+    assert 'latest_completion' in JS
