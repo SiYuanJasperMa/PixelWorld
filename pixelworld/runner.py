@@ -470,9 +470,10 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     if rules_file:
         shutil.copy2(rules_file,workspace/'GENERATION_RULES.md')
     flash_record = None
-    if config.harness_variant == 'flash-v1':
+    if config.harness_variant in ('flash-v1', 'flash-lean'):
         from .flash import install as install_flash
-        flash_record = install_flash(workspace, spec, source)
+        flash_record = install_flash(workspace, spec, source,
+                                     include_summary=config.harness_variant == 'flash-v1')
     # Keep the exact supplied task text outside the model's workspace for audit.
     task_snapshot = run / "task_prompt.txt"
     task_text = generation_task_text(track, spec, legacy=legacy_contract,

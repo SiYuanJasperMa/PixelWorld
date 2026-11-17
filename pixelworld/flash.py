@@ -30,6 +30,16 @@ RULES_ADDENDUM = (
     "the sandbox.\n"
 )
 
+RULES_ADDENDUM_LEAN = (
+    "\n- Harness helpers: `python pixelworld_run.py` runs `generate.py` and validates every "
+    "required output in one step; `python pixelworld_check.py` re-validates without "
+    "regenerating. `artifact_io.save(frames, case_dir)` takes a uint8 array shaped "
+    "`(frames, height, width, 3)` and writes `pixels.npz`, `frames/`, `inspection.png`, "
+    "`transition_check.png` and `index.html`.\n"
+    "- Use `.tmp/` for temporary files. `/tmp` is outside the workspace and is blocked by "
+    "the sandbox.\n"
+)
+
 
 def _available(module: str) -> bool:
     try:
@@ -109,7 +119,7 @@ def input_summary(spec: dict, source: Path) -> dict:
     return summary
 
 
-def install(workspace: Path, spec: dict, source: Path) -> dict:
+def install(workspace: Path, spec: dict, source: Path, include_summary: bool = True) -> dict:
     """Install the Flash interface into an already-prepared case workspace."""
     helpers = {}
     for name in HELPERS:
@@ -117,15 +127,19 @@ def install(workspace: Path, spec: dict, source: Path) -> dict:
         target = workspace / name
         shutil.copy2(origin, target)
         helpers[name] = {"sha256": sha256(target)}
-    summary_path = workspace / "INPUT_SUMMARY.json"
-    atomic_json(summary_path, input_summary(spec, source))
+    summary_record = None
+    if include_summary:
+        summary_path = workspace / "INPUT_SUMMARY.json"
+        atomic_json(summary_path, input_summary(spec, source))
+        summary_record = {"file": summary_path.name, "sha256": sha256(summary_path)}
     rules = workspace / "GENERATION_RULES.md"
     text = rules.read_text()
     if "Harness helpers:" not in text:
-        rules.write_text(text.rstrip("\n") + "\n" + RULES_ADDENDUM)
+        addendum = RULES_ADDENDUM if include_summary else RULES_ADDENDUM_LEAN
+        rules.write_text(text.rstrip("\n") + "\n" + addendum)
     return {
         "schema": FLASH_SCHEMA,
-        "input_summary": {"file": summary_path.name, "sha256": sha256(summary_path)},
+        "input_summary": summary_record,
         "helpers": helpers,
         "rules_sha256": sha256(rules),
     }

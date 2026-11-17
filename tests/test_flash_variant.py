@@ -106,3 +106,16 @@ def test_check_accepts_valid_outputs(tmp_path):
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert result.returncode == 0, report
     assert report["pass"] and report["frame0_exact"]
+
+
+def test_lean_variant_skips_input_summary(tmp_path):
+    source = _case(tmp_path)
+    workspace = _workspace(tmp_path, source)
+    record = install(workspace, json.loads((source / 'task_spec.json').read_text()),
+                     source, include_summary=False)
+    assert record['input_summary'] is None
+    assert not (workspace / 'INPUT_SUMMARY.json').exists()
+    rules = (workspace / 'GENERATION_RULES.md').read_text()
+    assert 'Harness helpers:' in rules
+    assert 'INPUT_SUMMARY.json' not in rules
+    assert (workspace / 'pixelworld_run.py').is_file()
