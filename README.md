@@ -62,8 +62,9 @@ They are published separately:
   [HuggingFriends/PixelWorld](https://huggingface.co/datasets/HuggingFriends/PixelWorld)
   — public catalogue, per-case JSON, tool events, runnable code, token records,
   previews and posters.
-- Live dashboard: temporary tunnel URL while the public hosting migration is
-  completed.
+- Live dashboard:
+  [HuggingFace Space](https://huggingface.co/spaces/HuggingFriends/PixelWorld-dashboard)
+  — live progress, per-model counts and playable candidates.
 
 Each published case keeps its playable candidate, poster, `run_manifest.json`,
 token accounting, tool events and runnable `generate.py`. Failed attempts keep
