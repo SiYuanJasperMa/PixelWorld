@@ -17,7 +17,7 @@ replacement for the main 256x144 / 4-FPS Physics-IQ Verified run.
 | Models | GPT-6.1-Sol, GPT-5.6-Sol |
 | Tracks | Text, Vision |
 | Scope | 198 cases x 2 models x 2 tracks = 792 videos |
-| Output token budget | 100k reported output tokens per attempt window |
+| Output token budget | 1M reported output tokens per attempt window |
 | Attempts | At most 5 total model attempts per case |
 
 Every prepared case must include:

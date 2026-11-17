@@ -64,7 +64,7 @@ def load_config(path: str | Path) -> Benchmark:
         raise ValueError("Unknown filesystem_policy")
     if filesystem_policy == "case-only-v1" and protocol in LEGACY_TRACK_PROTOCOLS:
         raise ValueError("Legacy protocols preserve their original filesystem policy")
-    token_budget = raw.get('output_token_budget', None if protocol in LEGACY_TRACK_PROTOCOLS else 100000)
+    token_budget = raw.get('output_token_budget', None if protocol in LEGACY_TRACK_PROTOCOLS else 1000000)
     if token_budget is not None and (not isinstance(token_budget, int) or isinstance(token_budget, bool) or token_budget < 1):
         raise ValueError('output_token_budget must be a positive integer or null')
     default_tracks = TRACKS if protocol in LEGACY_TRACK_PROTOCOLS else DEFAULT_TRACKS

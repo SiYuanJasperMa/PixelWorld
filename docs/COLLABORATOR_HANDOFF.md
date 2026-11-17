@@ -25,7 +25,7 @@ Benchmarks and output contracts:
   1280x720, 24 FPS, 120 frames / 5 s.
 
 Keep the frozen prompts/rules, case-only-v1 filesystem policy, requested High
-effort, 100,000 reported output-token budget per real attempt, and at most five
+effort, 1,000,000 reported output-token budget per real attempt, and at most five
 real attempts per case. Infrastructure/key/rate-limit/transport failures are
 recorded separately and do not consume model attempts. Do not add a learned
 renderer, image/video generator, physics engine, subagent, reference video,

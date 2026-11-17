@@ -87,11 +87,12 @@ queue rejection with the same request context.
 
 ## Runtime budget
 
-New non-legacy configurations default to a 100,000 cumulative API output-token
+New non-legacy configurations default to a 1,000,000 cumulative API output-token
 threshold, monitored outside the agent. No fixed review count or 15-minute wall
 deadline is imposed. Recovery attempts share the case allowance. Because usage
 is reported after requests, overshoot is recorded; this is not an exact request
-cap. See [TOKEN_RUNTIME_BUDGET.md](TOKEN_RUNTIME_BUDGET.md).
+cap. See the runtime and accounting section of
+[FINAL_EXPERIMENT_PROTOCOL.md](FINAL_EXPERIMENT_PROTOCOL.md).
 
 Legacy v1 settings remain unchanged unless explicitly configured. The separate
 20-minute stalled-file-change recovery is for local execution failure, not an

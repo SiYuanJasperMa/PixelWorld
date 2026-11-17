@@ -175,7 +175,7 @@ trajectory, or benchmark score is exposed to the agent.
 - Cap concurrent jobs and scientific-library threads. Measure per-process-tree
   peak RSS in smoke before finalizing main/1080p memory allowances. Host-wide
   free memory/load is not the same as the worker's cgroup allocation.
-- Each model attempt gets **100,000 reported output tokens**, enforced externally
+- Each model attempt gets **1,000,000 reported output tokens**, enforced externally
   without mandatory tool-count or revision-count limits. Reasoning already
   included in provider output is not added again. API-request granularity can
   produce recorded overshoot; log the observed limit and overshoot.
@@ -213,7 +213,7 @@ A filesystem isolation improvement alone does not require regenerating an
 otherwise compatible delivery. `tools/audit_reuse.py --compatible-history`
 checks original model identity, track, prompt and conditioning hashes, supplied
 video-editing inputs, media contract, generation rules, Codex version, effort,
-100k per-attempt budget, attempt cap and saved artifacts. It creates an external
+1M per-attempt budget, attempt cap and saved artifacts. It creates an external
 `reuse_registry.json`; the supervisor resolves the original successful source
 and skips future dispatch for that model/track/case. Original manifests, code,
 RGB arrays, timestamps and attempt numbers remain unchanged. A changed source
@@ -225,3 +225,13 @@ PCVE's earlier 256×144 / 24 FPS / 50k cohort remains a historical cohort; it is
 not a 720p / 100k main result. PhyGen runs without the current photographic target
 remain separate when their media contract or task rules differ. Reuse is decided
 by artifacts and metadata, not by a directory's display name.
+
+### Budget amendment 2026-11-17
+
+All models in the four main benchmarks now receive **1,000,000 reported output
+tokens per real attempt** instead of 100,000. The reason is empirical: several
+models exhausted 100k at 720p/24 FPS while still in analysis and produced no
+artifact. Completed deliveries made under the earlier 100k allowance are
+retained unchanged and are not regenerated; each manifest keeps its original
+`output_token_budget`. Analyses must therefore separate 100k and 1M attempts by
+the recorded per-run value rather than assuming one budget for the whole cohort.

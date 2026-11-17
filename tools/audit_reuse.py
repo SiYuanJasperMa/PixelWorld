@@ -60,7 +60,7 @@ def audit(config_path, legacy, compatible_history=False):
        'media':m.get('media_contract')==spec,'initial':m.get('input_image_sha256')==input_hash,
        'prompt':m.get('input_prompt_sha256')==prompt_hash,'rules':m.get('rules_sha256')==rules_hash,
        'cli':m.get('codex_version')=='codex-cli 0.169.0','effort':m.get('reasoning_effort')==model.reasoning_effort,
-       'budget':m.get('output_token_budget')==cfg.output_token_budget,
+       'budget':isinstance(m.get('output_token_budget'),int) and 0<m.get('output_token_budget')<=cfg.output_token_budget,
        'fresh_budget':m.get('prior_attempt_output_tokens',0)==0,
        'generation_contract':m.get('generation_contract')=='minimal-v2',
        'additional_inputs':all((m.get('initial_input_hashes')or{}).get(name)==value
@@ -81,6 +81,7 @@ def audit(config_path, legacy, compatible_history=False):
      eligible.append({'model_key':model.key,'track':track,'case_id':cid,'source':str(run),
          'original_attempt':number,'model_attempts_to_delivery':model_attempts,
          'manifest_sha256':sha(run/'run_manifest.json'),'media':spec,
+         'original_output_token_budget':m.get('output_token_budget'),
          'source_suite':legacy.name,'original_model':m.get('model'),
          'original_protocol':m.get('protocol'),
          'original_filesystem_policy':m.get('filesystem_policy')or'workspace-write',

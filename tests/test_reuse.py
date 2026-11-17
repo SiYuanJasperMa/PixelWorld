@@ -55,11 +55,11 @@ def test_reuse_preserves_history_and_stops_duplicate_dispatch(tmp_path):
     assert any(r[2] is not None and r[1].startswith('history_')for r in refs)
 
 
-def test_reuse_does_not_accept_changed_input_or_budget(tmp_path):
+def test_reuse_rejects_changed_input_or_budget_above_allowance(tmp_path):
     config,model,legacy,run,data=historical(tmp_path)
     (config.inputs_root/'good/prompt.txt').write_text('Different prompt')
     assert audit(config.source,legacy,True)['exclusion_checks']['prompt']==1
-    data['output_token_budget']=50000
+    data['output_token_budget']=2000000
     (run/'run_manifest.json').write_text(json.dumps(data))
     assert audit(config.source,legacy,True)['exclusion_checks']['budget']==1
 

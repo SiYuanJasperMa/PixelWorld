@@ -2,11 +2,36 @@
   "protocol": "pixelworld-final-review-v1",
   "main_track": "vision-agent",
   "models": [
-    {"key": "gpt61-sol", "model": "traex/GPT-6.1-Sol", "reasoning_effort": "high", "analysis": true},
-    {"key": "deepseek-v41", "model": "traex/DeepSeek-V4.1-Flash", "reasoning_effort": "high", "analysis": true},
-    {"key": "gpt56-sol", "model": "traex/GPT-5.6-Sol", "reasoning_effort": "high", "analysis": false},
-    {"key": "gpt6-astra", "model": "traex/GPT-6-Astra", "reasoning_effort": "high", "analysis": false},
-    {"key": "seed21-pro", "model": "traex/Seed-2.1-Pro-0915", "reasoning_effort": "high", "analysis": false}
+    {
+      "key": "gpt61-sol",
+      "model": "traex/GPT-6.1-Sol",
+      "reasoning_effort": "high",
+      "analysis": true
+    },
+    {
+      "key": "deepseek-v41",
+      "model": "traex/DeepSeek-V4.1-Flash",
+      "reasoning_effort": "high",
+      "analysis": true
+    },
+    {
+      "key": "gpt56-sol",
+      "model": "traex/GPT-5.6-Sol",
+      "reasoning_effort": "high",
+      "analysis": false
+    },
+    {
+      "key": "gpt6-astra",
+      "model": "traex/GPT-6-Astra",
+      "reasoning_effort": "high",
+      "analysis": false
+    },
+    {
+      "key": "seed21-pro",
+      "model": "traex/Seed-2.1-Pro-0915",
+      "reasoning_effort": "high",
+      "analysis": false
+    }
   ],
   "provider": {
     "type": "responses",
@@ -16,7 +41,7 @@
     "env_key": "PIXELWORLD_API_KEY",
     "stream_idle_timeout_ms": 3600000
   },
-  "output_token_budget": 100000,
+  "output_token_budget": 1000000,
   "max_total_model_attempts": 5,
   "codex_version": "0.169.0",
   "filesystem_policy": "case-only-v1",

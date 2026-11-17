@@ -1,3 +1,8 @@
+> **2026-11-17 amendment:** the main experiment budget is now **1,000,000**
+> reported output tokens per real attempt for all models. The 100k text below is
+> retained as the historical record; completed 100k deliveries are preserved and
+> are not regenerated.
+
 # PixelWorld：100k 外部 token 阈值
 
 用户在2026-11-09将新任务预算提高至累计 **100,000 API output tokens**。

@@ -21,7 +21,7 @@ benchmark evaluators, and GitHub Pages publisher. Completed groups are reused.
 Explicit VBench/PhyGenBench generation and evaluation pause markers are retained.
 
 Failed-case retry monitoring preserves all attempts and uses the existing
-two-attempt, 100k-token retry windows with a 300-second cooldown. It skips groups
+two-attempt, 1M-token retry windows with a 300-second cooldown. It skips groups
 already reported complete, updates its heartbeat between configurations, and
 locks manager creation to prevent duplicate restarts. Model-visible prompts
 and generation rules are unaffected.

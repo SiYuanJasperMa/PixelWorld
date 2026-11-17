@@ -1,99 +1,92 @@
 # PixelWorld
 
-PixelWorld evaluates a **coding agent as a direct RGB pixel world model**. The agent receives a Physics-IQ Verified first frame and prompt, writes Python code, and emits a 5-second continuation as a `uint32` RGB tensor. It does not call an image/video generator.
+PixelWorld evaluates a **coding agent as a direct RGB pixel world model**. The
+agent receives a benchmark prompt (and, for I2V/editing tasks, the permitted
+source pixels), writes runnable Python, and emits every output frame itself. The
+generation path does not call an image/video generator, learned renderer,
+physics engine, or reference continuation.
 
-The repository is a portable benchmark harness built around **OpenAI Codex CLI**. Model identity and API routing are configuration, so the same cleanroom can run against any model exposed by a Codex installation or an OpenAI Responses-compatible gateway.
+The harness is built around **OpenAI Codex CLI**. Model identity and API routing
+are configuration, so the same cleanroom can run any model exposed by a Codex
+installation or an OpenAI Responses-compatible gateway. PixelWorld does not
+install, vendor, or replace Codex; it invokes the user's own executable.
 
-**PixelWorld does not install, vendor, or replace Codex.** It invokes the
-user's existing `codex` executable from `PATH`. To use a specific local build:
+## Current main experiment
 
-```bash
-export PIXELWORLD_CODEX=/absolute/path/to/codex
+| Item | Current setting |
+|---|---|
+| Benchmarks | Physics-IQ Verified (198), RoboJudge shared-50 (50), PCVE-RigidBench (129), PhyGenBench T2V (160) |
+| Main track | `vision-agent` (paper-facing name: **Vision**) |
+| Text track | Separate analysis control for selected models; not required for a main-table row |
+| Physics-IQ / PhyGenBench output | 1280×720, 24 FPS, 120 frames / 5 s |
+| RoboJudge output | Preserve aspect ratio, 720-pixel short edge, 24 FPS, 120 frames / 5 s |
+| PCVE output | 1280×720, 24 FPS, 96 frames / 4 s; official editing timeline |
+| Codex | 0.169.0, pinned per cohort |
+| Filesystem policy | `case-only-v1` |
+| Output-token budget | **1,000,000** reported output tokens per real attempt |
+| Attempt cap | At most 5 real model attempts per case |
+| Infrastructure failures | Quarantined separately; do not consume model attempts |
+
+The 1M budget is a 2026-11-17 amendment. Earlier completed deliveries retain
+their recorded 100k budget and are reused without regeneration; analyses must
+separate attempts by the per-run `output_token_budget` value.
+
+Current confirmed models: GPT-6.1-Sol, GPT-5.6-Sol, DeepSeek-V4.1-Flash,
+GPT-6-Astra, Seed-2.1-Pro-0915. Additional exact-version models such as Kimi,
+GLM or Qwen are appended under the same protocol by changing only the model and
+provider configuration.
+
+The authoritative specification is
+[docs/FINAL_EXPERIMENT_PROTOCOL.md](docs/FINAL_EXPERIMENT_PROTOCOL.md). The
+public benchmark reference is
+[docs/MAIN_EXPERIMENT_PROTOCOL.md](docs/MAIN_EXPERIMENT_PROTOCOL.md).
+
+## Start here
+
+- [Documentation index](docs/INDEX.md)
+- [Final experiment protocol](docs/FINAL_EXPERIMENT_PROTOCOL.md)
+- [Main benchmark reference](docs/MAIN_EXPERIMENT_PROTOCOL.md)
+- [Add a model](docs/ADD_MODEL_RUNBOOK.md)
+- [Copy-paste collaborator handoff](docs/COLLABORATOR_HANDOFF.md)
+- [Codex integration](docs/CODEX.md)
+- [Filesystem isolation](docs/FILESYSTEM_ISOLATION.md)
+- [Agent workspace and task contract](docs/WORKSPACE_AND_TASK.md)
+- [Paper framework](docs/FRAMEWORK_FOR_PAPER.md)
+
+## Results and monitoring
+
+Generated videos and RGB tensors are **not** stored in this code repository.
+They are published separately:
+
+- Live dashboard: temporary tunnel URL while the public hosting migration is
+  completed.
+- Hugging Face dataset: public results and traces; the link will be added here
+  once the upload is complete.
+
+Each published case keeps its playable candidate, poster, `run_manifest.json`,
+token accounting, tool events and runnable `generate.py`. Failed attempts keep
+their manifest and trace but have no fabricated video.
+
+## Repository layout
+
+```text
+pixelworld/            harness, validation, scheduling, media contract
+configs/               current model templates and frozen example configs
+docs/                  current protocol and operations documentation
+docs/archive/2026-11/  superseded protocols and historical experiments
+baselines/             frozen native baseline provenance
+tools/                 matrix managers, dashboard builders, audit utilities
+tests/                 harness regression tests
 ```
 
-Codex authentication, available models, and API access remain owned by the
-user's installation. Codex is intentionally not a Python dependency of this
-repository.
-
-To add another API model, follow
-[docs/ADD_MODEL_RUNBOOK.md](docs/ADD_MODEL_RUNBOOK.md): it covers the required
-Codex version, provider JSON, smoke/full commands, run-root layout, page sync
-and what should or should not be uploaded to GitHub.
-For delegating one exact Kimi/GLM/Qwen version, use the copy-paste assignment in
-[docs/COLLABORATOR_HANDOFF.md](docs/COLLABORATOR_HANDOFF.md).
-
-> Status: research preview. Generated quality remains the measured model outcome. No human selects or repairs individual cases.
-
-The current frozen native baseline is documented at
-[baselines/native_v2_100k](baselines/native_v2_100k/README.md), with code commit
-and exact generation-file hashes. It uses100k cumulative reported output tokens,
-Text/Vision-Agent and autonomous review. Start another RoboJudge model from
-[the sanitized config](configs/robojudge.baseline.example.json). RSI variants
-must use separate code checkouts and output directories.
-
-The current main benchmark portfolio is fixed as **4+1** in
-[docs/MAIN_EXPERIMENT_PROTOCOL.md](docs/MAIN_EXPERIMENT_PROTOCOL.md),
-[docs/MAIN_BENCHMARKS_20261109.md](docs/MAIN_BENCHMARKS_20261109.md) and
-[configs/benchmark_portfolio_20261109.json](configs/benchmark_portfolio_20261109.json):
-
-- RoboJudge shared-50;
-- Physics-IQ Verified;
-- PCVE-RigidBench 129 physical counterfactual video-editing tasks;
-- PhyGenBench 160-prompt official T2V;
-- PhyGenBench paired I2V extension using Qwen-Image-2.1 pre-action initial
-  frames.
-
-[PCVE-RigidBench](docs/PCVE_RIGIDBENCH.md) is required for physical counterfactual
-editing: 129 official tasks, quantitative English prompts, a native 96-frame /
-24-FPS / four-second timeline, and strict separation of target/physics ground
-truth from generation. The final main table uses the Vision track; Text is a
-selected-model analysis control. Compatible successful deliveries are audited
-and reused without rewriting their original provenance.
-
-[PhyGenBench paired](docs/PHYGENBENCH_PIXELSPACE_PAIRED_V2.md) keeps the
-official T2V benchmark and adds an I2V extension over the same prompts. Qwen is
-used only to construct the pre-action initial frame; all video frames remain
-direct RGB output from the coding agent.
-
-[Physics-IQ high-resolution/FPS](docs/HIGH_RES_FPS_ABLATION.md) records the
-analysis setting for `512x288 / 24 FPS / 120 frames`, currently launched for
-GPT-6.1-Sol and GPT-5.6-Sol across Text/Vision.
-
-VBench-2.0, OpenVE, WorldArena, WorldScore, WBench and older multi-benchmark
-smokes remain historical/exploratory pages rather than the main portfolio.
-
-Live run entry points, background supervisors, and score-readiness rules are
-tracked in [docs/LIVE_RUNS_20261109.md](docs/LIVE_RUNS_20261109.md).
-
-The stable site's small Pages branch and exact, versioned media delivery are
-documented in [docs/PREVIEW_DELIVERY.md](docs/PREVIEW_DELIVERY.md).
-
-[Live progress and log storage](docs/LIVE_PROGRESS_AND_LOG_SPOOL.md) describes
-the independent live candidate viewer and local API spool with background archival.
-
-## Included
-
-- Two default capability Tracks: Text and Vision-Agent; historical Vision-Input runs remain supported.
-- One clean Codex session per case; empty output workspace; no memory, network tools, subagents, other cases, references, masks, or scores.
-- Main Physics-IQ and PhyGenBench output: `1280×720 × 120` direct RGB frames at
-  24 FPS / 5 seconds.
-- Benchmark-specific output specs: RoboJudge preserves aspect ratio with a
-  720-pixel short edge; PCVE preserves the official 1280×720, 96-frame,
-  24-FPS / 4-second editing timeline.
-- Exact PNG ↔ `uint32 0xRRGGBB` tensor validation and frame-00 equality.
-- Unlimited autonomous revision with every stable candidate frozen into an observable Trace.
-- Fair, restartable matrix scheduling with bounded concurrency and independent retries.
-- Pinned Physics-IQ Verified I2V input preparation (198 switch frames only).
-- Lossless MP4 export and the unmodified official Physics-IQ Verified evaluator.
-- A model × Track dashboard, playable galleries, and per-case visual generation Trace pages.
-
-The repository does **not** contain Physics-IQ reference videos/masks, generated benchmark outputs, API keys, or the original experiment's scores.
+Generated `data/`, `vendor/`, `runs/`, `site/` and `evaluation_outputs/` are
+ignored. Benchmark inputs, reference videos, masks and generated outputs are not
+committed.
 
 ## Quick start
 
-Requirements: Linux, Python 3.11+, [Codex CLI](https://github.com/openai/codex)
-(live tooling validated with 0.169.0; frozen 0.167.0 and legacy 0.166.0 runs
-preserved), `git`, `ffmpeg`, and `uv` for official evaluation.
+Requirements: Linux, Python 3.11+, Codex CLI 0.169.0, `git`, `ffmpeg`, and `uv`
+for official evaluation.
 
 ```bash
 git clone https://github.com/SiyuanMaCS/PixelWorld.git
@@ -101,280 +94,64 @@ cd PixelWorld
 uv venv --python 3.11 .venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
+export PIXELWORLD_CODEX=/absolute/path/to/codex
 pixelworld doctor --config configs/benchmark.example.json
 ```
 
-Prepare only the 198 legal I2V conditioning images and base prompts:
-
-```bash
-pixelworld physics-iq setup-inputs
-```
-
-This downloads **switch frames only** at the pinned dataset revision, resizes them to 256×144, verifies RGB hashes, and writes `data/physics_iq/manifest.json`. It does not download evaluation videos or masks.
-
-Physics-IQ Verified is gated, so authenticate first with `hf auth login`. If the
-official dataset already exists locally, avoid another download:
-
-```bash
-pixelworld physics-iq setup-inputs \
-  --source-dir /path/to/physics-IQ-benchmark-verified
-```
-
-## Configure models and APIs
-
-For a model in the local Codex catalog:
-
-```json
-{
-  "key": "my-model",
-  "model": "model-id-visible-to-codex",
-  "reasoning_effort": "high",
-  "provider": {"type": "builtin"},
-  "tracks": ["vision-agent"]
-}
-```
-
-For a Responses-compatible gateway:
-
-```json
-{
-  "key": "gateway-model",
-  "model": "upstream-model-id",
-  "reasoning_effort": "high",
-  "provider": {
-    "type": "responses",
-    "id": "my-gateway",
-    "name": "My gateway",
-    "base_url": "https://api.example.com/v1",
-    "env_key": "MY_RESPONSES_API_KEY"
-  },
-  "tracks": ["vision-agent"]
-}
-```
-
-Export the key in the parent shell; never put it in JSON:
-
-```bash
-export MY_RESPONSES_API_KEY='...'
-```
-
-The runner passes the environment-variable **name**, not its value, into the Codex provider config. See [docs/CODEX.md](docs/CODEX.md).
-
-For the optional TRAE CLI backend, [configs/deepseek-v41-flash.example.json](configs/deepseek-v41-flash.example.json)
-configures DeepSeek-V4.1-Flash with the minimal-v2 contract and Text/Vision-Agent
-Tracks. It requires that model in your own TRAE CLI catalog. Run case 0001 in
-each Track before starting all 198 cases; preserve the same output root so the
-full run reuses the validated smoke cases. Agent-authored planning and method
-reports are optional; code revisions, candidate RGB outputs and tool events are
-recorded externally.
-
-On Linux, check the sandbox launcher after a CLI upgrade. With an empty shell
-environment, TRAE CLI must have `traecli-resources/bwrap` beside its resolved
-executable, or a discoverable system installation. A missing launcher is an
-infrastructure failure; repair it before retrying rather than disabling the
-workspace sandbox or its network restrictions.
-
-## Smoke, run, and monitor
-
-Run one case first:
+Run one real Vision case before a matrix:
 
 ```bash
 pixelworld run-case \
   --config configs/benchmark.example.json \
-  --model openai-example \
+  --model my-model \
   --track vision-agent \
   --case 0001
 ```
 
-Run a one-case smoke for both active Tracks:
+Then launch the restart-safe matrix:
 
 ```bash
-cp configs/smoke.example.json configs/smoke.local.json
-# edit the model ID/provider
-pixelworld matrix run --config configs/smoke.local.json
-pixelworld matrix status --config configs/smoke.local.json
-```
-
-After checking the smoke outputs, run the full matrix:
-
-```bash
-cp configs/benchmark.example.json configs/benchmark.local.json
-# edit models, providers, and concurrency
 pixelworld matrix run --config configs/benchmark.local.json
+pixelworld matrix status --config configs/benchmark.local.json
 ```
 
-The supervisor is restart-safe. A detached example:
+## Add a model
 
-```bash
-nohup pixelworld matrix run --config configs/benchmark.local.json \
-  > runs/supervisor.log 2>&1 &
-```
+1. Copy [configs/collaborator-model.example.json](configs/collaborator-model.example.json)
+   to an ignored `configs/*.local.json`.
+2. Set the exact versioned model ID and Responses-compatible provider route.
+3. Export the API key in the parent shell; never put the value in JSON.
+4. Run `pixelworld doctor` and one real Vision smoke per benchmark.
+5. Send the smoke bundle to the benchmark owner for review.
+6. Launch the full matrix with `tools/final_experiments.py` only after the
+   generation readiness gates are approved.
 
-## Two default Tracks and legacy compatibility
+Do not change benchmark prompts, generation rules, output specifications,
+attempt accounting or evaluators to make a particular model submit. Full
+instructions: [docs/ADD_MODEL_RUNBOOK.md](docs/ADD_MODEL_RUNBOOK.md).
 
-| Track | Initial image attachment | Output visual tool | Purpose |
-|---|---:|---:|---|
-| `text` | No | Disabled | Code/numeric RGB-only baseline |
-| `vision-input` (legacy) | Yes | Disabled | Retained for old configurations and results |
-| `vision-agent` | Yes | Available | Autonomous visual self-review |
+## What belongs in Git
 
-New experiments default to `text` and `vision-agent`. Explicit legacy Track
-configurations remain supported, and named v1 configurations retain their old
-three-Track defaults. Existing v1 experiments and saved outputs are unchanged.
+Commit: harness code, tests, protocol documents, config templates and small
+provenance records.
 
-These are command-level differences:
+Do not commit: API keys or auth files, local absolute paths, generated videos or
+RGB tensors, Physics-IQ reference videos/masks, PCVE target videos or evaluator
+ground truth, and per-case raw traces unless a bounded sample is explicitly
+agreed.
 
-- `-i/--image first_frame.png` is present only for the two visual Tracks.
-- `--disable view_image` is added to Text and Vision-Input.
-- Vision-Agent keeps `view_image` available and chooses its own review count.
-- JSONL events are audited; a visual call in a disabled Track is a hard failure.
+## Legacy
 
-There is no fixed visual-review prompt and no review-count budget.
-
-New v2 runs require code and RGB outputs, without mandatory observation,
-event-plan or method reports. They ask only to save intermediate results when
-producing candidates for inspection. The harness records code versions,
-validated stable candidates and timestamped tool events externally, preserving
-exact CLI stdout in `events.raw.jsonl`. See
-[docs/WORKSPACE_AND_TASK.md](docs/WORKSPACE_AND_TASK.md).
-Legacy v1 rules/tasks remain frozen under `pixelworld/assets/legacy_v1/`.
-
-
-Every finalized run records API-reported input, output, cache and reasoning
-tokens in `run_manifest.json` (`token_usage`) and `logs/token_usage.json`.
-Missing usage remains explicit rather than zero. To backfill older runs and
-export one CSV row per run/attempt:
-
-```bash
-python -m pixelworld.usage --runs-root runs --output runs/token-report
-```
-
-See [docs/EFFICIENCY_PROTOCOL.md](docs/EFFICIENCY_PROTOCOL.md) for accounting
-and optional passive recording of older jobs that are still running.
-
-## Codex invocation
-
-The exact command is stored in every `run_manifest.json`. Its stable shape is:
-
-```bash
-codex --ask-for-approval never exec - \
-  --model MODEL \
-  --ephemeral --ignore-user-config --ignore-rules \
-  --skip-git-repo-check \
-  --sandbox workspace-write \
-  --strict-config --json \
-  -C RUN/workspace \
-  -c sandbox_workspace_write.network_access=false \
-  -c 'sandbox_workspace_write.writable_roots=[]' \
-  -c sandbox_workspace_write.exclude_slash_tmp=true \
-  -c project_doc_max_bytes=0 \
-  -c skills.bundled.enabled=false \
-  -c shell_environment_policy.inherit=none \
-  -c 'shell_environment_policy.set.PATH="<active-venv>/bin:/usr/local/bin:/usr/bin:/bin"' \
-  -c 'web_search="disabled"' \
-  --disable browser_use --disable computer_use \
-  --disable image_generation \
-  --disable multi_agent --disable multi_agent_v2 \
-  --disable apps --disable plugins --disable memories --disable skill_search
-```
-
-The fixed Track task is supplied on stdin. Responses gateway settings are explicit invocation-local `-c model_providers.<id>...` values.
-
-## Output contract
-
-```text
-runs/<model-key>/<track>/case_0001_attempt_01/
-├── run_manifest.json
-├── logs/{events.jsonl,stderr.log,validation.json}
-├── trace/{rounds.jsonl,round_000/, ...}
-└── workspace/
-    ├── generate.py
-    ├── pixels.npz             # uint32 (144,256,20), 0xRRGGBB
-    ├── frames/00.png ... 19.png
-    ├── inspection.png
-    ├── transition_check.png
-    ├── OBSERVATION.md
-    ├── METHOD.md
-    └── index.html
-```
-
-Acceptance requires every PNG to exactly equal its tensor slice and frame 00 to exactly equal the conditioning image. A `uint32 (20,144,256)` tensor is repaired only when it already matches all PNGs and can be losslessly transposed.
-
-## Visualization
-
-```bash
-pixelworld web build --config configs/benchmark.local.json --output site
-python -m http.server 8000 --directory site
-```
-
-Open <http://127.0.0.1:8000>. The page uses model rows and fixed Track columns. Each case has a playable final tensor and a Trace with frozen candidate rounds, event counts, validation evidence, and separately labelled Agent-authored claims.
-
-## Official Physics-IQ Verified evaluation
-
-Generation and evaluation data are deliberately separate. Only after a complete 198-case group is frozen:
-
-```bash
-pixelworld physics-iq setup-evaluator
-
-pixelworld physics-iq eval \
-  --config configs/benchmark.local.json \
-  --model openai-example \
-  --track vision-agent
-```
-
-The exporter creates 198 lossless `libx264rgb` videos and decodes each back to RGB for byte-exact comparison. It then runs the official evaluator at:
-
-```text
-google-deepmind/physics-IQ-benchmark
-commit d3f3de16a9c66b4d3bfd6bdb5518570e8b72ad48
-```
-
-Equivalent official command:
-
-```bash
-uv run python -m physiq.run_physics_iq \
-  --input_folders <198-video-folder> \
-  --output_folder evaluation_outputs/official_results \
-  --descriptions_file descriptions/best_practice/descriptions_base.csv \
-  --benchmark_base_folder vendor/physics-iq-data \
-  --n_process 8
-```
-
-PixelWorld reports `final_score_view` as the Verified score. The default protocol is I2V, base best-practice prompt, 4 fps, 5 seconds, and one deterministic run. Physics-IQ accepts one run for inclusion but recommends four runs and requires standard deviation for SOTA claims. See [docs/PHYSICS_IQ.md](docs/PHYSICS_IQ.md).
-
-## Leakage and isolation
-
-- Reference videos and masks are never copied into an Agent workspace.
-- The generation setup command does not download them.
-- Network-capable tools, browser/computer use, external image generation, plugins, memories, skills, and multi-agent features are disabled.
-- Every attempt receives a fresh `CODEX_HOME`, and bundled skills are disabled.
-- Agent shell commands and file actions are recorded and audited.
-- Each attempt receives a fresh directory; only `first_frame.png` and `prompt.txt` vary by case.
-- No human Best-of-N or per-case feedback is allowed.
-
-Codex `workspace-write` is the portable native mode. It hard-restricts writes and tool network access; read isolation depends on the installed Codex sandbox. For adversarial models, run the harness in an externally isolated VM/container containing only this repository and allowed inputs. The trace audit remains required.
-
-## Test
-
-```bash
-pytest -q
-pixelworld doctor --config configs/benchmark.example.json
-```
-
-Always run a fresh case in every enabled Track before releasing a full matrix.
-The harness's sanitized GPT-5.5 custom-provider smoke evidence is recorded in
-[docs/SMOKE_RESULTS.md](docs/SMOKE_RESULTS.md); the corresponding reusable
-configuration shape is [configs/gpt55-responses.example.json](configs/gpt55-responses.example.json).
-
-Play the three accepted smoke videos and inspect their round-by-round traces:
-**https://siyuanmacs.github.io/PixelWorld/smoke/**
+Earlier 256×144/4 FPS protocols, the withdrawn 15-minute wall-clock budget,
+superseded smoke reports and historical benchmark plans are retained under
+[docs/archive/2026-11/](docs/archive/2026-11/). They are provenance, not current
+instructions.
 
 ## Upstream attribution
 
-PixelWorld does not redistribute Physics-IQ code or data. Follow the licenses and terms of:
+PixelWorld does not redistribute Physics-IQ code or data. Follow the licenses
+and terms of:
 
 - [Physics-IQ and Physics-IQ Verified](https://github.com/google-deepmind/physics-IQ-benchmark)
 - [Physics-IQ Verified dataset](https://huggingface.co/datasets/Anates-Labs-Research/Physics-IQ-Verified)
 - [OpenAI Codex CLI](https://github.com/openai/codex)
-
-Current evaluation scope: [I2V world-model suite, complete official settings and published baseline comparisons](docs/WORLDMODEL_PLAN.md). Historical multi-benchmark smoke: [task interfaces, source mappings, RGB/PCM contracts and review pages](docs/BENCHMARK_SMOKE.md). New benchmarks are smoke-only until user review; existing Physics-IQ v1 remains unchanged.

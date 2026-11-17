@@ -18,7 +18,7 @@ Both therefore retain more conditioning detail than the earlier experiment
 which enlarged the canonical 256×144 image to 512×288. Record this input-detail
 change when comparing the earlier experiment.
 
-Output token budget remains 100k per recorded attempt window, reasoning effort
+Output token budget is 1M per recorded attempt window (new attempts; earlier 100k runs retained), reasoning effort
 high, and at most five model attempts per case (infra interruptions excluded).
 Agents choose their own checking and refinement strategy. A resolution-specific
 output helper avoids embedding gigabytes of pixels in the local HTML. It

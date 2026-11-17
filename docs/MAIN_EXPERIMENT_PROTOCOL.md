@@ -54,7 +54,7 @@ score.
 The active budget policy is:
 
 - at most **5 total model attempts** per case;
-- 100k cumulative reported output tokens per attempt window;
+- 1M cumulative reported output tokens per attempt window (amended 2026-11-17; earlier 100k deliveries retain their recorded budget);
 - `token_budget_exhausted` counts as a model failed attempt;
 - provider/key/rate-limit/payload/stream failures are infrastructure failures,
   quarantined separately, and do not count as model failed attempts.

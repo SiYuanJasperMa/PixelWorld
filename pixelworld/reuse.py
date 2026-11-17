@@ -70,4 +70,5 @@ def run_sources(folder: Path, case: str | None = None):
 def public_provenance(item: dict) -> dict:
     return {key: item.get(key) for key in (
         'source_suite', 'original_attempt', 'original_model', 'original_protocol',
-        'original_filesystem_policy', 'model_attempts_to_delivery', 'manifest_sha256')}
+        'original_filesystem_policy', 'original_output_token_budget',
+        'model_attempts_to_delivery', 'manifest_sha256')}

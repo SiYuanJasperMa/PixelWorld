@@ -17,7 +17,7 @@
     "env_key": "PIXELWORLD_COLLABORATOR_API_KEY",
     "stream_idle_timeout_ms": 3600000
   },
-  "output_token_budget": 100000,
+  "output_token_budget": 1000000,
   "max_total_model_attempts": 5,
   "codex_version": "0.169.0",
   "filesystem_policy": "case-only-v1",

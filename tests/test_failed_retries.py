@@ -137,7 +137,7 @@ def test_new_retry_budget_is_fresh_and_accumulates_within_its_round(tmp_path):
     output, unknown, _ = _prior_attempt_usage(config, model, "text", "bad", 3)
     assert output == 0 and unknown is False
     result = run_case(config, "m", "text", "bad", 3, codex_binary="/bin/true", dry_run=True)
-    assert result["output_token_budget"] == 100000
+    assert result["output_token_budget"] == 1000000
     assert result["budget_scope_start_attempt"] == 3 and result["prior_attempt_output_tokens"] == 0
     path = run_path(config, model, "text", "bad", 3)
     (path / "run_manifest.json").write_text(json.dumps(

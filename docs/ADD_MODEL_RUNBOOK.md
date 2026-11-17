@@ -69,11 +69,12 @@ model's completed directory.
   "max_per_config": 1,
   "max_attempts": 2,
   "max_total_attempts": 5,
-  "output_token_budget": 100000
+  "output_token_budget": 1000000
 }
 ```
 
-The public policy is at most **5 total model attempts** per case.
+The current public budget is **1,000,000 reported output tokens per real
+attempt**, with at most **5 total model attempts** per case.
 `token_budget_exhausted` counts as a model failed attempt. Infrastructure
 failures such as missing keys, 429/rate limits, provider payload errors, mux
 errors or stream transport failures should be quarantined and retried without
