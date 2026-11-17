@@ -7,7 +7,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools.build_bench_review import document, physics_verified_display
 from tools.sync_stable_pixelworld_pages import HIDDEN_MODELS, quarantine_stats
 
-MODELS={'gpt61-sol':'GPT-6.1-Sol','gpt56-sol':'GPT-5.6-Sol','gpt6-astra':'GPT-6-Astra','deepseek-v41':'DeepSeek-V4.1-Flash','seed21-pro':'Seed-2.1-Pro-0915'}
+MODELS={'gpt61-sol':'GPT-6.1-Sol','gpt56-sol':'GPT-5.6-Sol','gpt56-luna':'GPT-5.6-Luna','gpt56-terra':'GPT-5.6-Terra','gpt6-astra':'GPT-6-Astra','deepseek-v41':'DeepSeek-V4.1-Flash','seed21-pro':'Seed-2.1-Pro-0915'}
 
 def read(p):
     try:return json.loads(p.read_text())

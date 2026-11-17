@@ -204,7 +204,59 @@ def failed_scratch_path(path: str, item: dict) -> bool:
                             ('Read-only file system', 'No such file or directory', 'Permission denied'))
                     for line in lines)):
         return True
-    return _failed_python_scratch(path, item)
+    return _failed_python_scratch(path, item) or _denied_python_write(path, item)
+
+
+def _is_path_node(node, path: str, bindings: dict) -> bool:
+    if isinstance(node, ast.Constant):
+        return node.value == path
+    if isinstance(node, ast.Name) and len(bindings.get(node.id, [])) == 1:
+        value = bindings[node.id][0]
+        return isinstance(value, ast.Constant) and value.value == path
+    return False
+
+
+def _denied_python_write(path: str, item: dict) -> bool:
+    """Waive one denied scratch-image write; never an outside read or a delivered artifact."""
+    output = str(item.get('aggregated_output', ''))
+    if path not in output or not any(message in output for message in
+                                     ('Permission denied', 'Read-only file system',
+                                      'No such file or directory')):
+        return False
+    for _, body in _python_sections(_unwrap_shell(str(item.get('command', '')))):
+        try:
+            tree = ast.parse(body)
+        except SyntaxError:
+            continue
+        bindings = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                bindings.setdefault(node.targets[0].id, []).append(node.value)
+        def write_call(node):
+            if not isinstance(node, ast.Call) or not node.args:
+                return False
+            if isinstance(node.func, ast.Attribute):
+                return node.func.attr in ('save', 'savefig', 'imwrite', 'imsave', 'tofile', 'write')
+            return (isinstance(node.func, ast.Name) and node.func.id == 'open' and len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str)
+                    and any(mode in node.args[1].value for mode in 'wax'))
+        writes = [node for node in ast.walk(tree) if write_call(node)
+                  and _is_path_node(node.args[0], path, bindings)]
+        if len(writes) != 1:
+            continue
+        write = writes[0]
+        # The traceback must prove this call did not complete. If execution
+        # reached a later stdin line, the write may have succeeded and stays blocked.
+        trace_lines = [int(value) for value in re.findall(r'File "<stdin>", line (\d+)', output)]
+        if not trace_lines or trace_lines[-1] > write.lineno:
+            continue
+        # Any other active use of the same path is an outside read/write.
+        others = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and node.args
+                  and node is not write and _is_path_node(node.args[0], path, bindings)]
+        if others:
+            continue
+        return True
+    return False
 
 
 def _failed_python_scratch(path: str, item: dict) -> bool:
@@ -406,7 +458,7 @@ def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
         path_checks.append(([path for path in blocked if path not in denied], warnings))
     outside_command_values = sorted({value for blocked, _ in path_checks for value in blocked})
     failed_directory_probes = sorted({value for _, warnings in path_checks for value in warnings})
-    generate_runs = sum(bool(re.search(r"\bpython(?:3)?\s+(?:\./)?generate\.py\b", command))
+    generate_runs = sum(bool(re.search(r"\bpython(?:3)?\s+(?:\./)?(?:generate|pixelworld_run)\.py\b", command))
                         for command in commands)
     track_violation = None
     if track in ("text", "vision-input") and visual_calls:

@@ -281,3 +281,22 @@ def test_failed_patch_request_does_not_claim_successful_external_write(tmp_path)
     result=validate(workspace,events,0,'vision-agent')
     assert result['pass'] and result['outside_workspace_file_changes']==[]
     assert result['failed_outside_workspace_file_change_attempts']==[outside]
+
+
+def test_denied_scratch_image_write_is_not_an_outside_access():
+    path = '/tmp/pixelworld_denied_montage_nonexistent_6139.jpg'
+    command = (f"python - <<'PY'\nfrom PIL import Image\n"
+               f"out=Image.new('RGB',(32,32))\nout.save({path!r})\nPY")
+    item = {'command': command, 'exit_code': 1,
+            'aggregated_output': 'Traceback (most recent call last):\n'
+                                 '  File "<stdin>", line 3, in <module>\n'
+                                 f'FileNotFoundError: [Errno 2] No such file or directory: {path!r}\n'}
+    assert failed_scratch_path(path, item)
+    read = f"python - <<'PY'\nfrom PIL import Image\nImage.open({path!r})\nPY"
+    assert not failed_scratch_path(path, {**item, 'command': read})
+    later = (f"python - <<'PY'\nfrom PIL import Image\n"
+             f"out=Image.new('RGB',(32,32))\nout.save({path!r})\nprint(undefined)\nPY")
+    assert not failed_scratch_path(path, {**item, 'command': later,
+        'aggregated_output': 'Traceback (most recent call last):\n'
+                             '  File "<stdin>", line 4, in <module>\n'
+                             'NameError: name undefined is not defined\n'})

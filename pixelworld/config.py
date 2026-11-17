@@ -42,6 +42,7 @@ class Benchmark:
     models: tuple[Model, ...]
     output_token_budget: int | None = None
     filesystem_policy: str = "workspace-write"
+    harness_variant: str = "baseline"
 
     def model(self, key: str) -> Model:
         matches = [item for item in self.models if item.key == key]
@@ -67,6 +68,11 @@ def load_config(path: str | Path) -> Benchmark:
     token_budget = raw.get('output_token_budget', None if protocol in LEGACY_TRACK_PROTOCOLS else 1000000)
     if token_budget is not None and (not isinstance(token_budget, int) or isinstance(token_budget, bool) or token_budget < 1):
         raise ValueError('output_token_budget must be a positive integer or null')
+    harness_variant = raw.get('harness_variant', 'baseline')
+    if harness_variant not in ('baseline', 'flash-v1'):
+        raise ValueError('Unknown harness_variant')
+    if harness_variant == 'flash-v1' and protocol in LEGACY_TRACK_PROTOCOLS:
+        raise ValueError('Legacy protocols preserve their original harness interface')
     default_tracks = TRACKS if protocol in LEGACY_TRACK_PROTOCOLS else DEFAULT_TRACKS
     base = source.parent.parent if source.parent.name == "configs" else source.parent
     models = []
@@ -117,6 +123,7 @@ def load_config(path: str | Path) -> Benchmark:
         models=tuple(models),
         output_token_budget=token_budget,
         filesystem_policy=filesystem_policy,
+        harness_variant=harness_variant,
     )
     if min(result.max_concurrency, result.max_per_config, result.max_attempts) < 1:
         raise ValueError("Concurrency and attempt limits must be positive")

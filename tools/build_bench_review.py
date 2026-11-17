@@ -397,6 +397,7 @@ def main():
                          "error": type(error).__name__})
     good = [r for r in rows if "model_key" in r]
     model_names = {'gpt61-sol':'GPT-6.1-Sol', 'gpt56-sol':'GPT-5.6-Sol',
+                   'gpt56-luna':'GPT-5.6-Luna', 'gpt56-terra':'GPT-5.6-Terra',
                    'gpt6-astra':'GPT-6-Astra', 'deepseek-v41':'DeepSeek-V4.1-Flash',
                    'seed21-pro':'Seed-2.1-Pro-0915'}
     bench_names = {'physics_iq':'Physics-IQ', 'vbench_i2v':'VBench-I2V · VBench++',
@@ -448,7 +449,7 @@ def main():
     body += '</div>'
     for i,benchmark in enumerate(benchmarks):
         body += f'<section class=benchmark-panel id="panel-{benchmark}"{ " hidden" if i else ""}><h3>{html.escape(bench_names.get(benchmark,benchmark))}</h3><div class=scroll><table class=matrix><tr><th>模型</th><th>Text</th><th>Vision-Agent</th></tr>'
-        preferred_models = ["gpt61-sol", "gpt56-sol", "gpt6-astra", "deepseek-v41", "seed21-pro"]
+        preferred_models = ["gpt61-sol", "gpt56-sol", "gpt56-luna", "gpt56-terra", "gpt6-astra", "deepseek-v41", "seed21-pro"]
         present_models = sorted({r["model_key"] for r in good if r["benchmark"] == benchmark})
         models = [model for model in preferred_models if model in present_models]
         models += [model for model in present_models if model not in models]
@@ -519,6 +520,7 @@ def main():
         values = ' · '.join(f'{html.escape(k)} {v[0]:.4f}' for k, v in d.items())
         body += f'<tr><td>VBench 补充维度</td><td>官方函数已评分</td><td>同一 pair 的五份样本；原始值：{values}</td></tr>'
     model_names = {'gpt61-sol':'GPT-6.1-Sol', 'gpt56-sol':'GPT-5.6-Sol',
+                   'gpt56-luna':'GPT-5.6-Luna', 'gpt56-terra':'GPT-5.6-Terra',
                    'gpt6-astra':'GPT-6-Astra', 'deepseek-v41':'DeepSeek-V4.1-Flash'}
     single_case_scores = {}
     for model, label in model_names.items():

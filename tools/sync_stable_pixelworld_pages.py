@@ -62,13 +62,15 @@ CSS = """:root{color-scheme:dark;--bg:#0b0f14;--panel:#141b24;--line:#2b3745;--t
 MODEL_LABELS = {
     "gpt61-sol": "GPT-6.1-Sol",
     "gpt56-sol": "GPT-5.6-Sol",
+    "gpt56-luna": "GPT-5.6-Luna",
+    "gpt56-terra": "GPT-5.6-Terra",
     "gpt6-astra": "GPT-6-Astra",
     "deepseek-v41": "DeepSeek-V4.1-Flash",
     "seed21-pro": "Seed-2.1-Pro-0915",
 }
 
 HIDDEN_MODELS = {"gemini38-flash"}
-MODEL_ORDER = ["gpt61-sol", "gpt56-sol", "gpt6-astra", "deepseek-v41", "seed21-pro"]
+MODEL_ORDER = ["gpt61-sol", "gpt56-sol", "gpt56-luna", "gpt56-terra", "gpt6-astra", "deepseek-v41", "seed21-pro"]
 TRACK_ORDER = ["text", "vision-agent"]
 TRACK_LABELS = {"text": "Text", "vision-agent": "Vision"}
 
