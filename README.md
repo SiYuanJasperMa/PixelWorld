@@ -19,6 +19,8 @@ To add another API model, follow
 [docs/ADD_MODEL_RUNBOOK.md](docs/ADD_MODEL_RUNBOOK.md): it covers the required
 Codex version, provider JSON, smoke/full commands, run-root layout, page sync
 and what should or should not be uploaded to GitHub.
+For delegating one exact Kimi/GLM/Qwen version, use the copy-paste assignment in
+[docs/COLLABORATOR_HANDOFF.md](docs/COLLABORATOR_HANDOFF.md).
 
 > Status: research preview. Generated quality remains the measured model outcome. No human selects or repairs individual cases.
 
