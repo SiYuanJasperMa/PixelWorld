@@ -192,6 +192,15 @@ def snapshot(config: Benchmark, supervisor_pid: int | None = None) -> tuple[dict
     return status, info
 
 
+def fairness_key(counts: dict) -> tuple[int, int]:
+    """Prefer an idle model before one that already holds a slot, then fewer completions.
+
+    Pure completion-count fairness starves the leading model: a slow or failing
+    model never raises its completion count, so it keeps taking every slot.
+    """
+    return (int(counts.get("running", 0)), int(counts.get("complete", 0)))
+
+
 def _launch(config: Benchmark, model: Model, track: str, case_id: str, attempt: int) -> int:
     log_root = config.runs_root / "_supervisor"
     log_root.mkdir(parents=True, exist_ok=True)
@@ -245,7 +254,7 @@ def run(config: Benchmark, interval: float = 5.0) -> None:
                 if settings.get('prioritize_less_attempted_cases'):
                     pending.sort(key=lambda row:(row[1]['attempt'],row[0]))
                 for case_id, item in pending[:available]:
-                    fairness = status["groups"][key]["counts"].get("complete", 0)
+                    fairness = fairness_key(status["groups"][key]["counts"])
                     order=(item['attempt'],case_id) if settings.get('prioritize_less_attempted_cases') else case_id
                     candidates.append((fairness, group_order[key], order, model, track, case_id, item))
             candidates.sort(key=lambda item: item[:3])

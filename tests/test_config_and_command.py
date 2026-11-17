@@ -255,3 +255,13 @@ def test_pid_alive_treats_zombie_as_dead(tmp_path):
     finally:
         proc.terminate()
         proc.wait(timeout=5)
+
+
+def test_fairness_prefers_idle_model_over_completion_leader():
+    from pixelworld.supervisor import fairness_key
+    # A leading model with no live slot outranks a slow model holding two.
+    assert fairness_key({'running': 0, 'complete': 185}) < fairness_key({'running': 2, 'complete': 3})
+    # Within the same running count, fewer completions go first.
+    assert fairness_key({'running': 1, 'complete': 3}) < fairness_key({'running': 1, 'complete': 10})
+    # Holding two slots always yields to a model holding one.
+    assert fairness_key({'running': 2, 'complete': 0}) > fairness_key({'running': 1, 'complete': 999})
