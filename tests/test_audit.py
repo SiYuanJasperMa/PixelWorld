@@ -6,7 +6,7 @@ from PIL import Image
 
 from pixelworld.audit import (canonicalize_tensor, invokes_network, invokes_subagent,
                               outside_command_paths, classify_outside_command_paths, validate,
-                              failed_scratch_path, PLAYWRIGHT_SOFTWARE_CACHE)
+                              failed_scratch_path, permitted_tool_roots, PLAYWRIGHT_SOFTWARE_CACHE)
 from pixelworld.util import sha256
 
 
@@ -300,3 +300,20 @@ def test_denied_scratch_image_write_is_not_an_outside_access():
         'aggregated_output': 'Traceback (most recent call last):\n'
                              '  File "<stdin>", line 4, in <module>\n'
                              'NameError: name undefined is not defined\n'})
+
+
+def test_permitted_tool_roots_waive_only_granted_read_roots(tmp_path):
+    workspace = tmp_path / 'workspace'
+    workspace.mkdir()
+    tool = tmp_path / 'runtime/bin'
+    tool.mkdir(parents=True)
+    secret = tmp_path / 'runtime/queue_proxy_logs'
+    secret.mkdir(parents=True)
+    (workspace.parent / 'permissions_profile.json').write_text(json.dumps({
+        'filesystem': {':minimal': 'read', str(workspace): 'write', str(tool): 'read'}}))
+    roots = permitted_tool_roots(workspace)
+    assert roots == [tool.resolve()]
+    assert outside_command_paths(f'{tool}/ffmpeg -version', workspace, roots) == []
+    assert outside_command_paths(f'{secret}/local.key', workspace, roots) == [f'{secret}/local.key']
+    # Without the profile-derived roots the tool path stays blocked.
+    assert outside_command_paths(f'{tool}/ffmpeg -version', workspace) == [f'{tool}/ffmpeg']

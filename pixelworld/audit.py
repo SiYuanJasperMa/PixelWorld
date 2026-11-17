@@ -128,11 +128,37 @@ def _python_sections(command: str, include_written: bool = False):
             yield header.end(), tail[:end.start()]
 
 
-def outside_command_paths(command: str, workspace: Path) -> list[str]:
+def permitted_tool_roots(workspace: Path) -> list[Path]:
+    """Read-only tool roots granted by the per-case sandbox profile.
+
+    The profile deliberately excludes the runtime's secret/log directories, so
+    only entries actually granted to the agent become allowed command paths.
+    """
+    path = workspace.parent / 'permissions_profile.json'
+    try:
+        profile = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return []
+    roots = []
+    for value, mode in (profile.get('filesystem') or {}).items():
+        if not isinstance(value, str) or value.startswith(':') or mode != 'read':
+            continue
+        root = Path(value)
+        try:
+            root.resolve().relative_to(workspace.resolve())
+            continue
+        except (ValueError, OSError):
+            pass
+        roots.append(root.resolve())
+    return roots
+
+
+def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] | None = None) -> list[str]:
     # Codex logs shell invocations as /bin/bash -lc "<actual script>".
     # Unwrap the script before identifying Python heredoc arithmetic; otherwise
     # the first header is not at line start and division is treated as a path.
     command = _unwrap_shell(command)
+    tool_roots = tool_roots or []
     values = []
     workspace_value = str(workspace.resolve()) + "/"
     divisions = set()
@@ -156,6 +182,12 @@ def outside_command_paths(command: str, workspace: Path) -> list[str]:
             continue
         if value.startswith(SYSTEM_READ_PREFIXES):
             continue
+        try:
+            resolved = Path(value).resolve()
+        except OSError:
+            resolved = Path(value)
+        if any(resolved == root or root in resolved.parents for root in tool_roots):
+            continue
         # Installed browser binaries/assets are tools, not case conditioning.
         # Profiles, screenshots and outputs must still remain in the workspace.
         if value == PLAYWRIGHT_SOFTWARE_CACHE or value.startswith(PLAYWRIGHT_SOFTWARE_CACHE + '/'):
@@ -166,14 +198,15 @@ def outside_command_paths(command: str, workspace: Path) -> list[str]:
     return values
 
 
-def classify_outside_command_paths(command: str, workspace: Path) -> tuple[list[str], list[str]]:
+def classify_outside_command_paths(command: str, workspace: Path,
+                                   tool_roots: list[Path] | None = None) -> tuple[list[str], list[str]]:
     """Keep unknown outside paths blocked; record a failed literal cd as a warning.
 
     Only recognize a nonexistent absolute directory followed immediately by
     an explicit return to this workspace. Preserve the raw command and do not
     exempt file reads, writes, substitutions, or later uses of that path.
     """
-    paths = outside_command_paths(command, workspace)
+    paths = outside_command_paths(command, workspace, tool_roots)
     match = re.match(
         r"\s*cd\s+(?P<outside>/[^\s;'\"`$]+)\s+2>/dev/null;\s*"
         r"cd\s+(?P<inside>/[^\s&;'\"`$]+)\s*&&", command)
@@ -451,8 +484,9 @@ def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
     network_commands = [command for command in commands if invokes_network(command)]
     subagent_commands = [command for command in commands if invokes_subagent(command)]
     path_checks = []
+    tool_roots = permitted_tool_roots(workspace)
     for item in command_items:
-        blocked, warnings = classify_outside_command_paths(item.get('command',''), workspace)
+        blocked, warnings = classify_outside_command_paths(item.get('command',''), workspace, tool_roots)
         denied = [path for path in blocked if failed_scratch_path(path, item)]
         failed_scratch.extend(denied)
         path_checks.append(([path for path in blocked if path not in denied], warnings))
