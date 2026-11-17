@@ -31,10 +31,15 @@ and evaluator. Cost uses measured cached tokens and the reference tariff
 
 | Arm | Valid | Mean input | Mean output | Commands | \$/attempt | \$/valid |
 |---|---|---|---|---|---|---|
-| Reference (frozen task text) | 10/20 | 149k | 13.7k | 11.1 | 0.99 | 1.98 |
+| Reference (frozen task text) | 14/20 | 149k | 13.7k | 11.1 | 0.99 | 1.41 |
 | Cost guidance only | 19/20 | 82k | 9.1k | 6.0 | 0.62 | 0.65 |
 | Tool interface only | 20/20 | 143k | 15.4k | 9.3 | 1.05 | 1.05 |
-| Guidance + tool interface | see `runs/luna_cost_ab/flash_combined` | | | | | |
+| Guidance + tool interface | 20/20 | 84k | 11.4k | 6.4 | 0.76 | 0.76 |
+
+The reference count is the corrected path-audit count: four additional runs had
+valid videos but a denied `/tmp` scratch write. Six reference runs still fail
+because their scratch script itself was written under `/tmp`, so the generation
+never started.
 
 The tool interface raises delivery reliability to 20/20 but does not reduce
 tokens by itself. Prompt-level efficiency guidance is the dominant cost lever.
@@ -59,3 +64,4 @@ A denied write to a nonexistent `/tmp` scratch path is recorded as a warning
 (`failed_outside_scratch_operations`) when the traceback proves the write never
 completed and the same path is not otherwise used. Missing or invalid delivered
 artifacts still fail. This separates sandbox-path mistakes from model capability.
+l. This separates sandbox-path mistakes from model capability.
