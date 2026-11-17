@@ -211,3 +211,54 @@ def test_formal_dashboard_exposes_data_age_and_latest_delivery():
     assert '数据更新：' in JS
     assert '最近交付：' in JS
     assert 'latest_completion' in JS
+
+
+def test_preview_encoder_uses_existing_cloud_runtime_binary(tmp_path, monkeypatch):
+    from tools import live_benchmark_data as live
+    binary = tmp_path / 'runtime/bin/ffmpeg'
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b'fixture encoder')
+    monkeypatch.delenv('PIXELWORLD_FFMPEG', raising=False)
+    monkeypatch.setattr(live.shutil, 'which', lambda _: None)
+    monkeypatch.setattr(live.sys, 'executable', str(binary.with_name('python')))
+    assert live.preview_encoder() == str(binary)
+
+
+def test_cached_empty_preview_retries_after_encoder_recovers(tmp_path, monkeypatch):
+    from tools import live_benchmark_data as live
+    run = make_run(tmp_path, status='complete')
+    render = tmp_path / 'render'
+    original = live.export_candidate
+    monkeypatch.setattr(live, 'export_candidate', lambda *_: (_ for _ in ()).throw(OSError('encoder unavailable')))
+    first = live.render_case_set(run.parent, '0001', 'suite/m/text', render, {})
+    assert len(first) == 1 and first[0][3]['candidates'] == []
+    assert first[0][3]['media_export_errors']
+    saved = {first[0][0]: {'stamp': first[0][2], 'candidate_count': 0, 'raw_status': 'complete'}}
+    monkeypatch.setattr(live, 'export_candidate', original)
+    second = live.render_case_set(run.parent, '0001', 'suite/m/text', render, saved)
+    assert len(second) == 1 and second[0][3]['candidates']
+
+
+def test_terminal_status_updates_without_waiting_for_preview_job(tmp_path):
+    from tools import live_benchmark_data as live
+    run=make_run(tmp_path,status='running')
+    destination=tmp_path/'public';relative='suite/m/text/case_0001_attempt_01.json'
+    data=live.case_data(run,destination)
+    live.save(destination/relative,data)
+    stored={run.name:{'detail':relative,'status':'running','raw_status':'running','candidate_count':len(data['candidates'])}}
+    path=run/'run_manifest.json';record=json.loads(path.read_text())
+    record['status']='complete';record['validation']={'pass':True,'frames':2};record['completed_utc']='now';record['token_usage']={'output_tokens':987}
+    path.write_text(json.dumps(record))
+    live.overlay_current_status(run.parent,['0001'],'suite/m/text',destination,stored)
+    current=json.loads((destination/relative).read_text())
+    assert current['status']=='complete' and current['validation']['pass']
+    assert current['output_tokens']==987 and stored[run.name]['status']=='complete'
+    assert current['candidates']==data['candidates']
+
+
+def test_closed_detail_prefers_final_provider_usage_over_stale_monitor(tmp_path):
+    run=make_run(tmp_path,status='complete',video=False)
+    path=run/'run_manifest.json';record=json.loads(path.read_text())
+    record['token_usage']={'status':'recorded','output_tokens':987,'input_tokens':4567};path.write_text(json.dumps(record))
+    data=case_data(run,tmp_path/'public')
+    assert data['output_tokens']==987 and data['input_tokens']==4567

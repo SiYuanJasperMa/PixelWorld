@@ -73,7 +73,11 @@ They are published separately:
   [gh-pages](https://github.com/SiyuanMaCS/PixelWorld/tree/gh-pages)
   — small HTML/CSS/JS and progress snapshots; media resolves from HF.
 
-The live exporter refreshes independently of uploads. GitHub and HF receive
+The live exporter refreshes independently of uploads. HF `live/` holds current
+metadata and per-case details; `data/` retains shared media and bulk snapshots.
+Closed case details, their videos and complete sanitized trace archives are
+committed together. Unsynced cases use a clearly labeled live preview fallback.
+Attempt status and token accounting update independently of transcoding. GitHub and HF receive
 progress snapshots in separate background jobs. GitHub Pages deployment is
 defined in `.github/workflows/pages.yml`; an account-level Actions restriction
 currently prevents that deployment. The HF dashboard remains the public

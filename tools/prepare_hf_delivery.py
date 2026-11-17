@@ -1,5 +1,6 @@
 """Freeze public previews and complete sanitized traces without modifying live data."""
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -13,7 +14,10 @@ from tools.live_case_diagnostics import public_text
 
 def sanitize(value):
     if isinstance(value, dict):
-        return {key: ('[redacted]' if key.lower() in
+        def public_key(key):
+            cleaned=public_text(key)
+            return cleaned+'#'+hashlib.sha256(key.encode()).hexdigest()[:10] if cleaned!=key else key
+        return {public_key(key): ('[redacted]' if key.lower() in
             {'authorization', 'password', 'api_key', 'access_token', 'secret_key'}
             else sanitize(item)) for key, item in value.items()}
     if isinstance(value, list):
@@ -23,8 +27,8 @@ def sanitize(value):
     return value
 
 
-def json_copy(source, target):
-    data = sanitize(json.loads(source.read_text()))
+def public_case(data):
+    data = sanitize(data)
     if isinstance(data, dict) and 'case_id' in data and 'candidates' in data:
         data['first_frame'] = None
         data['source_video'] = None
@@ -34,6 +38,11 @@ def json_copy(source, target):
             candidate.pop('chunks', None)
         for event in data.get('events', []):
             event.pop('images', None)
+    return data
+
+
+def json_copy(source, target):
+    data = public_case(json.loads(source.read_text()))
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')))
     return data
@@ -74,8 +83,73 @@ def freeze(bundle, destination):
 TRACE_FILES = ('run_manifest.json', 'media_contract.json', 'task_prompt.txt',
     'input_snapshot/prompt.txt', 'logs/events.jsonl', 'logs/events.raw.jsonl',
     'logs/token_budget.json', 'logs/full_rollout.jsonl', 'workspace/generate.py',
-    'workspace/GENERATION_RULES.md', 'workspace/artifact_io.py',
+    'logs/tool_calls.json', 'logs/full_trace_status.json',
+    'workspace/GENERATION_RULES.md', 'workspace/task_spec.json', 'workspace/artifact_io.py',
     'workspace/inspection.png', 'workspace/transition_check.png')
+
+
+def trace_names(run):
+    names=list(TRACE_FILES)
+    for folder,patterns in [('logs/tool_images',('*.png','*.jpg','*.jpeg','*.webp')),
+                            ('trace',('round_*/generate.py','round_*/snapshot.json')),
+                            ('workspace/_pixelworld_io',('*.py','*.html'))]:
+        for pattern in patterns:
+            names.extend(str(p.relative_to(run)) for p in (run/folder).glob(pattern) if p.is_file())
+    return sorted(set(names))
+
+
+def public_blobs(run):
+    """Retain spilled text/image messages while rebasing any redacted text hashes."""
+    records={};replacements={}
+    for path in (run/'logs/rollout-blobs/sha256').glob('*/*'):
+        if not path.is_file():continue
+        original=path.read_bytes()
+        try:
+            text=original.decode('utf-8')
+        except UnicodeDecodeError:
+            continue
+        cleaned=sanitize(text).encode()
+        digest=hashlib.sha256(cleaned).hexdigest()
+        records['logs/rollout-blobs/sha256/'+digest[:2]+'/'+digest]=cleaned
+        old='traex-rollout-blob:v1:sha256:'+path.name+':'+str(len(original))
+        replacements[old]='traex-rollout-blob:v1:sha256:'+digest+':'+str(len(cleaned))
+    return records,replacements
+
+
+def add_trace_run(archive,run,prefix=''):
+    blobs,replacements=public_blobs(run)
+    contents=dict(blobs)
+    for name in trace_names(run):
+        path=run/name
+        if not path.is_file():continue
+        if path.suffix in ('.png','.jpg','.jpeg','.webp'):
+            contents[name]=path.read_bytes()
+            continue
+        text=path.read_text(errors='replace')
+        if path.suffix=='.json':
+            text=json.dumps(sanitize(json.loads(text)),ensure_ascii=False)
+        elif path.suffix=='.jsonl':
+            lines=[]
+            for line in text.splitlines():
+                try:lines.append(json.dumps(sanitize(json.loads(line)),ensure_ascii=False))
+                except ValueError:lines.append(sanitize(line))
+            text='\n'.join(lines)+'\n'
+        else:text=sanitize(text)
+        for original,public in replacements.items():text=text.replace(original,public)
+        contents[name]=text.encode()
+    for name,content in contents.items():
+        info=tarfile.TarInfo((prefix+'/' if prefix else '')+name)
+        info.size=len(content);info.mode=0o644
+        archive.addfile(info,io.BytesIO(content))
+
+
+def export_trace_run(run,destination):
+    destination.parent.mkdir(parents=True,exist_ok=True)
+    temporary=destination.with_name(destination.name+'.tmp')
+    with tarfile.open(temporary,'w:gz',compresslevel=3) as archive:
+        add_trace_run(archive,run)
+    temporary.replace(destination)
+    return destination
 
 
 def traces(bundle, destination):
@@ -100,32 +174,10 @@ def traces(bundle, destination):
                     count += 1
                     origin = 'reused' if provenance else 'native'
                     prefix = '/'.join((record['benchmark'], model, track, origin, run.name))
-                    for name in TRACE_FILES:
-                        path = run / name
-                        if not path.is_file():
-                            continue
-                        if path.suffix == '.png':
-                            content = path.read_bytes()
-                        else:
-                            text = path.read_text(errors='replace')
-                            if path.suffix == '.json':
-                                content = json.dumps(sanitize(json.loads(text)), ensure_ascii=False).encode()
-                            elif path.suffix == '.jsonl':
-                                lines = []
-                                for line in text.splitlines():
-                                    try:
-                                        lines.append(json.dumps(sanitize(json.loads(line)), ensure_ascii=False))
-                                    except ValueError:
-                                        lines.append(sanitize(line))
-                                content = ('\n'.join(lines) + '\n').encode()
-                            else:
-                                content = sanitize(text).encode()
-                        info = tarfile.TarInfo(prefix + '/' + name)
-                        info.size = len(content)
-                        info.mode = 0o644
-                        archive.addfile(info, io.BytesIO(content))
+                    add_trace_run(archive,run,prefix)
             item = {'benchmark': record['benchmark'], 'model': model, 'attempt_records': count,
-                    'archive': str(target.relative_to(destination)), 'bytes': target.stat().st_size}
+                    'archive': str(target.relative_to(destination)), 'bytes': target.stat().st_size,
+                    'tool_images_included':True,'code_revisions_included':True,'spilled_blobs_rebased_after_redaction':True}
             inventory.append(item)
             print(json.dumps(item), flush=True)
     path = destination / 'metadata/trace_inventory.json'

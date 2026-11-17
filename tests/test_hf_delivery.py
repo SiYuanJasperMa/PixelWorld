@@ -19,3 +19,43 @@ def test_public_copy_redacts_secrets_and_keeps_original_trace(tmp_path):
 def test_hf_credential_in_arbitrary_trace_text_is_redacted():
     token = 'hf_' + 'a' * 30
     assert token not in sanitize({'trace': token})['trace']
+
+
+def test_absolute_path_keys_are_redacted_without_colliding():
+    from tools.prepare_hf_delivery import sanitize
+    result=sanitize({'/mnt/private/a':'read','/mnt/private/b':'write'})
+    assert len(result)==2
+    assert '/mnt/' not in str(result)
+
+
+def test_spilled_trace_blob_reference_tracks_redacted_bytes(tmp_path):
+    import hashlib
+    from tools.prepare_hf_delivery import public_blobs,trace_names
+    original=b'python /mnt/private/generate.py'
+    digest=hashlib.sha256(original).hexdigest()
+    blob=tmp_path/'logs/rollout-blobs/sha256'/digest[:2]/digest
+    blob.parent.mkdir(parents=True);blob.write_bytes(original)
+    image=tmp_path/'logs/tool_images/read.png';image.parent.mkdir();image.write_bytes(b'png')
+    records,mapping=public_blobs(tmp_path)
+    name,content=next(iter(records.items()))
+    assert '/mnt/' not in content.decode()
+    assert name.endswith(hashlib.sha256(content).hexdigest())
+    assert len(mapping)==1 and next(iter(mapping.values())).endswith(':'+str(len(content)))
+    assert 'logs/tool_images/read.png' in trace_names(tmp_path)
+    assert blob.read_bytes()==original
+
+
+def test_complete_case_archive_contains_actual_tool_images_and_code_versions(tmp_path):
+    import json,tarfile
+    from tools.prepare_hf_delivery import export_trace_run
+    run=tmp_path/'run';(run/'logs/tool_images').mkdir(parents=True)
+    (run/'trace/round_001').mkdir(parents=True)
+    (run/'run_manifest.json').write_text(json.dumps({'case':'x','workspace':'/mnt/private/x'}))
+    (run/'logs/tool_images/a.png').write_bytes(b'image-result')
+    (run/'trace/round_001/generate.py').write_text('print("candidate")')
+    target=export_trace_run(run,tmp_path/'archive.tar.gz')
+    with tarfile.open(target) as archive:
+        names=archive.getnames()
+        assert 'logs/tool_images/a.png' in names
+        assert 'trace/round_001/generate.py' in names
+        assert b'/mnt/private' not in archive.extractfile('run_manifest.json').read()

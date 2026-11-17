@@ -15,10 +15,32 @@ def hf_progress(source, token_file):
     token = token_file.read_text().strip() if token_file else None
     api = HfApi(token=token)
     catalogue = sanitize(json.loads((source / 'catalogue.json').read_text()))
-    items = [('data/catalogue.json', catalogue), ('metadata/catalogue.json', catalogue)]
+    from urllib.parse import urljoin
+    bundle=source.parent.parent
+    monitor=bundle/'state/temporary_monitor_url.txt'
+    if monitor.is_file():
+        origin=urljoin(monitor.read_text().strip(),'.')
+        if origin.startswith('https://'):
+            catalogue['live_origin']=origin
+    catalogue['detail_base']='https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/'
+    ledger_path=bundle/'state/hf_incremental.json'
+    ledger=json.loads(ledger_path.read_text()).get('ready',{}) if ledger_path.is_file() else {}
+    items=[]
     for group in catalogue['groups']:
-        items.append(('data/' + group['path'],
-            sanitize(json.loads((source / group['path']).read_text()))))
+        payload=sanitize(json.loads((source / group['path']).read_text()))
+        synced=0
+        for history in payload.get('cases',{}).values():
+            for attempt in history:
+                ready=ledger.get(attempt['detail'])
+                current=attempt.get('detail_sha256')
+                attempt['hf_detail_ready']=bool(ready and (not current or current==ready['source_sha256']))
+                attempt['hf_trace_ready']=bool(attempt['hf_detail_ready'] and ready.get('trace_ready'))
+                synced+=attempt['hf_detail_ready']
+        payload['publication']={'hf_synced_details':synced}
+        group['publication']=payload['publication']
+        items.append(('live/' + group['path'],payload))
+    items += [('live/catalogue.json', catalogue), ('metadata/catalogue.json', catalogue),
+              ('live/experiment_plan.json',sanitize(json.loads((source/'experiment_plan.json').read_text())))]
     operations = [CommitOperationAdd(path_in_repo=name,
         path_or_fileobj=json.dumps(data, ensure_ascii=False).encode()) for name, data in items]
     commit = api.create_commit('HuggingFriends/PixelWorld', repo_type='dataset',
@@ -42,7 +64,7 @@ if __name__ == '__main__':
             while True:
                 for name, function, values in (
                     ('github', snapshot, (args.source, args.checkout,
-                        'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/data/')),
+                        'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/')),
                     ('hf', hf_progress, (args.source, args.token_file))):
                     future = futures.get(name)
                     if future is not None and future.done():

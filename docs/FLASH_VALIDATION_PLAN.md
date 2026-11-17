@@ -95,3 +95,14 @@ writing and does not certify final harness acceptance.
 [Live Flash monitoring](https://huggingface.co/spaces/HuggingFriends/PixelWorld-dashboard)
 provides progress, token measurements and matched subset quality. Score data
 is published on HF and kept outside the GitHub code repository.
+
+
+## Replay study (offline only)
+
+The current replay prototype preserves the original task and input images,
+keeps recent complete tool interactions, and can archive older tool text or
+known generated inspection images. Full originals remain retrievable in the
+same case workspace. This is not enabled in the baseline or confirmation
+cohort. Serialized byte reductions are an offline mechanism measurement, not
+provider token savings or evidence of quality preservation. A matched native
+run and official scoring are required before selecting this design.

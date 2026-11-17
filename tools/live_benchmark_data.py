@@ -35,14 +35,35 @@ PUBLICATION_DIRTY = set()
 PUBLICATION_DIRTY_LOCK = threading.Lock()
 
 
+def preview_encoder():
+    candidates = [__import__('os').environ.get('PIXELWORLD_FFMPEG'), shutil.which('ffmpeg'),
+                  str(Path(sys.executable).resolve().parent / 'ffmpeg')]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return str(candidate)
+    raise OSError('Preview encoder unavailable; configure the existing runtime ffmpeg')
+
+
+def candidate_media_available(detail, destination):
+    roots = (destination, destination.parent / 'pixelworld')
+    for candidate in detail.get('candidates', []):
+        for field in ('preview_mp4', 'poster', 'pixels'):
+            relative = candidate.get(field)
+            if relative and not any((root / relative).is_file() for root in roots):
+                return False
+    return True
+
+
 def mark_publication_dirty(path):
     if PUBLICATION_ROOT is not None and path.is_relative_to(PUBLICATION_ROOT):
         with PUBLICATION_DIRTY_LOCK:
             PUBLICATION_DIRTY.add('pixelworld/'+str(path.relative_to(PUBLICATION_ROOT)))
 
 
-def large_media_headroom(spec):
+def large_media_headroom(spec, packed=False):
     needed=2*1024**3  # Preview encoder reads native PNGs, not the full packed tensor.
+    if packed:
+        needed=max(needed,spec['width']*spec['height']*spec['frames']*4+512*1024**2)
     for limit_path,usage_path in [
         (Path('/sys/fs/cgroup/memory/memory.limit_in_bytes'),Path('/sys/fs/cgroup/memory/memory.usage_in_bytes')),
         (Path('/sys/fs/cgroup/memory.max'),Path('/sys/fs/cgroup/memory.current'))]:
@@ -57,18 +78,65 @@ def large_media_headroom(spec):
 def export_native_preview(source,target,spec):
     frames=source/'frames';pattern=frames/'%02d.png'
     if not all((frames/f'{i:02d}.png').is_file() for i in range(spec['frames'])):
-        raise OSError('Waiting for the complete native PNG candidate')
+        return export_packed_preview(source,target,spec)
     target.mkdir(parents=True,exist_ok=True)
     preview=target/'preview.mp4';poster=target/'poster.png'
     if not preview.exists():
         temporary=target/'preview.tmp.mp4'
-        subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-framerate',str(spec['fps']),
+        subprocess.run([preview_encoder(),'-nostdin','-v','error','-y','-framerate',str(spec['fps']),
             '-i',str(pattern),'-frames:v',str(spec['frames']),'-an','-c:v','libx264',
             '-preset','veryfast','-crf','18','-maxrate','18M','-bufsize','36M',
             '-pix_fmt','yuv420p','-threads','2','-movflags','+faststart',str(temporary)],
             check=True,timeout=300)
         temporary.replace(preview)
     if not poster.exists():shutil.copyfile(frames/'00.png',poster)
+    return {**{k:spec[k] for k in ['width','height','frames','fps']},
+            'preview_file':'preview.mp4','layout':'native-size-compressed-preview',
+            'native_rgb_retained':True}
+
+
+def export_packed_preview(source,target,spec):
+    """Encode an externally saved RGB snapshot without synthesizing any pixels."""
+    import numpy as np
+    from PIL import Image
+    if not large_media_headroom(spec, packed=True):
+        raise OSError('Packed candidate preview deferred for memory headroom')
+    target.mkdir(parents=True,exist_ok=True)
+    preview=target/'preview.mp4';poster=target/'poster.png'
+    temporary=target/'preview.tmp.mp4'
+    if not preview.exists() or not poster.exists():
+        with np.load(source/'pixels.npz',allow_pickle=False) as archive:
+            pixels=archive['pixels']
+        h,w,n=spec['height'],spec['width'],spec['frames']
+        if pixels.dtype != np.uint32:
+            raise ValueError('Packed candidate must have uint32 RGB pixels')
+        if pixels.shape == (n,h,w):
+            pixels=pixels.transpose(1,2,0)
+        if pixels.shape != (h,w,n):
+            raise ValueError('Packed candidate has an invalid RGB tensor shape')
+        with (target/'encoder.log').open('wb') as errors:
+            process=subprocess.Popen([preview_encoder(),'-nostdin','-v','error','-y',
+                '-f','rawvideo','-pix_fmt','rgb24','-s',f'{w}x{h}','-r',str(spec['fps']),
+                '-i','pipe:0','-frames:v',str(n),'-an','-c:v','libx264',
+                '-preset','veryfast','-crf','18','-pix_fmt','yuv420p','-threads','2',
+                '-movflags','+faststart',str(temporary)],stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,stderr=errors)
+            try:
+                for index in range(n):
+                    frame=pixels[:,:,index]
+                    rgb=np.stack([(frame>>16)&255,(frame>>8)&255,frame&255],axis=-1).astype(np.uint8)
+                    if index == 0 and not poster.exists():
+                        Image.fromarray(rgb).save(poster)
+                    process.stdin.write(rgb.tobytes())
+                process.stdin.close();process.stdin=None
+                process.wait(timeout=300)
+                if process.returncode:
+                    raise OSError('Packed preview encoder failed; full log retained')
+                temporary.replace(preview)
+            finally:
+                if process.poll() is None:
+                    process.kill();process.wait()
+                temporary.unlink(missing_ok=True)
     return {**{k:spec[k] for k in ['width','height','frames','fps']},
             'preview_file':'preview.mp4','layout':'native-size-compressed-preview',
             'native_rgb_retained':True}
@@ -173,9 +241,11 @@ def case_data(run, destination, previous=None):
     media_stamp = ([pixels.stat().st_mtime_ns, pixels.stat().st_size] if pixels.exists() else []) + [
         [p.parent.name, p.stat().st_mtime_ns] for p in snapshots]
     versions = []
+    export_errors = []
     reused = (previous is not None and previous.get('schema_version') == PUBLIC_SCHEMA
               and previous.get('media_stamp') == media_stamp
-              and (previous.get('candidates') or not pixels.is_file()))
+              and (previous.get('candidates') or not pixels.is_file())
+              and candidate_media_available(previous, destination))
     if reused:
         versions = previous.get('candidates', [])
     for path in ([] if reused else snapshots):
@@ -185,8 +255,10 @@ def case_data(run, destination, previous=None):
                                      f'候选 {len(versions) + 1}', record.get('utc'))
             if video:
                 versions.append(video)
-        except (OSError, ValueError, KeyError, EOFError, BadZipFile):
+        except (OSError, ValueError, KeyError, EOFError, BadZipFile) as error:
             # A snapshot can still be completing. Keep earlier versions visible.
+            export_errors.append({'candidate': path.parent.name,
+                                  'reason': clean(f'{type(error).__name__}: {error}')})
             continue
     if not reused and (not versions or manifest.get('status') == 'complete'):
         try:
@@ -194,8 +266,9 @@ def case_data(run, destination, previous=None):
                                      '当前保存结果', manifest.get('completed_utc'))
             if final and (not versions or versions[-1].get('asset_id',versions[-1]['pixels']) != final['asset_id']):
                 versions.append(final)
-        except (OSError, ValueError, KeyError, EOFError, BadZipFile):
-            pass
+        except (OSError, ValueError, KeyError, EOFError, BadZipFile) as error:
+            export_errors.append({'candidate': 'current saved output',
+                                  'reason': clean(f'{type(error).__name__}: {error}')})
     events = []
     event_path = run / 'logs/events.jsonl'
     if event_path.is_file():
@@ -236,8 +309,10 @@ def case_data(run, destination, previous=None):
             'delivery_status': 'stale' if (manifest.get('validation') or {}).get('infra_error') else manifest['status'],
             'started_utc': manifest.get('started_utc'),
             'completed_utc': manifest.get('completed_utc'),
-            'output_tokens': budget.get('reported_output_tokens', usage.get('output_tokens')),
-            'input_tokens': budget.get('reported_input_tokens', usage.get('input_tokens')),
+            'output_tokens': (usage['output_tokens'] if manifest.get('status')!='running' and usage.get('output_tokens') is not None
+                              else budget.get('reported_output_tokens', usage.get('output_tokens'))),
+            'input_tokens': (usage['input_tokens'] if manifest.get('status')!='running' and usage.get('input_tokens') is not None
+                             else budget.get('reported_input_tokens', usage.get('input_tokens'))),
             'cached_input_tokens': usage.get('cached_input_tokens'),
             'reasoning_output_tokens': usage.get('reasoning_output_tokens'),
             'duration_seconds': manifest.get('duration_seconds'),
@@ -249,6 +324,7 @@ def case_data(run, destination, previous=None):
             'first_frame': image_asset(run / 'input_snapshot/first_frame.png', destination),
             'source_video': image_asset(run / 'input_snapshot/source_video.mp4', destination),
             'candidates': versions, 'events': events, 'media_stamp': media_stamp,
+            'native_output_present': pixels.is_file(), 'media_export_errors': export_errors,
             'schema_version': PUBLIC_SCHEMA}
 
 
@@ -459,8 +535,12 @@ def _render_case_set(folder, case, identity, render_root, saved):
                  events.stat().st_mtime_ns if events.exists() else 0,
                  [(p.parent.name,p.stat().st_mtime_ns) for p in (run/'trace').glob('round_*/snapshot.json')],
                  DIAGNOSTICS_VERSION]
-        if saved.get(cache_key,{}).get('stamp') == stamp:
-            continue
+        cached = saved.get(cache_key, {})
+        if cached.get('stamp') == stamp:
+            detail = read(render_root/relative) or read(render_root.parent/'pixelworld'/relative)
+            needs_preview = (detail.get('native_output_present') or read(manifest).get('status') == 'complete') and not detail.get('candidates')
+            if not needs_preview and candidate_media_available(detail, render_root):
+                continue
         try:
             previous=read(render_root/relative) or read(render_root.parent/'pixelworld'/relative)
             detail = case_data(run, render_root, previous=previous)
@@ -495,7 +575,12 @@ def render_backfill_set(folder,identity,render_root,saved,excluded=(),limit=4):
             stamp=manifest.stat().st_mtime_ns
         except OSError:continue
         cached=saved.get(cache_key,{}).get('stamp') or []
-        if len(cached)<2 or cached[0]!=PUBLIC_SCHEMA or cached[1]!=stamp or cached[-1]!=DIAGNOSTICS_VERSION:
+        entry=saved.get(cache_key,{})
+        missing_preview=entry.get('candidate_count')==0 and entry.get('raw_status',entry.get('status'))=='complete'
+        poster=entry.get('poster')
+        lost_media=bool(entry.get('candidate_count') and poster and not any(
+            (root/poster).is_file() for root in (render_root,render_root.parent/'pixelworld')))
+        if len(cached)<2 or cached[0]!=PUBLIC_SCHEMA or cached[1]!=stamp or cached[-1]!=DIAGNOSTICS_VERSION or missing_preview or lost_media:
             cases.add(case)
     rows=[]
     for case in sorted(cases)[:limit]:
@@ -529,8 +614,46 @@ def merge_render_jobs(destination,cache,pending,render_root,published_assets=Non
                 'status':detail['delivery_status'],'raw_status':detail['status'],
                 'output_tokens':detail['output_tokens'],'candidate_count':len(detail['candidates']),
                 'reused':detail.get('reused',False),
+                'detail_sha256':hashlib.sha256(json.dumps(detail,ensure_ascii=False,separators=(',',':')).encode()).hexdigest(),
                 'poster':detail['candidates'][-1]['poster'] if detail['candidates'] else detail['first_frame']}
         del pending[key]
+
+
+def overlay_current_status(folder,cases,identity,destination,stored):
+    """Update current attempt facts without waiting for video transcoding."""
+    for case in cases:
+        if case is None:continue
+        for run,key,_ in run_sources(folder,case):
+            entry=stored.get(key)
+            if not entry:continue
+            manifest=read(run/'run_manifest.json')
+            if not manifest:continue
+            status='stale' if manifest.get('validation',{}).get('infra_error') else manifest.get('status')
+            budget=read(run/'logs/token_budget.json')
+            final_output=(manifest.get('token_usage')or{}).get('output_tokens')
+            output=final_output if manifest.get('status')!='running' and final_output is not None else budget.get('reported_output_tokens',final_output)
+            if entry.get('raw_status')==manifest.get('status') and entry.get('status')==status and entry.get('output_tokens')==output:
+                continue
+            relative=entry['detail'];detail=read(destination/relative)
+            if not detail:continue
+            detail.update(status=manifest.get('status'),delivery_status=status,
+                completed_utc=manifest.get('completed_utc'),duration_seconds=manifest.get('duration_seconds'))
+            usage=manifest.get('token_usage')or{}
+            for field in ('input_tokens','output_tokens','cached_input_tokens','reasoning_output_tokens'):
+                if usage.get(field) is not None:detail[field]=usage[field]
+            if output is not None:detail['output_tokens']=output
+            if budget.get('reported_input_tokens') is not None:detail['input_tokens']=budget['reported_input_tokens']
+            detail['validation']={k:v for k,v in (manifest.get('validation')or{}).items()
+                                  if k in ('pass','missing_required','generate_runs','frames')}
+            pixels=run/'workspace/pixels.npz'
+            native_stamp=[pixels.stat().st_mtime_ns,pixels.stat().st_size] if pixels.exists() else []
+            detail['native_output_present']=pixels.is_file()
+            detail['media_refresh_pending']=native_stamp!=(detail.get('media_stamp')or[])[:2]
+            if status=='complete':detail['diagnostics']=None
+            save(destination/relative,detail)
+            entry.update(raw_status=manifest.get('status'),status=status,
+                         output_tokens=detail.get('output_tokens'),
+                         detail_sha256=hashlib.sha256(json.dumps(detail,ensure_ascii=False,separators=(',',':')).encode()).hexdigest())
 
 
 def async_update(run_root,destination,cache,pool,pending,render_root,
@@ -553,6 +676,7 @@ def async_update(run_root,destination,cache,pool,pending,render_root,
             if suite.startswith('phygen_'):
                 # Four-case smoke discovery also runs in the I/O worker.
                 desired=[None]
+            overlay_current_status(source/model/track,desired,identity,destination,stored)
             for case in desired:
                 job=(identity,case)
                 if job not in pending and (history_pending is None or job not in history_pending) and len(pending)<48:
