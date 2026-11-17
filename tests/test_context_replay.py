@@ -42,3 +42,25 @@ def test_generated_image_history_is_archived_but_input_image_is_kept(tmp_path):
     assert result[-2:]==items[-2:]
     assert report['tool_pairs_compacted']==2
     assert len(list(tmp_path.glob('*.png')))==2
+
+
+def test_latest_inspection_is_kept_even_with_many_later_text_tools():
+    picture=[{'type':'function_call','name':'view_image','call_id':'v','arguments':json.dumps({'path':'inspection.png'})},
+             {'type':'function_call_output','call_id':'v','output':[{'type':'input_image','image_url':'data:image/png;base64,AA=='}]}]
+    items=list(picture)
+    for i in range(6):
+        items += [{'type':'function_call','name':'exec_command','call_id':str(i),'arguments':'{}'},
+                  {'type':'function_call_output','call_id':str(i),'output':'done'}]
+    result,_=compact(items,keep_recent=2,keep_generated_images=1)
+    assert picture[0] in result and picture[1] in result
+
+
+def test_task_and_rules_file_results_remain_in_replay():
+    protected=[{'type':'function_call','name':'exec_command','call_id':'task','arguments':json.dumps({'cmd':'cat prompt.txt GENERATION_RULES.md task_spec.json'})},
+               {'type':'function_call_output','call_id':'task','output':'Actual benchmark prompt and all rules'}]
+    items=list(protected)
+    for i in range(6):
+        items += [{'type':'function_call','name':'exec_command','call_id':str(i),'arguments':'{}'},
+                  {'type':'function_call_output','call_id':str(i),'output':'ordinary result'}]
+    result,_=compact(items,keep_recent=2)
+    assert protected[0] in result and protected[1] in result

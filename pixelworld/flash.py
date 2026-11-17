@@ -168,3 +168,15 @@ def install_api(workspace: Path, receipt: bool = False) -> dict:
             'backend_sha256': sha256(backend / 'backend.py'),
             'interface_sha256': sha256(original),
             'rules_sha256': sha256(workspace / 'GENERATION_RULES.md')}
+
+
+def pack_task(text: str, workspace: Path):
+    """Include exact allowed static task text up front, without generating a summary."""
+    records={};sections=[text.rstrip()]
+    for name in ('prompt.txt','GENERATION_RULES.md','task_spec.json'):
+        path=workspace/name
+        if not path.is_file():continue
+        records[name]=sha256(path)
+        sections.append('Exact workspace file '+name+':\n````\n'+path.read_text().rstrip()+'\n````')
+    return '\n\n'.join(sections)+'\n',{'schema':'pixelworld-taskpack-v1','source_sha256':records,
+        'semantic_summary_added':False,'files_unchanged':True}

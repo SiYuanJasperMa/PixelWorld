@@ -175,3 +175,16 @@ def test_api_reports_invalid_rgb_without_a_false_receipt(tmp_path):
         cwd=workspace, text=True, capture_output=True, timeout=60)
     assert result.returncode != 0
     assert not result.stdout.strip()
+
+
+def test_task_pack_preserves_exact_inputs_and_adds_no_scene_summary(tmp_path):
+    from pixelworld.flash import pack_task
+    from pixelworld.util import sha256
+    source=_case(tmp_path);workspace=_workspace(tmp_path,source)
+    files={n:(workspace/n).read_bytes() for n in ['prompt.txt','GENERATION_RULES.md','task_spec.json']}
+    text,record=pack_task('Generate the requested video.',workspace)
+    for name,raw in files.items():
+        assert raw.decode().rstrip() in text
+        assert (workspace/name).read_bytes()==raw
+        assert record['source_sha256'][name]==sha256(workspace/name)
+    assert record['semantic_summary_added'] is False

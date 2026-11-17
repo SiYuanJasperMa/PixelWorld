@@ -69,7 +69,7 @@ def load_config(path: str | Path) -> Benchmark:
     if token_budget is not None and (not isinstance(token_budget, int) or isinstance(token_budget, bool) or token_budget < 1):
         raise ValueError('output_token_budget must be a positive integer or null')
     harness_variant = raw.get('harness_variant', 'baseline')
-    if harness_variant not in ('baseline', 'flash-v1', 'flash-lean', 'flash-api', 'flash-api-receipt'):
+    if harness_variant not in ('baseline', 'flash-v1', 'flash-lean', 'flash-api', 'flash-api-receipt', 'flash-taskpack'):
         raise ValueError('Unknown harness_variant')
     if harness_variant != 'baseline' and protocol in LEGACY_TRACK_PROTOCOLS:
         raise ValueError('Legacy protocols preserve their original harness interface')

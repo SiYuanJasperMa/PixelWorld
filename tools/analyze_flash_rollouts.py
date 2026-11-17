@@ -151,6 +151,10 @@ def build(root, output, descriptions=None, cache_path=None):
                     'api': ('generations/api', 'Compact save API'),
                     'receipt': ('generations/receipt', 'Compact API + write receipt'),
                     'strict': ('generations/strict', 'Four-call guidance')} if experiment else ARMS)
+    if experiment and 'replay' in experiment.get('arms',[]):
+        definitions['replay']=('generations/replay','Replay pilot · task-read regression')
+    if experiment and 'taskpack' in experiment.get('arms',[]):
+        definitions['taskpack']=('generations/taskpack','Exact initial task pack')
     reference_key = 'baseline' if experiment else 'reference'
     arms = []
     for key, (folder, label) in definitions.items():
@@ -194,7 +198,7 @@ def build(root, output, descriptions=None, cache_path=None):
                     cache[cache_key] = saved
                 trace_rows.append(saved['data'])
         current = scored.get(key, {})
-        entry = {'key': key, 'label': label, 'model': 'GPT-5.6-Luna', 'track': 'Vision',
+        entry = {'excluded_from_acceptance': key=='replay' and bool(experiment and experiment.get('replay_status','').startswith('Initial pilot')), 'key': key, 'label': label, 'model': 'GPT-5.6-Luna', 'track': 'Vision',
             'expected_cases': 20, 'counts': dict(statuses), 'valid_rgb': valid_rgb,
             'original_protocol_pass': valid_protocol, 'infrastructure_interruptions': infra,
             'pending': max(0, 20-len(manifests)), 'usage_measured_cases': len(rows),

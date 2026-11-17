@@ -92,7 +92,8 @@ def trace_names(run):
     names=list(TRACE_FILES)
     for folder,patterns in [('logs/tool_images',('*.png','*.jpg','*.jpeg','*.webp')),
                             ('trace',('round_*/generate.py','round_*/snapshot.json')),
-                            ('workspace/_pixelworld_io',('*.py','*.html'))]:
+                            ('workspace/_pixelworld_io',('*.py','*.html')),
+                            ('workspace/.tmp/harness-history',('*.json','*.png','*.jpg','*.webp'))]:
         for pattern in patterns:
             names.extend(str(p.relative_to(run)) for p in (run/folder).glob(pattern) if p.is_file())
     return sorted(set(names))

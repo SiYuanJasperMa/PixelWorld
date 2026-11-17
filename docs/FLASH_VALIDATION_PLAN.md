@@ -106,3 +106,12 @@ same case workspace. This is not enabled in the baseline or confirmation
 cohort. Serialized byte reductions are an offline mechanism measurement, not
 provider token savings or evidence of quality preservation. A matched native
 run and official scoring are required before selecting this design.
+
+
+The replay smoke uses a separate authenticated loopback relay and an explicit
+case-to-workspace registry. It forwards to the same model gateway, retains all
+task/input messages and recent complete tool interactions, and stores replaced
+call/result pairs inside that case's `.tmp/harness-history/`. Older known
+generated inspection images can be restored from their archived image files.
+The original baseline gateway is unchanged. The smoke must pass artifact,
+streaming and official quality checks before any replay matrix is launched.

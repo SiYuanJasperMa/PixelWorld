@@ -11,6 +11,8 @@ from pathlib import Path
 import re
 
 ELIGIBLE = {'exec_command', 'write_stdin', 'apply_patch'}
+PROTECTED_INPUTS = ('prompt.txt','GENERATION_RULES.md','task_spec.json','first_frame.png',
+                    'source_info.json','source_pixels.npz','conditioning_info.json')
 
 
 def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None):
@@ -25,7 +27,12 @@ def compact(items, keep_recent=4, archive_dir=None, keep_generated_images=None):
             call = calls.get(item.get('call_id'))
             if call:
                 pairs.append((call[0], index, call[1], item))
-    candidates = pairs[:-keep_recent]
+    def input_discovery(call):
+        text=call.get('arguments') or call.get('input') or ''
+        return any(name in text for name in PROTECTED_INPUTS)
+    candidates = [pair for pair in pairs[:-keep_recent]
+                  if pair[2].get('name') in ELIGIBLE and isinstance(pair[3].get('output'),str)
+                  and not input_discovery(pair[2])]
     def generated_inspection(call):
         if call.get('name') != 'view_image':return False
         try:path=json.loads(call.get('arguments')or'{}').get('path','')

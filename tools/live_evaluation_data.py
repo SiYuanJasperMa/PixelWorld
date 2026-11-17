@@ -122,8 +122,10 @@ def pcve_score(summary, model, track):
 def collect(run_root: Path):
     result={'updated_utc':datetime.now(timezone.utc).isoformat(),'cohorts':[]}
     commands=live_commands()
+    registry=read(run_root/'live_sources.json')
+    sources={item['key']:Path(item['runs_root']) for item in registry.get('sources',[])}
     for suite,(benchmark,folder,expected) in COHORTS.items():
-        generation=read(run_root/'generations'/suite/'status.json')
+        generation=read(sources.get(suite,run_root/'generations'/suite)/'status.json')
         scheduler=read(run_root/'evaluation'/folder/'scheduler.json')
         entries=scheduler.get('cohorts') or scheduler.get('done') or {}
         groups=generation.get('groups') or {}

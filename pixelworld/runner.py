@@ -482,6 +482,9 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     task_snapshot = run / "task_prompt.txt"
     task_text = generation_task_text(track, spec, legacy=legacy_contract,
                                     token_budget_enabled=token_limit is not None, override=task_file)
+    if config.harness_variant=='flash-taskpack':
+        from .flash import pack_task
+        task_text,flash_record=pack_task(task_text,workspace)
     task_snapshot.write_text(task_text)
     # Preserve only the supplied workspace inputs, before the model can edit them.
     # This directory stays outside the agent's visible workspace.
