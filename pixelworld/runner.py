@@ -22,7 +22,7 @@ from .media import contract, task_rules
 FILE_CHANGE_STALL_SECONDS = 20 * 60
 # Queued provider requests may legitimately wait a long time before the first
 # token. Do not kill them; queueing is expected and recovers on its own.
-FIRST_TOKEN_STALL_SECONDS = 20 * 60
+FIRST_TOKEN_STALL_SECONDS = 30 * 60
 WATCHDOG_POLL_SECONDS = 10
 CLI_TEARDOWN_GRACE_SECONDS = 60
 
@@ -271,9 +271,13 @@ def _wait(agent: subprocess.Popen, events: Path, logs: Path,
           first_token_stall_seconds: int = FIRST_TOKEN_STALL_SECONDS) -> tuple[int, dict | None]:
     watchdog = None
     last_records = -1
+    started = time.monotonic()
+    first_token_seen = False
     while agent.poll() is None:
         if token_monitor is not None:
             exhausted = token_monitor.poll()
+            if token_monitor.record_count > 0:
+                first_token_seen = True
             if token_monitor.record_count != last_records:
                 atomic_json(logs/'token_budget.json', token_monitor.report())
                 last_records = token_monitor.record_count
@@ -281,6 +285,17 @@ def _wait(agent: subprocess.Popen, events: Path, logs: Path,
                 watchdog = {'kind': 'token_budget', 'reason': 'output_token_budget_exhausted' if exhausted else 'token_usage_unavailable',
                             'cutoff_utc': token_monitor.crossed_utc or utc_now(),
                             'triggered_utc': utc_now(), 'signal': 'SIGTERM',
+                            'token_budget': token_monitor.report()}
+                atomic_json(logs/'watchdog.json', watchdog)
+                from .token_budget import stop_agent
+                stop_agent(agent)
+                break
+            if not first_token_seen and time.monotonic() - started >= first_token_stall_seconds:
+                watchdog = {'kind': 'first_token_stall',
+                            'reason': 'provider_first_token_stall',
+                            'triggered_utc': utc_now(),
+                            'idle_seconds': round(time.monotonic() - started, 1),
+                            'signal': 'SIGTERM',
                             'token_budget': token_monitor.report()}
                 atomic_json(logs/'watchdog.json', watchdog)
                 from .token_budget import stop_agent

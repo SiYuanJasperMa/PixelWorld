@@ -136,3 +136,31 @@ time.sleep(60)
     assert result['token_usage']['output_tokens'] is None
     assert result['token_usage']['reported_completed_request_output_tokens']==60
     assert result['submission_selection']['source']=='last_valid_snapshot_before_token_crossing'
+
+
+def test_first_token_stall_is_infrastructure_watchdog(tmp_path):
+    import subprocess
+    from pixelworld.runner import _wait
+
+    class Monitor:
+        record_count = 0
+        unavailable = False
+        crossed_utc = None
+
+        def poll(self):
+            return False
+
+        def report(self):
+            return {'reported_output_tokens': 0}
+
+    events = tmp_path / 'events.jsonl'
+    events.write_text('')
+    agent = subprocess.Popen(['sleep', '30'])
+    try:
+        _, watchdog = _wait(agent, events, tmp_path, token_monitor=Monitor(),
+                            first_token_stall_seconds=1)
+    finally:
+        if agent.poll() is None:
+            agent.kill()
+    assert watchdog is not None
+    assert watchdog['reason'] == 'provider_first_token_stall'
