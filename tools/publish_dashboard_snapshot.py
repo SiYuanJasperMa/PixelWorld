@@ -20,6 +20,17 @@ SHELLS = ('index.html', 'pixelworld-index.html', 'analyses.html',
           'experiment_plan.json', 'flash.html', 'flash.js')
 
 
+def validate_script_syntax(files):
+    node=shutil.which('node')
+    if not node:
+        raise RuntimeError('Frontend publication requires Node.js for syntax validation')
+    for name,content in files.items():
+        if name.endswith('.js'):
+            result=subprocess.run([node,'--check'],input=content,text=True,capture_output=True)
+            if result.returncode:
+                raise ValueError('Invalid frontend script '+name+': '+result.stderr[-1000:])
+
+
 def snapshot(source, checkout, live_base):
     if urlparse(live_base).scheme != 'https':
         raise ValueError('Use a public HTTPS live dashboard URL')
@@ -33,6 +44,7 @@ def snapshot(source, checkout, live_base):
         if path.is_symlink():
             path.unlink()
     files = {name: (source / name).read_text() for name in SHELLS}
+    validate_script_syntax(files)
     files['.nojekyll'] = ''
     files['catalogue.json'] = (source / 'catalogue.json').read_text()
     catalogue = json.loads(files['catalogue.json'])

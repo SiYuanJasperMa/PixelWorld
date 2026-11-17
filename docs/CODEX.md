@@ -142,3 +142,7 @@ can be reused only when all 198 IDs, BPP identities, accepted source runs, sourc
 manifest/pixel hashes, video hashes and media contracts still agree. A changed
 or partial export is rejected for operator review; this never regenerates a
 completed model result.
+
+Frontend publication checks every JavaScript asset with Node.js before pushing
+to GitHub or HF. Progress metadata and video/trace publication run separately,
+so a frontend validation failure does not stop inference or progress updates.

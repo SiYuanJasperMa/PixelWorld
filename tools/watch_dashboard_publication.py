@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import time
 
-from tools.publish_dashboard_snapshot import snapshot, SHELLS
+from tools.publish_dashboard_snapshot import snapshot, SHELLS, validate_script_syntax
 from tools.prepare_hf_delivery import sanitize
 
 
@@ -57,6 +57,7 @@ def hf_frontend(source, token_file):
     from huggingface_hub import HfApi, CommitOperationAdd
     live_base='https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/'
     files={name:(source/name).read_text() for name in SHELLS}
+    validate_script_syntax(files)
     for name, content in files.items():
         if re.search(r'/mnt/|/home/tiger/|\bhf_[A-Za-z0-9]{20,}|\bghp_[A-Za-z0-9]{20,}',content):
             raise ValueError('Private data in frontend asset '+name)
