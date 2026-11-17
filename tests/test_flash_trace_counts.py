@@ -1,5 +1,6 @@
 import json
-from tools.analyze_flash_rollouts import recorded_trace, paired_quality
+from tools.analyze_flash_rollouts import recorded_trace, paired_quality, build
+import pytest
 
 
 def test_image_attempt_and_actual_delivery_are_distinct(tmp_path):
@@ -39,3 +40,18 @@ def test_single_case_smoke_has_no_sampling_interval_or_preservation_claim():
     assert result['v1']['ci95'] is None
     assert not result['v1']['development_interval_within_margin']
     assert not result['v2']['development_interval_within_margin']
+
+
+def test_failed_attempt_spend_is_included_in_cost_per_protocol_delivery(tmp_path):
+    (tmp_path/'experiment_manifest.json').write_text(json.dumps({'arms':['baseline']}))
+    for index,success in enumerate([True,False],1):
+        folder=tmp_path/f'generations/baseline/gpt56-luna/vision-agent/case_{index:04d}_attempt_01'
+        folder.mkdir(parents=True)
+        (folder/'run_manifest.json').write_text(json.dumps({'status':'complete' if success else 'failed',
+            'validation':{'pass':success,'frames':120,'png_tensor_exact':True,'frame0_exact':True},
+            'token_usage':{'status':'recorded','input_tokens':100*index,'output_tokens':10*index}}))
+    result=build(tmp_path,tmp_path/'report.json')['arms'][0]
+    assert result['valid_rgb']==2 and result['original_protocol_pass']==1
+    assert result['cost_usage_complete_for_closed_attempts']
+    assert result['cost_per_protocol_delivery_normalized70']==pytest.approx(.00261)
+    assert result['mean_cost_normalized70']==pytest.approx(.001305)

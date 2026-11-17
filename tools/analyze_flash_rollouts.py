@@ -166,6 +166,7 @@ def build(root, output, descriptions=None, cache_path=None):
         valid_rgb = 0
         valid_protocol = 0
         infra = 0
+        closed_noninfra = 0
         trace_rows = []
         for path in manifests:
             record = read(path)
@@ -180,12 +181,14 @@ def build(root, output, descriptions=None, cache_path=None):
             infra += interrupted
             if status == 'running':
                 continue
+            closed_noninfra += int(not interrupted)
             usage = record.get('token_usage') or {}
             if (not interrupted and usage.get('status') == 'recorded'
                     and isinstance(usage.get('input_tokens'), int)
                     and isinstance(usage.get('output_tokens'), int)):
                 cached = min(usage['input_tokens'], max(0, usage.get('cached_input_tokens') or 0))
                 rows.append({'input': usage['input_tokens'], 'output': usage['output_tokens'],
+                    'protocol_delivery': status=='complete' and bool(validation.get('pass')),
                     'cached': cached, 'reasoning': usage.get('reasoning_output_tokens'),
                     'duration_seconds': record.get('duration_seconds'),
                     'cost_measured_cache': (usage['input_tokens']-cached)*10/1e6 + cached/1e6 + usage['output_tokens']*50/1e6,
@@ -200,6 +203,8 @@ def build(root, output, descriptions=None, cache_path=None):
                     cache[cache_key] = saved
                 trace_rows.append(saved['data'])
         current = scored.get(key, {})
+        measured_deliveries=sum(r['protocol_delivery'] for r in rows)
+        cost_complete=len(rows)==closed_noninfra
         entry = {'excluded_from_acceptance': key=='replay' and bool(experiment and experiment.get('replay_status','').startswith('Initial pilot')), 'key': key, 'label': label, 'model': 'GPT-5.6-Luna', 'track': 'Vision',
             'expected_cases': 20, 'counts': dict(statuses), 'valid_rgb': valid_rgb,
             'original_protocol_pass': valid_protocol, 'infrastructure_interruptions': infra,
@@ -210,6 +215,12 @@ def build(root, output, descriptions=None, cache_path=None):
             'mean_seconds': mean([r['duration_seconds'] for r in rows]),
             'mean_cost_measured_cache': mean([r['cost_measured_cache'] for r in rows]),
             'mean_cost_normalized70': mean([r['cost_normalized70'] for r in rows]),
+            'cost_usage_complete_for_closed_attempts': cost_complete,
+            'measured_protocol_deliveries': measured_deliveries,
+            'cost_per_protocol_delivery_normalized70': (sum(r['cost_normalized70'] for r in rows)/measured_deliveries
+                if measured_deliveries and cost_complete else None),
+            'cost_per_protocol_delivery_measured_cache': (sum(r['cost_measured_cache'] for r in rows)/measured_deliveries
+                if measured_deliveries and cost_complete else None),
             'scored_cases': len(current), 'mean_v1': mean([v['v1'] for v in current.values()]),
             'mean_v2': mean([v['v2'] for v in current.values()]),
             'paired': paired_quality(scored.get(reference_key, {}), current, scenario) if key != reference_key else None,
