@@ -43,8 +43,10 @@ def hf_progress(source, token_file):
         items.append(('live/' + group['path'],payload))
     items += [('live/catalogue.json', catalogue), ('metadata/catalogue.json', catalogue),
               ('live/experiment_plan.json',sanitize(json.loads((source/'experiment_plan.json').read_text())))]
-    if (source/'evaluation.json').is_file():
-        items.append(('live/evaluation.json',sanitize(json.loads((source/'evaluation.json').read_text()))))
+    evaluation_source=bundle/'publication/pixelworld/evaluation.json'
+    if not evaluation_source.is_file():evaluation_source=source/'evaluation.json'
+    if evaluation_source.is_file():
+        items.append(('live/evaluation.json',sanitize(json.loads(evaluation_source.read_text()))))
     operations = [CommitOperationAdd(path_in_repo=name,
         path_or_fileobj=json.dumps(data, ensure_ascii=False).encode()) for name, data in items]
     commit = api.create_commit('HuggingFriends/PixelWorld', repo_type='dataset',
