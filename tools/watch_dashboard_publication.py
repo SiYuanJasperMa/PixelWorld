@@ -90,6 +90,7 @@ def hf_frontend(source, token_file):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, required=True)
+    parser.add_argument('--frontend-source', type=Path, help='Static page source when live data is exported separately')
     parser.add_argument('--checkout', type=Path, required=True)
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--token-file', type=Path)
@@ -106,7 +107,7 @@ if __name__ == '__main__':
                     ('github', snapshot, (args.source, args.checkout,
                         'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/')),
                     ('hf', hf_progress, (args.source, args.token_file)),
-                    ('hf_frontend', hf_frontend, (args.source, args.token_file))):
+                    ('hf_frontend', hf_frontend, (args.frontend_source or args.source, args.token_file))):
                     if name=='github' and args.hf_only:
                         statuses[name]={'enabled':False,'reason':'Generated metadata/media are published to HF'}
                         continue
