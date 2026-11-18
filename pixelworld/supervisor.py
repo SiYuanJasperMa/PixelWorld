@@ -13,7 +13,7 @@ import time
 from .config import Benchmark, Model
 from .runner import run_path
 from .util import atomic_json, utc_now
-from .retries import latest_window, infrastructure_failure
+from .retries import latest_window, infrastructure_failure, model_attempt_cap
 from .scheduling import launch_guard, memory_launch_allowed
 
 
@@ -132,7 +132,8 @@ def inspect(config: Benchmark, model: Model, track: str, case_id: str) -> dict:
     if running:
         return {**running,'model_attempts':model_attempts,'infra_attempts':infra_attempts}
     counters={'model_attempts':model_attempts,'infra_attempts':infra_attempts}
-    if config.max_total_attempts is not None and model_attempts >= config.max_total_attempts:
+    cap=model_attempt_cap(config,model,track,case_id)
+    if cap is not None and model_attempts >= cap:
         return {'state':'exhausted','attempt':limit,'run':str(run_path(config,model,track,case_id,limit)),
                 'reason':'model_attempt_limit','failed_attempts':failed,'stale_attempts':stale,**counters}
     if budget_terminal:

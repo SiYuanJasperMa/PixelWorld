@@ -20,3 +20,18 @@ its recorded authorization-window accounting.
 Historical attempts already authorized under earlier limits remain available.
 Lowering a cap prevents new launches after the model-attempt limit is reached;
 it does not hide a previously validated successful submission.
+
+## Scoped near-complete rescues
+
+The owner has authorized extra attempts for a sparse failed tail of an otherwise
+complete cohort. `--near-complete-extra-attempts 2` enables this policy explicitly:
+at least 95% of cases must be delivered, at most three may remain terminal, and
+no ordinary attempts or infrastructure retries may still be pending/running.
+The authoritative case inventory is rechecked before granting a rescue.
+
+Each authorization grants one fresh attempt to that case only, with at most two
+extra real attempts beyond the default cap. The external ledger records the
+scoped `model_attempt_cap`, cohort coverage, original attempt history and reason.
+It does not modify the global cap or supply evaluator feedback. A completed
+rescue is marked with an asterisk in public progress and keeps its source hash.
+Report default-cap delivery and final rescued delivery separately in analysis.

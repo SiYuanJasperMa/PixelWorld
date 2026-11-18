@@ -9,12 +9,13 @@ import sys
 import time
 import os
 import subprocess
+import signal
 import fcntl
 from dataclasses import replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pixelworld.config import load_config
-from pixelworld.retries import authorize_failed
+from pixelworld.retries import authorize_failed, authorize_near_complete
 from pixelworld.util import atomic_json, utc_now
 
 
@@ -83,6 +84,8 @@ def main():
                         help='Continue monitoring newly exhausted cases while enforcing the total attempt cap.')
     parser.add_argument('--cooldown',type=float,default=300,help='Minimum seconds between retry grants for a case in continuous mode')
     parser.add_argument('--manager-map',type=Path,help='Runtime config-path to original manager/code checkout map')
+    parser.add_argument('--near-complete-extra-attempts',type=int,default=0,
+                        help='User-authorized sparse terminal rescues, at most two extra real attempts')
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--interval", type=float, default=60)
@@ -118,6 +121,20 @@ def main():
             # not measure the number of model attempts.
             result = authorize_failed(unfinished_retry_scope(config), args.extra_attempts, max_rounds,
                                       args.apply, args.cooldown if args.continuous else 0)
+            if args.near_complete_extra_attempts:
+                rescue=authorize_near_complete(config,extra_attempts=args.near_complete_extra_attempts,apply=args.apply)
+                result['near_complete_rescue']=rescue
+                result['authorized_cases']+=rescue['authorized_cases']
+                if args.apply and rescue['authorized_cases']:
+                    status_path=config.runs_root/'status.json'
+                    if status_path.exists():
+                        status=json.loads(status_path.read_text());pid=status.get('supervisor_pid')
+                        try:
+                            argv=[x.decode()for x in(Path('/proc')/str(pid)/'cmdline').read_bytes().split(b'\0')if x]
+                            if 'pixelworld.cli' in argv and 'matrix' in argv and str(config.source) in argv:
+                                os.kill(pid,signal.SIGTERM)
+                                status['supervisor_pid']=None;atomic_json(status_path,status)
+                        except OSError:pass
             if args.max_rounds is None and max_total_attempts is not None:
                 result.pop('max_retry_rounds', None)
             result['attempt_policy'] = {
