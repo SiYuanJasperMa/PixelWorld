@@ -51,7 +51,7 @@ def retry_delay(error):
     return 300
 
 
-def commit(api, state=DEFAULT_STATE, **kwargs):
+def commit(api, state=DEFAULT_STATE, operations_factory=None, **kwargs):
     """Keep existing atomic operations; only coordinate the submission schedule."""
     slot = reserve(state, time.time())
     while True:
@@ -65,6 +65,8 @@ def commit(api, state=DEFAULT_STATE, **kwargs):
             break
         time.sleep(min(10, remaining))
     try:
+        if operations_factory is not None:
+            kwargs['operations'] = operations_factory()
         return api.create_commit(**kwargs)
     except Exception as error:
         delay = retry_delay(error)

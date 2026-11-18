@@ -38,3 +38,19 @@ def test_commit_failure_propagates_and_records_shared_retry_window(tmp_path, mon
         commit(SimpleNamespace(create_commit=failed), state=state, repo_id='dataset', operations=['original'])
     assert calls == [{'repo_id': 'dataset', 'operations': ['original']}]
     assert json.loads(state.read_text())['cooldown_until_unix'] == 117
+
+
+def test_latest_operations_are_read_after_the_commit_slot_opens(tmp_path, monkeypatch):
+    clock = [100]
+    latest = ['old']
+    state = tmp_path / 'budget.json'
+    defer(state, 110, 'retry window')
+    monkeypatch.setattr('tools.hf_commit_budget.time.time', lambda: clock[0])
+    def sleep(seconds):
+        clock[0] += seconds
+        latest[0] = 'current'
+    monkeypatch.setattr('tools.hf_commit_budget.time.sleep', sleep)
+    calls = []
+    api = SimpleNamespace(create_commit=lambda **kwargs: calls.append(kwargs))
+    commit(api, state=state, operations_factory=lambda: list(latest), repo_id='dataset')
+    assert calls == [{'repo_id': 'dataset', 'operations': ['current']}]
