@@ -65,3 +65,29 @@ allocation and actual process identities are recorded outside generation cases.
 
 [Live native24 report and example videos](https://huggingfriends-pixelworld-dashboard.static.hf.space/flash.html)
 contains current paired results and complete sanitized traces.
+
+## Verified submission boundary (interim)
+
+The technical submission tool alone is rejected: its full20-case development
+comparison has19 protocol deliveries, a3.3% lower mean v1 and a8.3% higher
+failed-inclusive cost per accepted video. Four completed traces show the cause:
+after the receipt is accepted, the agent still issues exactly one further
+request that returns only a short message and changes no pixels.
+
+The boundary variant keeps the task, tools, history and autonomous revision,
+but declines that next request before upstream sampling once a case-bound
+receipt verifies the current RGB/code hashes, the original first frame and the
+execution policy. Two completed development cases terminate with
+`verified_submission_boundary`; both record complete usage from finished gateway
+responses cross-checked against native Codex counters.
+
+| Case | Boundary input/output | Baseline input/output | Boundary v1 | Baseline v1 |
+|---|---|---|---|---|
+| 0056 | 92,961 / 9,933 | 821,485 / 24,980 | 0.3308 | 0.3108 |
+| 0047 | 123,488 / 9,481 | 270,866 / 15,003 | 0.1562 | 0.1011 |
+
+Mean input falls71.5% and mean v1 rises0.0376 on these two pairs. Both baselines
+were high-overhead cases and n=2 cannot estimate population effects, so this is
+interim mechanism evidence only. The remaining development cases are running;
+no Flash version is accepted and no preservation claim is made. Raw evidence is
+in `runs/flash_submit_boundary_probe_20261118/analysis/interim_boundary_pairs.json`.
