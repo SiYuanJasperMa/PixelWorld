@@ -51,9 +51,10 @@ retained externally.
 
 ## Current smoke and evidence
 
-The published smoke is one GPT-6.1-Sol Vision case demonstrating the complete
-agent-frame → Qwen re-render → I2V path. It is not a completed 160-case paired
-evaluation or a four-domain smoke suite.
+The first published pilot was one GPT-6.1-Sol Vision case demonstrating the
+agent-frame → Qwen re-render → I2V path. A revised pre-action initialization now
+has valid Text and Vision deliveries for that same prompt. This remains a
+one-prompt smoke, not a completed 160-case paired evaluation or a four-domain suite.
 
 - Agent pixel frame: 1280x720, one saved frame.
 - Qwen v1 retained a stylized appearance; v2 used a photographic prompt and a
@@ -71,10 +72,15 @@ A subsequent visual audit rejected the v2 image as a pre-action initialization:
 it added a stream flowing into the cup from above. The source agent frame and
 downstream I2V program were inspected; their operations remain in 2D pixel space.
 The existing video remains a pipeline pilot, not an accepted paired analysis
-sample. Three revised candidates are being tested with an explicit unchanged
-pre-action-state instruction. Their requested native canvas is 1536x864 (both
-dimensions divisible by 32), allowing uniform resizing to 1280x720 without
-stretching objects. Selection must precede the next I2V run.
+sample. Three revised candidates were generated with an explicit unchanged pre-action
+state instruction. Visual inspection selected one image with no added incoming
+stream. The native canvas is 1536x864 (both dimensions divisible by 32), allowing
+uniform resizing to 1280x720 without stretching objects. Both downstream tracks
+use the same selected image hash and pass RGB/timeline/first-frame validation.
+The Text agent has neither an image attachment nor visual tools; the Vision
+agent actually exercised its visual tools. Judge results and token/time records
+remain external. Physical quality is assessed separately from artifact validity;
+this pilot does not establish a general physical-score improvement.
 
 [View the smoke](https://huggingfriends-pixelworld-dashboard.static.hf.space/phygen_firstframe_smoke.html).
 
