@@ -7,7 +7,7 @@ a collaborator. Fill in the bracketed fields; do not broaden the task.
 Run one additional PixelWorld main-table model with the frozen public harness.
 
 Repository: https://github.com/SiyuanMaCS/PixelWorld
-Required commit: 2f6844943079d69dd4fb8c66b9c7416c0845ecc4 or a later owner-approved commit
+Required commit: [OWNER PROVIDES THE EXACT RELEASE COMMIT; record it before running]
 Required Codex CLI: 0.169.0
 Exact model/API ID: [FILL IN; do not use only a family name]
 Provider route: [builtin or Responses-compatible endpoint]

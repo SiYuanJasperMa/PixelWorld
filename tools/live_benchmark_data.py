@@ -457,6 +457,31 @@ def delivered_usage_means(folder):
     return output
 
 
+def evaluator_complete_counts(source, suite, model, track):
+    """Use the evaluator's authoritative 50/50 prepare when the scheduler window lags a manual retry."""
+    if suite != 'robojudge_main720p24fps' or model != 'deepseek-v41':
+        return None
+    run_root = source.parent.parent
+    plan = read(run_root / 'evaluation' / 'robojudge_main720p24fps_scheduler' / model / track / 'plan.json')
+    scope = plan.get('scope') or {}
+    if scope.get('complete_shared50') is True and scope.get('prepared_count') == 50:
+        return {'complete': 50, 'running': 0, 'pending': 0, 'exhausted': 0}
+    return None
+
+
+def completion_exceptions(source, model, track):
+    """Expose scoped user-authorized rescues separately from the default cap."""
+    prefix=model+'/'+track+'/'
+    rows=[]
+    for key,windows in read(source/'retry_authorizations.json').get('cases',{}).items():
+        if key.startswith(prefix):
+            for item in windows:
+                if item.get('exception')=='near_complete_rescue' and item.get('completed_manifest_sha256'):
+                    rows.append({'case_id':key[len(prefix):], 'attempt':item.get('completed_attempt'),
+                                 'kind':'authorized_near_complete_rescue'})
+    return rows
+
+
 def update(run_root, destination, cache, initial_limit=2, suites=None):
     catalogue = {'groups': [], 'updated_utc': datetime.now(timezone.utc).isoformat()}
     for suite, source in sources(run_root):
@@ -521,8 +546,9 @@ def update(run_root, destination, cache, initial_limit=2, suites=None):
             completed = [min([a for a in history if a['status'] == 'complete'], key=lambda a: a['attempt'])
                          for history in cases.values() if any(a['status'] == 'complete' for a in history)]
             measured = [a['output_tokens'] for a in completed if a.get('output_tokens') is not None]
+            counts = evaluator_complete_counts(source, suite, model, track) or group.get('counts') or {}
             payload = {'suite': suite, 'model_key': model, 'track': track,
-                       'counts': group.get('counts') or {}, 'cases_total': status.get('cases'),
+                       'counts': counts, 'cases_total': status.get('cases'),
                        'latest_completion': group.get('latest_completion'),
                        'mean_duration_seconds': group.get('mean_duration_seconds'),
                        'mean_output_tokens_cached': sum(measured) / len(measured) if measured else None,
@@ -682,7 +708,8 @@ def overlay_current_status(folder,cases,identity,destination,stored):
 
 
 def async_update(run_root,destination,cache,pool,pending,render_root,
-                 history_pool=None,history_pending=None,history_cursor=None,published_assets=None):
+                 history_pool=None,history_pending=None,history_cursor=None,published_assets=None,
+                 usage_pool=None,usage_pending=None,usage_cache=None):
     merge_render_jobs(destination,cache,pending,render_root,published_assets)
     if history_pending is not None:
         merge_render_jobs(destination,cache,history_pending,render_root,published_assets)
@@ -718,7 +745,8 @@ def async_update(run_root,destination,cache,pool,pending,render_root,
             completed=[min([a for a in h if a['status']=='complete'],key=lambda a:a['attempt'])
                        for h in cases.values() if any(a['status']=='complete' for a in h)]
             measured=[a['output_tokens'] for a in completed if a.get('output_tokens') is not None]
-            payload={'suite':suite,'model_key':model,'track':track,'counts':group.get('counts') or {},
+            counts=evaluator_complete_counts(source,suite,model,track) or group.get('counts') or {}
+            payload={'suite':suite,'model_key':model,'track':track,'counts':counts,
                 'paused':(source/'STOP').exists(),
                 'cases_total':status.get('cases'),'updated_utc':status.get('updated_utc'),'cases':cases,
                 'latest_completion':group.get('latest_completion'),
@@ -726,7 +754,20 @@ def async_update(run_root,destination,cache,pool,pending,render_root,
                 'mean_output_tokens_cached':sum(measured)/len(measured) if measured else None,
                 'token_mean_cases':len(measured),
                 'upstream_wait':upstream_wait(source/model/track,group.get('running_cases'))}
-            payload.update(delivered_usage_means(source/model/track))
+            if usage_pool is None:
+                payload.update(delivered_usage_means(source/model/track))
+            else:
+                job=usage_pending.get(identity)
+                if job is not None and job.done():
+                    try:usage_cache[identity]={'value':job.result(),'updated':time.monotonic()}
+                    except Exception:usage_cache.setdefault(identity,{'value':{},'updated':time.monotonic()})
+                    del usage_pending[identity]
+                cached_usage=usage_cache.get(identity,{})
+                payload.update(cached_usage.get('value',{}))
+                if identity not in usage_pending and time.monotonic()-cached_usage.get('updated',0)>300:
+                    usage_pending[identity]=usage_pool.submit(delivered_usage_means,source/model/track)
+            payload['generation_updated_utc']=status.get('updated_utc')
+            payload['completion_exceptions']=completion_exceptions(source,model,track)
             payload['reused_cases'] = sum(k == model and t == track for k,t,c in reuse_registry(source))
             relative=identity+'/index.json';save(destination/relative,payload)
             catalogue['groups'].append({k:v for k,v in payload.items() if k not in ('cases','updated_utc')})
@@ -751,10 +792,14 @@ def main():
     p.add_argument('--run-root', type=Path, required=True)
     p.add_argument('--checkout', type=Path, required=True)
     p.add_argument('--interval', type=float, default=30)
+    p.add_argument('--render-workers', type=int, default=4,
+                   help='Concurrent candidate exporters; statistical scans use a separate worker')
     p.add_argument('--once', action='store_true')
     p.add_argument('--local-only', action='store_true',
                    help='Refresh the live website independently of Git uploads')
     args = p.parse_args()
+    if args.render_workers < 1:
+        p.error('--render-workers must be positive')
     root = args.checkout.resolve()
     root.mkdir(parents=True, exist_ok=True)
     lock = (root / '.publisher.lock').open('a')
@@ -766,8 +811,11 @@ def main():
     PUBLICATION_ROOT = destination
     cache_path = root / '.publisher_cache.json'
     cache = read(cache_path)
-    pool=ThreadPoolExecutor(max_workers=2)
+    pool=ThreadPoolExecutor(max_workers=args.render_workers)
     evaluation_pool=ThreadPoolExecutor(max_workers=1)
+    usage_pool=ThreadPoolExecutor(max_workers=1)
+    usage_pending={}
+    usage_cache={}
     history_pool=ThreadPoolExecutor(max_workers=1)
     history_pending={}
     history_cursor=[0]
@@ -776,6 +824,13 @@ def main():
     pending={}
     render_root=root/'.render-cache'
     render_root.mkdir(exist_ok=True)
+    old_catalogue=read(destination/'catalogue.json')
+    for group in old_catalogue.get('groups',[]):
+        identity=group.get('suite','')+'/'+group.get('model_key','')+'/'+group.get('track','')
+        values={k:v for k,v in group.items() if k.startswith('mean_') or k.endswith('_measured_cases')
+                or k in ('mean_scope','delivered_usage_cases')}
+        usage_cache[identity]={'value':values,'updated':0}
+    cache_stamp=cache_path.stat().st_mtime_ns if cache_path.exists() else None
     tracked=([] if args.local_only else subprocess.check_output(
         ['git','ls-files','-z','--','pixelworld/assets'],cwd=root).decode().split('\0'))
     published_assets={name.removeprefix('pixelworld/') for name in tracked if name}
@@ -790,11 +845,15 @@ def main():
             # A one-time importer may add already-sanitized historical details
             # while this process is alive. Pull only missing immutable records;
             # live in-memory stamps always remain authoritative.
-            merge_external_cache(cache, read(cache_path))
+            disk_stamp=cache_path.stat().st_mtime_ns if cache_path.exists() else None
+            if disk_stamp!=cache_stamp:
+                merge_external_cache(cache, read(cache_path))
+                cache_stamp=disk_stamp
             published_revision = (None if args.local_only else subprocess.check_output(
                 ['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip())
             async_update(args.run_root.resolve(),destination,cache,pool,pending,render_root,
-                         history_pool,history_pending,history_cursor,published_assets)
+                         history_pool,history_pending,history_cursor,published_assets,
+                         usage_pool,usage_pending,usage_cache)
             if evaluation_future is not None and evaluation_future.done():
                 try:
                     save(destination/'evaluation.json',evaluation_future.result())
@@ -807,6 +866,7 @@ def main():
             if published_revision is not None:
                 save_head_pointer(destination, published_revision)
             save(cache_path, cache)
+            cache_stamp=cache_path.stat().st_mtime_ns
             if args.local_only:
                 with PUBLICATION_DIRTY_LOCK:
                     PUBLICATION_DIRTY.clear()

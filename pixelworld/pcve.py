@@ -92,6 +92,8 @@ def export(config_path: Path, model: str, track: str, benchmark_root: Path, base
            predictions_root: Path | None = None):
     config=load_config(config_path);config.model(model);selected={}
     prediction_base = predictions_root or benchmark_root/'predictions'
+    previous=prediction_base/baseline/'pixelworld_submission.json'
+    cache={row['case_id']:row for row in json.loads(previous.read_text()).get('rows',[])} if previous.exists() else {}
     for path in (config.runs_root/model/track).glob('case_*/run_manifest.json'):
         m=json.loads(path.read_text())
         if m['status']!='complete' or not m.get('validation',{}).get('pass'):continue
@@ -101,9 +103,14 @@ def export(config_path: Path, model: str, track: str, benchmark_root: Path, base
     for case,(run,m) in sorted(selected.items()):
         info=json.loads((config.inputs_root/case/'preparation_record.json').read_text())
         output=prediction_base/baseline/'videos'/info['scene']/(info['official_case_id']+'.mp4')
-        encode_pixels(run/'workspace',m['media_contract'],output)
+        fingerprint=sha256(run/'run_manifest.json')
+        old=cache.get(case,{})
+        reusable=(old.get('source_manifest_sha256')==fingerprint and output.is_file()
+                  and old.get('export_sha256')==sha256(output))
+        if not reusable:encode_pixels(run/'workspace',m['media_contract'],output)
         rows.append({'case_id':case,'global_id':info['global_id'],'attempt':m['attempt'],'output':str(output),
-                     'frames':96,'fps':24,'source_run':str(run)})
+                     'frames':96,'fps':24,'source_run':str(run),'source_manifest_sha256':fingerprint,
+                     'export_sha256':sha256(output),'reused_export':reusable})
     result={'rows':rows,'exported':len(rows),'full_official_scope':len(rows)==TOTAL,
             'dataset_revision':DATASET_REVISION,'evaluator_revision':EVALUATOR_REVISION,'scores_computed':False}
     folder=prediction_base/baseline;folder.mkdir(parents=True,exist_ok=True)

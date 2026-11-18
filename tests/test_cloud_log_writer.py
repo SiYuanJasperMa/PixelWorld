@@ -41,3 +41,23 @@ def test_cloud_write_error_is_visible_to_next_request(tmp_path):
         writer.flush()
     with pytest.raises(RuntimeError, match='cloud log writer failed'):
         writer.submit('next.json', {})
+def test_parallel_requests_preserve_each_request_order(tmp_path):
+    import threading
+    from pixelworld.cloud_log_writer import CloudLogWriter
+    writer=CloudLogWriter(tmp_path,workers=2)
+    entered=threading.Event();release=threading.Event();other=threading.Event()
+    original=writer._write
+    def delayed(name,data,append):
+        if name=='req_a.input.json':
+            entered.set();assert release.wait(2)
+        original(name,data,append)
+        if name=='req_b.input.json':other.set()
+    writer._write=delayed
+    writer.submit('req_a.input.json',{'input':1})
+    assert entered.wait(2)
+    writer.submit('req_a.events.json',{'event':2})
+    writer.submit('req_b.input.json',{'input':3})
+    assert other.wait(2)
+    assert not (tmp_path/'req_a.events.json').exists()
+    release.set();writer.flush();writer.close()
+    assert (tmp_path/'req_a.events.json').is_file()

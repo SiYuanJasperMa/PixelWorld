@@ -13,6 +13,8 @@ The current cohort is:
 |---|---|---|
 | `gpt61-sol` | GPT-6.1-Sol | `traex/GPT-6.1-Sol` |
 | `gpt56-sol` | GPT-5.6-Sol | `traex/GPT-5.6-Sol` |
+| `gpt56-terra` | GPT-5.6-Terra | `traex/GPT-5.6-Terra` |
+| `gpt56-luna` | GPT-5.6-Luna | `traex/GPT-5.6-Luna` |
 | `gpt6-astra` | GPT-6-Astra | `traex/GPT-6-Astra` |
 | `deepseek-v41` | DeepSeek-V4.1-Flash | `traex/DeepSeek-V4.1-Flash` |
 | `seed21-pro` | Seed-2.1-Pro-0915 | `traex/Seed-2.1-Pro-0915` |
@@ -66,8 +68,8 @@ The active budget policy is:
 | Physics-IQ Verified | I2V physical continuation | 198 official BPP/I2V cases per model | 1280x720, 24 FPS, 120 frames / 5 s | Pinned official Verified evaluator after complete 198-case cohort. |
 | RoboJudge shared-50 | I2V embodied manipulation | 50 shared prompts per model | Preserve aspect ratio with 720-pixel short edge, 24 FPS, 120 frames / 5 s | Original RoboJudge-9B path after complete 50-case cohort. |
 | PCVE-RigidBench | Physical video editing | 129 official quantitative-English edits per model | Original source aspect/timeline; current set is 1280x720, 24 FPS, 96 frames / 4 s | Official PCVE metrics after complete 129-case cohort. |
-| PhyGenBench official T2V | Text-to-video physical concept generation | 160 official prompts per model | 1280x720, 24 FPS, 120 frames / 5 s; direct pixel-space photographic target | Official PhyGenBench scoring after complete 160-prompt T2V cohort. |
-| + PhyGenBench I2V extension | Paired initialization analysis | Same 160 prompts, with selected pre-action Qwen-Image-2.1 initial frames | Same 1280x720, 24 FPS, 120-frame output; frame 0 matches the selected initial image | Extra analysis, not an official T2V leaderboard row. |
+| PhyGenBench T2V | Text-to-video physical concept generation | 160 official prompts per model | 1280x720, 24 FPS, 120 frames / 5 s; direct pixel-space photographic target | PixelWorld GPT-5.5 VLM judge after complete 160-prompt cohort; adapted scoring, not official PhyGenEval. |
+| + PhyGenBench I2V extension | Paired initialization analysis | Same 160 prompts; agent pixel first frame re-rendered by Qwen-Image-2.1 | Same 1280x720, 24 FPS, 120-frame output; frame 0 matches the selected initial image | Extra analysis, not an official T2V leaderboard row. |
 
 The shorthand is **4+1**: four official benchmark axes
 (Physics-IQ, RoboJudge, PCVE-RigidBench, PhyGenBench T2V) plus one paired
@@ -90,9 +92,12 @@ PCVE receives the source video and edit instruction, but not target videos,
 physical-difference annotations, masks or ground-truth trajectories. The
 intervention frame convention is preserved from the official dataset.
 
-PhyGenBench has a formal T2V track using the original 160 prompts and official
-scoring. PixelWorld additionally creates an I2V condition by pairing the same
-prompt with a selected pre-action Qwen-Image-2.1 initial frame. Qwen is never
+PhyGenBench has a formal T2V track using the original 160 prompts. Current
+scoring uses the adapted GPT-5.5 judge described in the final protocol, and is
+labeled separately from official PhyGenEval. PixelWorld additionally creates an
+I2V condition by having the agent draw a pixel first frame, re-rendering that
+scene through Qwen-Image-2.1, and pairing the selected pre-action image with the
+same prompt. Qwen is never
 used for video continuation. The I2V condition is analyzed as a controlled
 extension: it asks how much a high-quality initial image changes the direct RGB
 coding agent's generation boundary.
@@ -101,14 +106,16 @@ coding agent's generation boundary.
 
 Main entry:
 
-- https://siyuanmacs.github.io/pixelworld/index.html
+- https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html
 
 Benchmark pages:
 
-- Physics-IQ: https://siyuanmacs.github.io/pixelworld/physics_iq_baseline.html
-- RoboJudge: https://siyuanmacs.github.io/pixelworld/robojudge.html
-- PCVE-RigidBench: https://siyuanmacs.github.io/pixelworld/pcve_rigid.html
-- PhyGenBench T2V and paired I2V: https://siyuanmacs.github.io/pixelworld/phygen_pixelspace.html
+- Physics-IQ: https://huggingfriends-pixelworld-dashboard.static.hf.space/physics_iq_baseline.html
+- RoboJudge: https://huggingfriends-pixelworld-dashboard.static.hf.space/robojudge.html
+- PCVE-RigidBench: https://huggingfriends-pixelworld-dashboard.static.hf.space/pcve_rigid.html
+- PhyGenBench: https://huggingfriends-pixelworld-dashboard.static.hf.space/phygen_pixelspace.html
+- Analysis progress: https://huggingfriends-pixelworld-dashboard.static.hf.space/analyses.html
+- Agent → Qwen → I2V smoke: https://huggingfriends-pixelworld-dashboard.static.hf.space/phygen_firstframe_smoke.html
 
 Each page separates valid videos, running cases, pending cases, model
 non-delivery, and quarantined infrastructure/recovery attempts.

@@ -32,6 +32,12 @@ def main():
     if output.is_relative_to(config.runs_root) or output.is_relative_to(config.inputs_root):
         raise ValueError('Evaluation and ground truth must stay outside generation')
     output.mkdir(parents=True, exist_ok=True)
+    cache=output/'cache';temporary=output/'.tmp'
+    for path in (cache,temporary):path.mkdir(exist_ok=True)
+    os.environ.setdefault('HF_HOME',str(cache/'huggingface'))
+    os.environ.setdefault('TORCH_HOME',str(cache/'torch'))
+    os.environ.setdefault('TMPDIR',str(temporary))
+    os.environ.setdefault('XDG_CACHE_HOME',str(cache))
     expected = {f'pcve_{i:04d}' for i in range(pcve.TOTAL)}
     if set(config.case_ids or []) != expected:
         raise ValueError('Full evaluation requires all 129 official case IDs')
@@ -75,11 +81,17 @@ def main():
     exported = pcve.export(args.config,args.model,args.track,args.data_root,baseline,prediction_root)
     if not exported['full_official_scope']:
         raise ValueError('Export did not produce all 129 videos')
+    media=[json.loads((Path(row['source_run'])/'media_contract.json').read_text()) for row in exported['rows']]
+    resolutions=sorted({(spec['width'],spec['height']) for spec in media})
+    if any(spec['fps']!=24 or spec['frames']!=96 for spec in media):
+        raise ValueError('Exported cohort does not preserve the official 24 FPS / 96-frame timeline')
     driver = output/'official_driver.py'
     # Override only author-specific checkpoint paths. Scoring code and all
     # thresholds, frame alignment, tracking and aggregation remain original.
     driver.write_text(
         'import sys,runpy\n'
+        + 'import functools,os,open_clip\n'
+        + 'open_clip.create_model_and_transforms=functools.partial(open_clip.create_model_and_transforms,cache_dir=os.path.join(os.environ["HF_HOME"],"open_clip"))\n'
         + f'sys.path.insert(0,{str(source/"eval")!r})\n'
         + 'from metrics import grounded_sam2_tracker as tracker, fvd\n'
         + f'tracker.GroundedSam2Tracker.__init__.__defaults__=({str(args.sam2_checkpoint.resolve())!r},)+tracker.GroundedSam2Tracker.__init__.__defaults__[1:]\n'
@@ -111,7 +123,9 @@ def main():
     atomic_json(output/'summary.json', {'benchmark':'PCVE-RigidBench','complete_official129':True,
                 'case_count':pcve.TOTAL,'model':args.model,'track':args.track,'scores':scores,
                 'official_metrics_sha256':sha256(metrics_file),'source_revision':revision,
-                'dataset_revision':pcve.DATASET_REVISION,'fps':24,'frames':96,'resolution':[256,144],
+                'dataset_revision':pcve.DATASET_REVISION,'fps':24,'frames':96,
+                'resolution':list(resolutions[0]) if len(resolutions)==1 else None,
+                'resolution_variants':[list(size) for size in resolutions],
                 'no_missing_output_imputation':True,'completed_utc':utc_now()})
 
 

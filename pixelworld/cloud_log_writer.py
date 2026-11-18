@@ -11,12 +11,16 @@ from pathlib import Path
 
 
 class CloudLogWriter:
-    def __init__(self, root: Path, max_queue_bytes: int = 256 * 1024**2,
-                 write_delay: float = 0):
+    def __init__(self, root: Path, max_queue_bytes: int = 512 * 1024**2,
+                 write_delay: float = 0, workers: int = 4, durable: bool = False):
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.max_queue_bytes = max_queue_bytes
         self.write_delay = write_delay
+        if workers < 1:raise ValueError('Writer count must be positive')
+        self.durable=durable
+        self.active_keys=set()
+        self.append_lock=threading.Lock()
         self.condition = threading.Condition()
         self.queue = deque()
         self.queued_bytes = 0
@@ -24,13 +28,16 @@ class CloudLogWriter:
         self.closed = False
         self.error = None
         self.writes = 0
-        self.thread = threading.Thread(target=self._run, daemon=True, name='cloud-proxy-log-writer')
-        self.thread.start()
+        self.threads=[threading.Thread(target=self._run,daemon=True,name=f'cloud-proxy-log-writer-{i}')
+                      for i in range(workers)]
+        self.thread=self.threads[0]
+        for thread in self.threads:thread.start()
 
-    def submit(self, name: str, value, *, append: bool = False, raw: bool = False, timeout: float = 30):
+    def submit(self, name: str, value, *, append: bool = False, raw: bool = False,
+               timeout: float = 300, ordering_key: str | None = None):
         if Path(name).name != name:
             raise ValueError('Log name must be a basename')
-        text = value if raw else json.dumps(value, ensure_ascii=False)
+        text = value if raw else json.dumps(value, ensure_ascii=False,separators=(',',':'))
         data = (text + ('\n' if append else '')).encode('utf-8')
         if len(data) > self.max_queue_bytes:
             raise RuntimeError('storage_backpressure: log record exceeds cloud logging queue')
@@ -43,7 +50,7 @@ class CloudLogWriter:
                     raise RuntimeError('storage_backpressure: cloud log writer queue full')
                 self.condition.wait(min(remaining, .1))
             self._check()
-            self.queue.append((name, data, append))
+            self.queue.append((name, data, append, ordering_key or name.split('.',1)[0]))
             self.queued_bytes += len(data)
             self.pending += 1
             self.condition.notify_all()
@@ -53,7 +60,7 @@ class CloudLogWriter:
             raise ValueError('Marker name must be a basename')
         with self.condition:
             self._check()
-            self.queue.append((name, None, False))
+            self.queue.append((name, None, False, name.split('.',1)[0]))
             self.pending += 1
             self.condition.notify_all()
 
@@ -71,14 +78,17 @@ class CloudLogWriter:
             target.unlink(missing_ok=True)
             return
         if append:
-            with target.open('ab') as f:
-                f.write(data); f.flush(); os.fsync(f.fileno())
+            with self.append_lock:
+                with target.open('ab') as f:
+                    f.write(data); f.flush()
+                    if self.durable:os.fsync(f.fileno())
             target.chmod(0o600)
         else:
             tmp = target.with_name(name + '.' + uuid.uuid4().hex + '.tmp')
             try:
                 with tmp.open('wb') as f:
-                    f.write(data); f.flush(); os.fsync(f.fileno())
+                    f.write(data); f.flush()
+                    if self.durable:os.fsync(f.fileno())
                 tmp.chmod(0o600); tmp.replace(target)
             finally:
                 tmp.unlink(missing_ok=True)
@@ -86,11 +96,15 @@ class CloudLogWriter:
     def _run(self):
         while True:
             with self.condition:
-                while not self.queue and not self.closed:
-                    self.condition.wait(.5)
-                if not self.queue and self.closed:
-                    return
-                name, data, append = self.queue.popleft()
+                while True:
+                    if not self.queue and self.closed:return
+                    available=next((i for i,item in enumerate(self.queue) if item[3] not in self.active_keys),None)
+                    if available is not None:
+                        name,data,append,key=self.queue[available]
+                        del self.queue[available]
+                        self.active_keys.add(key)
+                        break
+                    self.condition.wait(.1)
             try:
                 self._write(name, data, append)
                 self.writes += 1
@@ -101,6 +115,7 @@ class CloudLogWriter:
                 with self.condition:
                     self.queued_bytes -= len(data) if data is not None else 0
                     self.pending -= 1
+                    self.active_keys.remove(key)
                     self.condition.notify_all()
 
     def flush(self, timeout: float = 30):
@@ -120,10 +135,11 @@ class CloudLogWriter:
         with self.condition:
             return {'pending_records': self.pending, 'queued_bytes': self.queued_bytes,
                     'max_queue_bytes': self.max_queue_bytes, 'completed_writes': self.writes,
-                    'error': self.error, 'path': str(self.root), 'worker_local_spool': False}
+                    'error': self.error, 'path': str(self.root), 'worker_local_spool': False,
+                    'workers':len(self.threads),'diagnostic_fsync':self.durable}
 
     def close(self):
         self.flush()
         with self.condition:
             self.closed = True; self.condition.notify_all()
-        self.thread.join(timeout=2)
+        for thread in self.threads:thread.join(timeout=2)

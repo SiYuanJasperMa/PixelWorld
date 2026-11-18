@@ -18,7 +18,19 @@
       "key": "gpt56-sol",
       "model": "traex/GPT-5.6-Sol",
       "reasoning_effort": "high",
-      "analysis": false
+      "analysis": true
+    },
+    {
+      "key": "gpt56-terra",
+      "model": "traex/GPT-5.6-Terra",
+      "reasoning_effort": "high",
+      "analysis": true
+    },
+    {
+      "key": "gpt56-luna",
+      "model": "traex/GPT-5.6-Luna",
+      "reasoning_effort": "high",
+      "analysis": true
     },
     {
       "key": "gpt6-astra",

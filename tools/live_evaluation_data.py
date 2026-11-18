@@ -120,6 +120,23 @@ def pcve_score(summary, model, track):
             'dataset_revision':summary['dataset_revision'],'metrics_sha256':summary.get('official_metrics_sha256')}
 
 
+def phygen_score(summary, model, track):
+    entry=(summary.get('models') or {}).get(model)
+    if not entry or entry.get('cases')!=160:
+        return None
+    mean=entry.get('mean_0_1');mean15=entry.get('mean_1_5')
+    if not finite(mean) or not finite(mean15):
+        return None
+    metrics={'Overall':mean,'Mean_1_5':mean15}
+    for name,value in (entry.get('dimensions') or {}).items():
+        if finite(value.get('mean_0_1')):
+            metrics[name]=value['mean_0_1']
+    return {'metrics':metrics,'units':'0-1 (GPT-5.5 judge)','scope':160,
+            'judge_model':summary.get('judge_model'),
+            'judge_protocol':summary.get('judge_protocol'),
+            'official_gpt4o_phygeneval':False}
+
+
 def collect(run_root: Path):
     result={'updated_utc':datetime.now(timezone.utc).isoformat(),'cohorts':[]}
     commands=live_commands()
@@ -127,6 +144,9 @@ def collect(run_root: Path):
     age=time.time()-worker_health.get('checked_unix',0)
     if 0<=age<180:
         commands.extend((pid,argv) for pid,argv in worker_health.get('commands',[]))
+    gpu_health=read(run_root/'state/gpu_evaluator_worker_health.json')
+    if 0<=time.time()-gpu_health.get('checked_unix',0)<180:
+        commands.extend((pid,argv) for pid,argv in gpu_health.get('commands',[]))
     registry=read(run_root/'live_sources.json')
     sources={item['key']:Path(item['runs_root']) for item in registry.get('sources',[])}
     recovery=read(run_root/'state/main_evaluation_recovery.json')
@@ -140,6 +160,10 @@ def collect(run_root: Path):
             if model=='gemini38-flash':continue
             group=groups.get(key) or {};counts=group.get('counts') or {};entry=entries.get(key) or {}
             cohort=run_root/'evaluation'/folder/model/track
+            if suite=='robojudge_main720p24fps' and model=='deepseek-v41':
+                scope=read(cohort/'plan.json').get('scope') or {}
+                if scope.get('complete_shared50') is True and scope.get('prepared_count')==50:
+                    counts={'complete':50,'running':0,'pending':0,'exhausted':0}
             execution=read(cohort/'execution.json')
             active=evaluator_active(cohort,commands)
             blocked=(scheduler.get('blocked') or {}).get(key) or {}
@@ -158,6 +182,8 @@ def collect(run_root: Path):
                 score=robo_score(read(cohort/'summary.json'),read(cohort/'plan.json'),execution,model,track)
             elif suite.startswith('pcve'):
                 score=pcve_score(read(cohort/'summary.json'),model,track)
+            elif suite.startswith('phygenbench'):
+                score=phygen_score(read(run_root/'evaluation/phygenbench_gpt55_judge/summary.json'),model,track)
             else:
                 score=None
             if score and row['accepted']==expected:
@@ -177,6 +203,22 @@ def collect(run_root: Path):
                 row['phase']='waiting_for_evaluator'
             elif not counts.get('running',0) and not counts.get('pending',0) and row['accepted']<expected and counts.get('exhausted',0):
                 row.update(phase='incomplete_generation',blocker='Full official scope is incomplete; no missing-video score imputation')
+            if suite.startswith('pcve') and row['accepted']==expected and not row['full_scope_scored']:
+                waiting=read(cohort/'worker_state.json')
+                gpu=read(cohort/'gpu_worker.json')
+                worker_live=any(any(Path(v).name=='pcve_worker_start.py' for v in argv)
+                    and model in argv for _,argv in commands)
+                if worker_live and waiting.get('phase')=='waiting_for_verified_checkpoint':
+                    row.update(phase='preparing_evaluation',blocker='GPU worker ready; verifying shared evaluator checkpoint')
+                elif worker_live and gpu.get('phase')=='waiting_for_free_gpu':
+                    row.update(phase='preparing_evaluation',blocker='Waiting for a GPU with sufficient free memory')
+            if suite.startswith('phygenbench') and row['accepted']==expected and not row['full_scope_scored']:
+                judge=read(run_root/'evaluation/phygenbench_gpt55_judge/scheduler.json')
+                judge_live=any(pid==judge.get('judge_pid') and 'tools.evaluate_phygen_gpt55' in argv
+                               for pid,argv in commands)
+                if model in judge.get('current_models',[]) and judge_live:
+                    row.update(phase='adapter_evaluation',evaluator_active=True,
+                               blocker='PixelWorld GPT-5.5 judge; adapted scoring, not official PhyGenEval')
             if (suite=='physics_iq_720p24fps' and row['accepted']==expected
                     and not row['full_scope_scored'] and not active
                     and recovery.get('phase')=='waiting_for_reference_and_previous_export'):

@@ -26,13 +26,15 @@ install, vendor, or replace Codex; it invokes the user's own executable.
 | Output-token budget | **1,000,000** reported output tokens per real attempt |
 | Attempt cap | At most 5 real model attempts per case |
 | Infrastructure failures | Quarantined separately; do not consume model attempts |
+| PhyGenBench scoring | PixelWorld GPT-5.5 adaptation, distinct from hierarchical PhyGenEval |
 
 The 1M budget is a 2026-11-17 amendment. Earlier completed deliveries retain
 their recorded 100k budget and are reused without regeneration; analyses must
 separate attempts by the per-run `output_token_budget` value.
 
-Current confirmed models: GPT-6.1-Sol, GPT-5.6-Sol, DeepSeek-V4.1-Flash,
-GPT-6-Astra, Seed-2.1-Pro-0915, GPT-5.6-Luna and GPT-5.6-Terra.
+Current confirmed models: GPT-6.1-Sol, GPT-6-Astra, GPT-5.6-Sol,
+GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash and Seed-2.1-Pro-0915.
+The five analysis models are Sol 6.1, Sol/Terra/Luna 5.6 and DeepSeek.
 Additional exact-version models such as Kimi,
 GLM or Qwen are appended under the same protocol by changing only the model and
 provider configuration.
@@ -64,24 +66,24 @@ They are published separately:
   — public catalogue, per-case JSON, tool events, runnable code, token records,
   previews and posters.
 - Live dashboard:
-  [HuggingFace Space](https://huggingface.co/spaces/HuggingFriends/PixelWorld-dashboard)
+  [PixelWorld dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html)
   — live progress, per-model counts and playable candidates.
 - Full sanitized trace bundles:
   [Dataset traces](https://huggingface.co/datasets/HuggingFriends/PixelWorld/tree/main/traces)
   — per-benchmark/model archives; uploads continue separately from inference.
-- GitHub dashboard source:
-  [gh-pages](https://github.com/SiyuanMaCS/PixelWorld/tree/gh-pages)
-  — small HTML/CSS/JS and progress snapshots; media resolves from HF.
+- [Analysis progress](https://huggingfriends-pixelworld-dashboard.static.hf.space/analyses.html)
+- [Agent → Qwen → I2V smoke](https://huggingfriends-pixelworld-dashboard.static.hf.space/phygen_firstframe_smoke.html)
+- Dashboard source: `tools/build_formal_dashboard.py` and
+  `tools/build_analysis_dashboard.py`. Scores and generated assets are read
+  from external results rather than embedded in code.
 
 The live exporter refreshes independently of uploads. HF `live/` holds current
 metadata and per-case details; `data/` retains shared media and bulk snapshots.
 Closed case details, their videos and complete sanitized trace archives are
 committed together. Unsynced cases use a clearly labeled live preview fallback.
-Attempt status and token accounting update independently of transcoding. GitHub and HF receive
-progress snapshots in separate background jobs. GitHub Pages deployment is
-defined in `.github/workflows/pages.yml`; an account-level Actions restriction
-currently prevents that deployment. The HF dashboard remains the public
-monitoring entry while this restriction is unresolved. A snapshot timestamp
+Attempt status and token accounting update independently of transcoding. HF
+receives progress in separate background jobs; GitHub holds reproducible code
+and protocol/configuration templates. A snapshot timestamp
 describes the exported data; it does not certify that every media upload has
 finished.
 
@@ -143,7 +145,8 @@ pixelworld matrix status --config configs/benchmark.local.json
    to an ignored `configs/*.local.json`.
 2. Set the exact versioned model ID and Responses-compatible provider route.
 3. Export the API key in the parent shell; never put the value in JSON.
-4. Run `pixelworld doctor` and one real Vision smoke per benchmark.
+4. Run `pixelworld doctor` and one real Vision smoke per benchmark, checking
+   image input, code execution, saving and reported input/output usage.
 5. Send the smoke bundle to the benchmark owner for review.
 6. Launch the full matrix with `tools/final_experiments.py` only after the
    generation readiness gates are approved.
@@ -153,6 +156,11 @@ attempt accounting or evaluators to make a particular model submit. Full
 instructions: [docs/ADD_MODEL_RUNBOOK.md](docs/ADD_MODEL_RUNBOOK.md).
 
 ## What belongs in Git
+
+Evaluator and chart utilities can use `uv pip install -e ".[evaluation]"` in a
+separate evaluation environment. Original RoboJudge/PCVE code and checkpoints
+remain evaluator-side. `tools/run_gpu_evaluation.py` coordinates free-memory
+claims between PixelWorld evaluators without stopping other workloads.
 
 Commit: harness code, tests, protocol documents, config templates and small
 provenance records.

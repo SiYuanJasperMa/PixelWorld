@@ -9,8 +9,17 @@ import subprocess
 import sys
 import time
 
-def alive(pid):
-    try:os.kill(int(pid),0);return True
+def alive(pid, required_arguments=()):
+    try:
+        os.kill(int(pid),0)
+        proc=Path('/proc')/str(pid)
+        if proc.exists():
+            if (proc/'stat').read_text().rsplit(') ',1)[1].split()[0]=='Z':return False
+            if required_arguments:
+                arguments=(proc/'cmdline').read_bytes().decode(errors='replace').rstrip('\0').split('\0')
+                if not all(value in arguments for value in required_arguments):return False
+        return True
+    except FileNotFoundError:return False
     except (ValueError,TypeError,ProcessLookupError,PermissionError):return False
 
 def read(path):
@@ -44,12 +53,15 @@ def main():
     if a.resume:stop.unlink(missing_ok=True);managed_stop.unlink(missing_ok=True)
     child=None;restarts=0;env=os.environ.copy();env['PYTHONPATH']=str(a.code_root.resolve())
     while not stop.exists() and not managed_stop.exists():
+        latest=read(a.config)
+        if latest.get('runs_root')==cfg.get('runs_root') and latest.get('models'):
+            cfg=latest
         status=read(root/'status.json');counts=status.get('totals',{});total=status.get('total_runs',0)
         if completed_scope(cfg,status) and authoritative_scope_complete(a.config,a.code_root):
             write(a.state,{'phase':'processed_all_requested_tasks','counts':counts,'total':total,'failures_preserved':True,'updated_utc':dt.datetime.now(dt.timezone.utc).isoformat()});return
         owner=status.get('supervisor_pid')
         active=child is not None and child.poll() is None
-        if not active and not alive(owner):
+        if not active and not alive(owner,('pixelworld.cli','matrix','run',str(a.config.resolve()))):
             with a.state.with_suffix('.log').open('ab') as log:
                 child=subprocess.Popen([sys.executable,'-m','pixelworld.cli','matrix','run','--config',str(a.config.resolve())],cwd=a.code_root,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
             owner=child.pid;restarts+=1

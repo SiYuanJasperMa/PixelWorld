@@ -54,8 +54,10 @@ Task adapters preserve benchmark instructions and declare the relevant temporal
 constraints. Image-conditioned generation preserves the prescribed initial
 frame, while PCVE editing retains the source timeline and applies the intervention
 at its specified original-frame index. PhyGenBench evaluates text-conditioned
-scene construction with an explicit photographic target. Official benchmark
-evaluators operate on the resulting videos independently of agent execution.
+scene construction with an explicit photographic target. Benchmark evaluators
+operate independently of agent execution. Physics-IQ, RoboJudge and PCVE use
+pinned original scoring code; the current PhyGenBench comparison uses an
+explicitly labeled GPT-5.5 judge adaptation, not hierarchical PhyGenEval.
 
 ### Agent execution and visual access
 
@@ -122,8 +124,8 @@ scene-specific plan or judging each intermediate candidate.
   with the same task files and generation contract.
 - Output resolution, FPS and supported reasoning effort: quality/cost tradeoffs
   with one-factor changes and sufficient execution resources.
-- PhyGenBench initialization: original T2V prompts versus the same prompts with
-  a separately prepared Qwen initial image. Qwen is used only for initialization,
+- PhyGenBench initialization: original T2V prompts versus agent-drawn pixel first
+  frames re-rendered by Qwen, followed by fresh agent I2V. Qwen is used only for initialization,
   not video continuation. This I2V condition is a PixelWorld extension.
 - Native checking and revision: first-versus-final candidate quality and additional
   consumption, separating within-run revisions from fresh attempts.

@@ -94,6 +94,7 @@ if __name__ == '__main__':
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--token-file', type=Path)
     parser.add_argument('--interval', type=int, default=120)
+    parser.add_argument('--hf-only', action='store_true', help='Publish results to HF while keeping generated data out of the GitHub code repository')
     args = parser.parse_args()
     with args.state.with_suffix('.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -106,6 +107,9 @@ if __name__ == '__main__':
                         'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/')),
                     ('hf', hf_progress, (args.source, args.token_file)),
                     ('hf_frontend', hf_frontend, (args.source, args.token_file))):
+                    if name=='github' and args.hf_only:
+                        statuses[name]={'enabled':False,'reason':'Generated metadata/media are published to HF'}
+                        continue
                     future = futures.get(name)
                     if future is not None and future.done():
                         try:

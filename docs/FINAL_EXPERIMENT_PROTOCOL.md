@@ -1,7 +1,7 @@
-# PixelWorld final experiment protocol — review draft
+# PixelWorld final experiment protocol
 
 Status: **generation protocol frozen; reviewed formal generation is active**.
-Official evaluator readiness remains a separate gate and no incomplete cohort
+Evaluator readiness remains a separate gate and no incomplete cohort
 is reported as a benchmark score.
 This draft supersedes earlier proposed 480p-main, 4K, 60/120-FPS, and
 Qwen/Kimi-analysis matrices. Historical experiments and their instructions are
@@ -14,7 +14,9 @@ eligible for the final table.
 |---|---|---|
 | GPT-6.1-Sol | Vision | Text/Vision; scale and effort; initialization; native refinement |
 | DeepSeek-V4.1-Flash | Vision | Text/Vision; scale and effort; initialization; native refinement |
-| GPT-5.6-Sol | Vision | None |
+| GPT-5.6-Sol | Vision | Text/Vision; scale and effort; initialization; native refinement |
+| GPT-5.6-Terra | Vision | Text/Vision; scale and effort; initialization; native refinement |
+| GPT-5.6-Luna | Vision | Text/Vision; scale and effort; initialization; native refinement |
 | GPT-6-Astra | Vision | None |
 | Seed-2.1-Pro-0915 | Vision | None |
 
@@ -41,7 +43,7 @@ labels do not imply equal compute across providers.
 | Physics-IQ Verified | Official I2V switch frame + BPP base prompt | 198 | 1280x720, 24 FPS, 120 frames / 5 s | Pinned official Verified score, `final_score_view` |
 | RoboJudge shared-50 | Official initial frame + original instruction and documented paper prefix | 50 | Preserve initial aspect ratio; 720-pixel short edge, 24 FPS, 120 frames / 5 s | Original RoboJudge-9B; exact PA/IA aggregation must pass the readiness audit |
 | PCVE-RigidBench | Complete factual source video + official quantitative-English intervention | 129 | Original source aspect/timeline; current official set is 1280x720, 24 FPS, 96 frames / 4 s | Official full-129 PES; other metrics separately |
-| PhyGenBench official T2V | Original 160 prompts | 160 | 1280x720, 24 FPS, 120 frames / 5 s | Official hierarchical ensemble overall score |
+| PhyGenBench T2V | Original 160 official prompts | 160 | 1280x720, 24 FPS, 120 frames / 5 s | PixelWorld GPT-5.5 VLM judge, 8 chronological frames; adapted evaluation |
 
 RoboJudge uses five-second outputs for the selected shared-50 protocol.
 PhyGenBench's five seconds are a **PixelWorld generation setting**, not a claim
@@ -58,18 +60,24 @@ published settings, and do not assign one published score to several pricing
 tiers. Baselines appear as independent points in cost plots, not scaling lines.
 Do not average unrelated benchmark metrics into an unqualified overall score.
 
-PhyGenBench's overall score follows the official per-case branch rounding and
-ensemble aggregation, normalized to 0–1 and averaged over all 160 cases. A plain
-macro-average of four domain means or an open-only judge is not interchangeable
-with this score. Its specified GPT-4o version and open evaluator models must be
-available before claiming an official result.
+The current PhyGenBench score is the PixelWorld GPT-5.5 judge protocol in
+`tools/evaluate_phygen_gpt55.py`: uniformly sample 8 frames, resize only judge
+images to a maximum edge of 768, score physical consistency from 1 to 5, and
+map the mean over all 160 prompts to 0–1 as `(mean - 1) / 4`. Domain means are
+reported separately. This does not implement the official hierarchical
+PhyGenEval ensemble or its per-case rounding. Published official scores retain
+their original metric label; matched video-model reruns use the same PixelWorld
+judge as coding agents. Do not claim that these metric scales are interchangeable.
 
-## Additional analyses: two models only
+## Additional analyses: five models
+
+The analysis roster is GPT-6.1-Sol, GPT-5.6-Sol, GPT-5.6-Terra,
+GPT-5.6-Luna and DeepSeek-V4.1-Flash. Astra and Seed remain main-only.
 
 ### Text versus Vision
 
 Same inputs, prompts, output specification, resource allowance, and output-token
-limit. Use main Vision results as the common reference and add Text for the two
+limit. Use main Vision results as the common reference and add Text for the five
 analysis models. Keep initial attachments distinct from actual inspection-tool
 calls. Report actual behavior from trace records.
 
@@ -85,8 +93,8 @@ and must not be silently merged with output-only scaling.
 | Main | 720p | Main (requested High) | 24 | 120 |
 | Resolution lower | 480p | Main | 24 | 120 |
 | Resolution higher | 1080p | Main | 24 | 120 |
-| Effort lower | 720p | Actual supported adjacent lower value | 24 | 120 |
-| Effort higher | 720p | Actual supported adjacent higher value | 24 | 120 |
+| Effort lower | 720p | Requested `low` | 24 | 120 |
+| Effort higher | 720p | GPT: requested `xhigh`; DeepSeek: requested `max` | 24 | 120 |
 | FPS lower | 720p | Main | 12 | 60 |
 | FPS higher | 720p | Main | 48 | 240 |
 
@@ -94,7 +102,11 @@ This is seven conditions per analysis model, not a full factorial grid. The
 Main condition is shared and is generated once. An unavailable higher/lower
 effort is N/A, not a relabeled duplicate. Neither UI catalogs nor a silently
 accepted parameter alone proves that an upstream model changed its reasoning
-compute; verify the route and disclose the evidence.
+compute; verify the route and disclose the evidence. The current upper-effort
+acceptance probes returned completed Responses with sampled usage for all five
+routes. The gateway forwards the requested effort in its native request. This
+proves request/API acceptance, not the provider's internal compute allocation;
+the paper must describe these as requested-effort conditions.
 
 FPS references: [Lance](https://lance-project.github.io/) documents native
 480p/12-FPS video generation; [LTX-2's official documentation](https://ltx.io/blog/how-to-upscale-ai-video-from-30fps-to-60fps)
@@ -111,16 +123,24 @@ size them using their real output count. The official evaluator and its
 ground truth. Native playback smoothness and reference matching answer
 different questions. The normalization exporter still needs its smoke audit.
 
-The cost/score figure uses measured token usage, a verified model-specific
-official price schedule, and delivered-video counts. Bubble area is proportional
+The cost/score figure uses measured token usage and recorded cached input.
+Use verified model-specific tariffs where available. Served proxy aliases without
+a verified tariff use an explicitly labeled shared reference tariff, rather than
+an alleged observed bill. Keep 70% and 80% cache assumptions as sensitivity
+scenarios; missing cache counters remain unknown and exclude full-cohort cost
+claims. Report whether the denominator is an accepted delivery or includes
+failed-attempt overhead. Bubble area is proportional
 to width x height x number of generated frames. Reference-tariff scenarios and
 fictional mockup scores are layout aids only, kept outside results data.
 
 ### PhyGenBench paired initialization
 
 Use the same original physical prompt in four conditions: T2V-Text, T2V-Vision,
-I2V-Text, I2V-Vision. Output is 720p/24 FPS. Qwen-Image is permitted only as a
-separate initial-image preparation stage, never for video continuation. Preserve
+I2V-Text, I2V-Vision. Output is 720p/24 FPS. The extension constructs its scene
+through **agent pixel first frame → Qwen-Image-2.1 appearance re-render → agent
+I2V**. Qwen receives the agent's scene image as conditioning, rather than
+constructing an unrelated scene solely from a rewritten caption. It is permitted
+only as a separate initial-image preparation stage, never for video continuation. Preserve
 image candidates, selection criteria and hashes; confirm the selected image
 depicts the pre-action state. Report I2V as a PixelWorld extension rather than
 an official PhyGenBench T2V leaderboard result. Reuse the two T2V conditions.
@@ -201,9 +221,10 @@ effort and budget protocol, and preserve original environment provenance.
 Legacy-v1 or mismatched scale runs remain explicitly labeled references.
 
 Before full launch, present: exact configs and prompts, environment/CLI hashes,
-resource smoke measurements, all five model routes, generation/evaluator smoke
+resource smoke measurements, every registered model route, generation/evaluator smoke
 evidence, repeat/infra accounting tests, cloud-only storage checks, and live
-dashboard screenshots/URLs. Main launch stays disabled until review. The
+dashboard screenshots/URLs. New full cohorts require the owner's review; the
+current main cohort has already been authorized. The
 dashboard must distinguish preparing, smoke, ready-but-paused, queued, active,
 stale, evaluating and complete using current evidence rather than old PID files.
 
@@ -213,7 +234,7 @@ A filesystem isolation improvement alone does not require regenerating an
 otherwise compatible delivery. `tools/audit_reuse.py --compatible-history`
 checks original model identity, track, prompt and conditioning hashes, supplied
 video-editing inputs, media contract, generation rules, Codex version, effort,
-1M per-attempt budget, attempt cap and saved artifacts. It creates an external
+recorded per-attempt budget, attempt cap and saved artifacts. It creates an external
 `reuse_registry.json`; the supervisor resolves the original successful source
 and skips future dispatch for that model/track/case. Original manifests, code,
 RGB arrays, timestamps and attempt numbers remain unchanged. A changed source
@@ -222,7 +243,7 @@ identities to avoid collisions with newer attempts, marks historical provenance,
 and computes token/duration means from the selected delivery only.
 
 PCVE's earlier 256×144 / 24 FPS / 50k cohort remains a historical cohort; it is
-not a 720p / 100k main result. PhyGen runs without the current photographic target
+not a 720p main result. PhyGen runs without the current photographic target
 remain separate when their media contract or task rules differ. Reuse is decided
 by artifacts and metadata, not by a directory's display name.
 
