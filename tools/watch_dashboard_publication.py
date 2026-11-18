@@ -75,6 +75,9 @@ def hf_frontend(source, token_file):
     for name in ('phygen_firstframe_smoke.html',):
         if (source/name).is_file():
             files[name]=(source/name).read_text()
+    for path in (source/'charts').glob('*.svg'):
+        files['charts/'+path.name]=path.read_text()
+    binary_assets={ 'charts/'+path.name:path for path in (source/'charts').glob('*.png') }
     validate_script_syntax(files)
     for name, content in files.items():
         if re.search(r'/mnt/|/home/tiger/|\bhf_[A-Za-z0-9]{20,}|\bghp_[A-Za-z0-9]{20,}',content):
@@ -82,14 +85,17 @@ def hf_frontend(source, token_file):
         if name.endswith('.html'):
             content=re.sub(r'\sdata-live-base="[^"]*"','',content,count=1)
             files[name]=re.sub(r'<body\b','<body data-live-base="'+live_base+'"',content,count=1)
-    digest=hashlib.sha256(json.dumps(files,sort_keys=True).encode()).hexdigest()
+    assets={name:hashlib.sha256(path.read_bytes()).hexdigest() for name,path in binary_assets.items()}
+    digest=hashlib.sha256(json.dumps({'text':files,'binary':assets},sort_keys=True).encode()).hexdigest()
     state=source.parent.parent/'state/hf_frontend.json'
     previous=json.loads(state.read_text()) if state.exists() else {}
     if previous.get('digest')==digest:return previous
     api=HfApi(token=token_file.read_text().strip() if token_file else None)
     result=api.create_commit('HuggingFriends/PixelWorld-dashboard',repo_type='space',
         operations=[CommitOperationAdd(path_in_repo=name,path_or_fileobj=text.encode())
-                    for name,text in files.items()],commit_message='Refresh PixelWorld monitoring frontend')
+                    for name,text in files.items()]+[
+                        CommitOperationAdd(path_in_repo=name,path_or_fileobj=str(path)) for name,path in binary_assets.items()],
+        commit_message='Refresh PixelWorld monitoring frontend')
     record={'digest':digest,'commit':result.oid,'updated_unix':time.time()}
     temporary=state.with_suffix('.tmp');temporary.write_text(json.dumps(record));temporary.replace(state)
     return record
