@@ -67,5 +67,13 @@
       "page": "phygen_pixelspace.html",
       "spec": "1280×720 · 24 FPS · 5 秒 · T2V"
     }
-  ]
+  ],
+  "baseline_scores": {
+    "seedance25_phygen_v1": {
+      "score": 0.7953125000000001,
+      "cases": 160,
+      "protocol": "PixelWorld PhyGen GPT-5.5 judge; not official GPT-4o-0513 PhyGenEval",
+      "source": "provided Seedance 2.5 v1 T2V videos; re-evaluated with same PixelWorld judge"
+    }
+  }
 }
