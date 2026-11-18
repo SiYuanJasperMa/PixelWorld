@@ -5,7 +5,7 @@
 <header><nav><strong><a href="index.html">PixelWorld</a></strong><span><a href="index.html">主实验</a><a href="flash.html">Flash</a><a href="https://github.com/SiyuanMaCS/PixelWorld">GitHub</a><a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld">视频与 Trace</a></span></nav></header>
 <main><p class="eyebrow">PHYSICS-IQ · HARNESS ANALYSIS</p><h1>PixelWorld-Flash</h1>
 <p class="muted">GPT-5.6-Luna · 720p / 24 FPS · 1M output-token budget</p>
-<p><button data-cohort="confirmation_native24">主设置评分 · 24 FPS</button><button data-cohort="submission_native24">提交工具 · 配对测试</button><button data-cohort="confirmation">开发评分 · 4 FPS</button><button data-cohort="legacy">旧开发消融</button></p>
+<p><button data-cohort="confirmation_native24">主设置评分 · 24 FPS</button><button data-cohort="submission_native24">提交反馈 · 配对测试</button><button data-cohort="boundary_native24">提交边界 · 配对测试</button><button data-cohort="confirmation">开发评分 · 4 FPS</button><button data-cohort="legacy">旧开发消融</button></p>
 <p id="condition" class="notice"></p><p id="scope" class="small muted"></p><p id="sync" class="small muted">正在加载…</p>
 <div class="table"><table><thead><tr><th>设置</th><th>生成</th><th>Input / Output 均值</th><th>成本估算 / attempt</th><th>评分数 · IoU v1 / v2</th><th>配对 v1 变化</th></tr></thead><tbody id="rows"></tbody></table></div>
 <section class="panel"><h2>成本与质量</h2><div id="chart"></div><p class="small muted">只绘制已完成全部匹配评分的条件。子集指标不能当作完整 Physics-IQ Verified 分数；置信区间与独立验证完成后再确定正式版本。</p></section>
@@ -13,4 +13,4 @@
 <section class="panel"><h2>首个有效候选 → 最终候选</h2><div id="refinement"></div></section>
 <details open><summary>已发布视频与完整 Trace · 同一案例对照</summary><div id="examples"></div></details><details><summary>Trace 中的实际行为</summary><div class="table"><table><thead><tr><th>设置</th><th>exec / attempt</th><th>patch / attempt</th><th>图片调用 / attempt</th><th>真实图片返回 / attempt</th><th>helper 失败 / attempt</th><th>读 artifact_io.py</th><th>读 player template</th></tr></thead><tbody id="trace"></tbody></table></div></details>
 <footer>成本采用公开列明的参考费率：input $10/M、cached input $1/M、output $50/M。70% 缓存是假设场景；测试模型免费，表中估算不是实际账单。原始协议状态、RGB 有效性和接口故障分别保留。</footer></main>
-<script src="flash.js?v=1ecec4dff409"></script></body></html>
+<script src="flash.js?v=52122e340327"></script></body></html>
