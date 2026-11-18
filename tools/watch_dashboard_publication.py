@@ -49,8 +49,13 @@ def hf_progress(source, token_file):
                                 'required_trace_format':TRACE_FORMAT_VERSION}
         group['publication']=payload['publication']
         items.append(('live/' + group['path'],payload))
+    # The live exporter owns progress; merge baseline evidence from its bundle
+    # rather than relying on a static frontend copy of experiment_plan.json.
+    from tools.baseline_data import video_baselines
+    plan = json.loads((source/'experiment_plan.json').read_text())
+    plan['video_baselines'] = video_baselines(bundle)
     items += [('live/catalogue.json', catalogue), ('metadata/catalogue.json', catalogue),
-              ('live/experiment_plan.json',sanitize(json.loads((source/'experiment_plan.json').read_text())))]
+              ('live/experiment_plan.json',sanitize(plan))]
     evaluation_source=bundle/'publication/pixelworld/evaluation.json'
     if not evaluation_source.is_file():evaluation_source=source/'evaluation.json'
     if evaluation_source.is_file():
