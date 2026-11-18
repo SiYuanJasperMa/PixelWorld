@@ -164,6 +164,10 @@ def collect(run_root: Path):
         generation=read(sources.get(suite,run_root/'generations'/suite)/'status.json')
         scheduler=read(run_root/'evaluation'/folder/'scheduler.json')
         entries=scheduler.get('cohorts') or scheduler.get('done') or {}
+        # PhyGen judge schedulers key cohorts by model and declare one track.
+        # Other schedulers already use model/track keys.
+        entries={key if '/' in key else key+'/'+scheduler.get('track','vision-agent'):value
+                 for key,value in entries.items()}
         groups=generation.get('groups') or {}
         for key in sorted(set(groups)|set(entries)|set(scheduler.get('blocked') or {})):
             model,track=key.split('/',1)
