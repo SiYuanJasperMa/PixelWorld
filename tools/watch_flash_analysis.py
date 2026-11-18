@@ -32,6 +32,7 @@ if __name__ == '__main__':
     parser.add_argument('--token-file', type=Path, required=True)
     parser.add_argument('--submission-probe', type=Path)
     parser.add_argument('--submission-study', type=Path)
+    parser.add_argument('--boundary-study', type=Path)
     parser.add_argument('--interval', type=int, default=120)
     args = parser.parse_args()
     from huggingface_hub import HfApi
@@ -46,6 +47,9 @@ if __name__ == '__main__':
             if args.submission_study:
                 sources.append(('submission_native24', args.submission_study,
                                 args.submission_study/'quality/flash_quality_native24_checkpoint.json'))
+            if args.boundary_study:
+                sources.append(('boundary_native24',args.boundary_study,
+                                args.boundary_study/'quality/flash_quality_native24_checkpoint.json'))
             for name, root,checkpoint in sources:
                 output = root / 'analysis' / ('report_native24.json' if checkpoint else 'report.json')
                 build(root, output, args.descriptions, root / 'analysis/trace_cache.json',checkpoint)

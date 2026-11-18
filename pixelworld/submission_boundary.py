@@ -83,6 +83,7 @@ def completed_usage(run, terminal_usage):
             'raw_terminal_usage':terminal_usage,'gateway_completed_records':len(records),
             'boundary_sha256':sha256(boundary_path),'inflight_usage_unknown':False,
             'counter_crosscheck':'Completed gateway usage equals native cumulative Codex counters',
+            'source_note':'All completed gateway usage verified against native counters; final request blocked before upstream sampling',
             'reasoning_inclusion':'Provider-reported output preserved; reasoning not added'}
 
 

@@ -248,6 +248,8 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
         definitions['taskpack']=('generations/taskpack','Exact initial task pack')
     if experiment and 'submit' in experiment.get('arms', []):
         definitions['submit'] = ('generations', 'Technical submission tool')
+    if experiment and 'boundary' in experiment.get('arms', []):
+        definitions['boundary'] = ('generations', 'Verified submission boundary')
     for key,label in [('replay_keepcalls','Retained calls · replay'),('core_tools','Core task tools'),
                       ('replay_shrinking','Shrinking returns · corrected replay')]:
         if experiment and key in experiment.get('arms',[]):definitions[key]=('generations/'+key,label)
