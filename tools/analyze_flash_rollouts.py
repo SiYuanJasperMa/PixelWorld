@@ -113,7 +113,7 @@ def paired_quality(reference, current, scenario, seed=6141):
         groups.setdefault(scenario.get(key, key), []).append(key)
     labels = sorted(groups)
     rng = np.random.default_rng(seed)
-    result = {'paired_cases': len(shared), 'scenario_groups': len(labels),
+    result = {'paired_cases': len(shared), 'paired_case_ids': shared, 'scenario_groups': len(labels),
               'bootstrap_unit': 'scenario' if scenario else 'case',
               'relative_loss_margin': 0.05, 'confirmatory': False}
     for metric in ('v1', 'v2'):
@@ -137,7 +137,7 @@ def paired_quality(reference, current, scenario, seed=6141):
 def paired_economics(reference,current):
     shared=sorted(set(reference)&set(current))
     if not shared:return None
-    result={'paired_closed_cases':len(shared),'scope':'Fully measured matched cases; unsuccessful-attempt expenditure included'}
+    result={'paired_closed_cases':len(shared),'paired_case_ids':shared,'scope':'Fully measured matched cases; unsuccessful-attempt expenditure included'}
     for label,values in [('reference',reference),('candidate',current)]:
         rows=[values[key]for key in shared]
         deliveries=sum(row['protocol_delivery']for row in rows)
