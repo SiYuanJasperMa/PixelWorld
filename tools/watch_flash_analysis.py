@@ -30,6 +30,8 @@ if __name__ == '__main__':
     parser.add_argument('--descriptions', type=Path, required=True)
     parser.add_argument('--web-root', type=Path, required=True)
     parser.add_argument('--token-file', type=Path, required=True)
+    parser.add_argument('--submission-probe', type=Path)
+    parser.add_argument('--submission-study', type=Path)
     parser.add_argument('--interval', type=int, default=120)
     args = parser.parse_args()
     from huggingface_hub import HfApi
@@ -39,8 +41,12 @@ if __name__ == '__main__':
     while True:
         try:
             reports = []
-            for name, root,checkpoint in [('legacy',args.legacy_root,None),('confirmation',args.cohort,None),
-                ('confirmation_native24',args.cohort,args.cohort/'quality/flash_quality_native24_checkpoint.json')]:
+            sources = [('legacy',args.legacy_root,None),('confirmation',args.cohort,None),
+                ('confirmation_native24',args.cohort,args.cohort/'quality/flash_quality_native24_checkpoint.json')]
+            if args.submission_study:
+                sources.append(('submission_native24', args.submission_study,
+                                args.submission_study/'quality/flash_quality_native24_checkpoint.json'))
+            for name, root,checkpoint in sources:
                 output = root / 'analysis' / ('report_native24.json' if checkpoint else 'report.json')
                 build(root, output, args.descriptions, root / 'analysis/trace_cache.json',checkpoint)
                 raw = output.read_bytes()
@@ -48,6 +54,8 @@ if __name__ == '__main__':
                 temporary.write_bytes(raw)
                 temporary.replace(args.web_root / ('flash_' + name + '.json'))
                 reports.append((name, output))
+            if args.submission_probe and args.submission_probe.is_file():
+                reports.append(('submission_probe', args.submission_probe))
             if publication is not None and publication.done():
                 try:
                     result = publication.result()

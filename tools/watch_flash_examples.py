@@ -9,6 +9,7 @@ from tools.live_benchmark_data import case_data
 from tools.prepare_hf_delivery import sanitize
 from tools.publish_hf_incremental import package_case
 from tools.hf_commit_budget import commit
+from tools.flash_attempts import arm_root
 from pixelworld.util import atomic_json, utc_now
 
 
@@ -17,20 +18,24 @@ def publish(cohort, api, limit=2):
     root=cohort/'example_publication'
     source=root/'publication/pixelworld';source.mkdir(parents=True,exist_ok=True)
     manifest=json.loads((cohort/'experiment_manifest.json').read_text())
+    namespace=manifest.get('publication_namespace','flash_confirm')
+    report_name=manifest.get('example_report_name','examples')
+    if not namespace.replace('_','').isalnum() or not report_name.replace('_','').isalnum():
+        raise ValueError('Invalid publication namespace')
     arms=[a for a in manifest['arms'] if a!='replay']
     atomic_json(root/'live_sources.json',{'sources':[
-        {'key':'flash_confirm_'+arm,'runs_root':str((cohort/'generations'/arm).resolve())}
+        {'key':namespace+'_'+arm,'runs_root':str(arm_root(cohort,manifest,arm).resolve())}
         for arm in arms]})
     ledger=root/'ledger.json';state=json.loads(ledger.read_text()) if ledger.exists() else {}
     examples=state.setdefault('examples',{})
     jobs=[]
     for arm in arms:
-        for run in (cohort/'generations'/arm).glob('*/*/case_*'):
+        for run in arm_root(cohort,manifest,arm).glob('*/*/case_*'):
             path=run/'run_manifest.json'
             if not path.is_file():continue
             record=json.loads(path.read_text())
             if record.get('status')=='running':continue
-            relative=f"flash_confirm_{arm}/{record['model_key']}/{record['track']}/{run.name}.json"
+            relative=f"{namespace}_{arm}/{record['model_key']}/{record['track']}/{run.name}.json"
             stamp=hashlib.sha256(path.read_bytes()).hexdigest()
             if examples.get(relative,{}).get('source_sha256')==stamp:continue
             priority=(0 if record['case_id']=='0047' else 1 if record.get('status')=='failed'
@@ -56,7 +61,7 @@ def publish(cohort, api, limit=2):
         updated={**examples,relative:row}
         report=sanitize({'updated_utc':utc_now(),'scope':'Existing Flash development videos; protocol failures remain labeled',
                          'examples':list(updated.values())})
-        operations.append(CommitOperationAdd(path_in_repo='analyses/flash/examples.json',
+        operations.append(CommitOperationAdd(path_in_repo='analyses/flash/'+report_name+'.json',
                           path_or_fileobj=json.dumps(report,ensure_ascii=False).encode()))
         result=commit(api,repo_id='HuggingFriends/PixelWorld',repo_type='dataset',operations=operations,
                                 commit_message='Publish existing Flash candidate videos and full sanitized traces')

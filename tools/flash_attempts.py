@@ -1,7 +1,13 @@
 """Select case outcomes without discarding any Flash attempt history."""
 import json
+from pathlib import Path
 
 from pixelworld.retries import infrastructure_failure
+
+
+def arm_root(cohort, experiment, arm):
+    folder = Path(experiment.get('arm_folders', {}).get(arm, 'generations/' + arm))
+    return folder if folder.is_absolute() else cohort / folder
 
 
 def accepted(record):

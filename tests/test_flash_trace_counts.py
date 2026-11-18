@@ -134,3 +134,19 @@ def test_infra_retry_counts_one_case_but_preserves_unmeasured_spending(tmp_path)
     assert result['unknown_prior_usage_cases']==['0001']
     assert not result['cost_usage_complete_for_closed_attempts']
     assert result['paired_economics'] is None
+
+
+def test_explicit_arm_roots_reuse_baseline_without_copying_or_generating(tmp_path):
+    reference=tmp_path/'original_reference';cohort=tmp_path/'study';cohort.mkdir()
+    (cohort/'experiment_manifest.json').write_text(json.dumps({'arms':['baseline','submit'],
+        'case_ids':['0001'],'model_key':'other','model':'Other model',
+        'arm_folders':{'baseline':str(reference),'submit':'actual_runs'}}))
+    for folder,inp in [(reference,100),(cohort/'actual_runs',50)]:
+        run=folder/'other/vision-agent/case_0001_attempt_01';run.mkdir(parents=True)
+        (run/'run_manifest.json').write_text(json.dumps({'case_id':'0001','attempt':1,'status':'complete',
+            'validation':{'pass':True},'token_usage':{'status':'recorded','input_tokens':inp,'output_tokens':10}}))
+    report=build(cohort,cohort/'report.json')
+    assert [x['key'] for x in report['arms']]==['baseline','submit']
+    assert all(x['model']=='Other model' for x in report['arms'])
+    assert report['arms'][1]['paired_economics']['candidate']['mean_input']==50
+    assert not (cohort/'generations/baseline').exists()

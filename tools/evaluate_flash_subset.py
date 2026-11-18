@@ -13,7 +13,7 @@ import time
 from pixelworld.constants import (PHYSICS_IQ_COMMIT, PHYSICS_IQ_DATASET_REVISION,
                                  PHYSICS_IQ_DESCRIPTIONS_SHA256)
 from tools.evaluation_memory import check_pool_memory
-from tools.flash_attempts import histories, selected, accepted
+from tools.flash_attempts import histories, selected, accepted, arm_root
 
 
 def one_match(folder, pattern):
@@ -98,7 +98,7 @@ def update(cohort, resource, ffmpeg, model_key, workers, native_scoring=False):
     existing = {(r['arm'], r['case']): r for r in results}
     jobs = []
     for arm in manifest['arms']:
-        attempts = histories(cohort / 'generations' / arm / model_key / 'vision-agent')
+        attempts = histories(arm_root(cohort, manifest, arm) / model_key / 'vision-agent')
         for case in manifest['case_ids']:
             if case not in attempts:
                 continue

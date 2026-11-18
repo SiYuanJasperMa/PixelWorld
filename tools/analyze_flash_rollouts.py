@@ -8,7 +8,7 @@ import re
 import statistics
 
 import numpy as np
-from tools.flash_attempts import histories, selected, accepted, outcome
+from tools.flash_attempts import histories, selected, accepted, outcome, arm_root
 
 ARMS = {
     'reference': ('baseline', 'Baseline'),
@@ -221,6 +221,8 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
                 name = row['generated_video_name']
                 scenario[name[:4]] = name.split('_', 2)[-1]
     experiment = read(root / 'experiment_manifest.json')
+    model_key = experiment.get('model_key', 'gpt56-luna')
+    model_label = experiment.get('model', 'GPT-5.6-Luna')
     definitions = ({'baseline': ('generations/baseline', 'Baseline'),
                     'api': ('generations/api', 'Compact save API'),
                     'receipt': ('generations/receipt', 'Compact API + write receipt'),
@@ -229,14 +231,19 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
         definitions['replay']=('generations/replay','Replay pilot · task-read regression')
     if experiment and 'taskpack' in experiment.get('arms',[]):
         definitions['taskpack']=('generations/taskpack','Exact initial task pack')
+    if experiment and 'submit' in experiment.get('arms', []):
+        definitions['submit'] = ('generations', 'Technical submission tool')
     for key,label in [('replay_keepcalls','Retained calls · replay'),('core_tools','Core task tools'),
                       ('replay_shrinking','Shrinking returns · corrected replay')]:
         if experiment and key in experiment.get('arms',[]):definitions[key]=('generations/'+key,label)
     reference_key = 'baseline' if experiment else 'reference'
+    if experiment:
+        definitions = {key: value for key, value in definitions.items() if key in experiment['arms']}
     arms = []
     usages={}
     for key, (folder, label) in definitions.items():
-        case_histories = histories(root / folder / 'gpt56-luna/vision-agent')
+        runs = arm_root(root, experiment, key) if experiment else root / folder
+        case_histories = histories(runs / model_key / 'vision-agent')
         manifests = [path for values in case_histories.values() for path, _ in values]
         rows = []
         unmeasured_cases=set()
@@ -307,7 +314,7 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
         measured_deliveries=len({r['case'] for r in rows if r['protocol_delivery']})
         cost_complete=len(rows)==closed_attempts and not unmeasured_cases
         expected_cases=len(experiment.get('arm_case_ids',{}).get(key,experiment.get('case_ids',[]))) if experiment else 20
-        entry = {'excluded_from_acceptance': key=='replay' and bool(experiment and experiment.get('replay_status','').startswith('Initial pilot')), 'key': key, 'label': label, 'model': 'GPT-5.6-Luna', 'track': 'Vision',
+        entry = {'excluded_from_acceptance': key=='replay' and bool(experiment and experiment.get('replay_status','').startswith('Initial pilot')), 'key': key, 'label': label, 'model': model_label, 'track': 'Vision',
             'expected_cases': expected_cases, 'counts': dict(statuses),
             'attempt_counts': dict(attempt_statuses), 'attempt_records': len(manifests),
             'valid_rgb': len(valid_rgb_cases),
