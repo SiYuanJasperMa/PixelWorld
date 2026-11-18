@@ -490,7 +490,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     if config.harness_variant=='flash-taskpack':
         from .flash import pack_task
         task_text,flash_record=pack_task(task_text,workspace)
-    if config.harness_variant == 'flash-submit':
+    if config.harness_variant in ('flash-submit','flash-submit-boundary'):
         task_text += ('\nWhen satisfied with the saved video, call submit_video to check and submit it. '
                       'Fix reported errors; finish after accepted=true. This tool checks the technical '
                       'delivery contract, not appearance or physics.\n')
@@ -520,7 +520,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         model=replace(model,provider=replace(model.provider,model_catalog_json=str(catalog_snapshot)))
     command = codex_command(model, track, workspace, binary, has_image,
                             filesystem_policy=config.filesystem_policy)
-    if config.harness_variant == 'flash-submit':
+    if config.harness_variant in ('flash-submit','flash-submit-boundary'):
         module_root = Path(__file__).resolve().parents[1]
         # Codex0.169.0 forbids --trust together with --ignore-user-config.
         # The provider still reads only this fresh case-specific empty home.
@@ -537,7 +537,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
                         'module_sha256': sha256(module_root / 'pixelworld/submission.py'),
                         'physics_score_provided': False, 'generation_tools_unchanged': True,
                         'codex_config_scope': 'empty case-specific CODEX_HOME with vetted MCP trust',
-                        'automatic_harness_stop_enabled': False}
+                        'automatic_harness_stop_enabled': config.harness_variant=='flash-submit-boundary'}
     permissions_record = None
     if config.filesystem_policy == 'case-only-v1':
         from .permissions import case_permissions
@@ -687,9 +687,16 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         if final_key is not None:
             freeze(workspace, trace, 0, final_key, spec)
     canonicalization = canonicalize_tensor(workspace, logs, spec)
+    boundary_verified = False
+    if config.harness_variant == 'flash-submit-boundary':
+        from .submission_boundary import verify_boundary
+        boundary_verified = verify_boundary(run)
     validation = validate(workspace, logs / "events.jsonl", exit_status, track,
                           require_reports=legacy_contract, media=spec,
-                          budget_frozen=submission_selection is not None)
+                          budget_frozen=submission_selection is not None,
+                          submission_requested=boundary_verified)
+    if boundary_verified:
+        validation['completion_mode']='verified_submission_boundary'
     validation.update({
         "track": track,
         "initial_image_attached": has_image and track != "text",
@@ -699,6 +706,9 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     completed = dt.datetime.now(dt.timezone.utc)
     token_usage = preserve_completed_request_bound(collect_usage(logs / "events.jsonl"),
                           token_monitor.report() if token_monitor is not None else None)
+    if boundary_verified:
+        from .submission_boundary import completed_usage
+        token_usage=completed_usage(run,token_usage)
     terminal_output = token_usage.get('output_tokens')
     if token_limit is not None and isinstance(terminal_output, int) and terminal_output + prior_output > token_limit and not budget_stopped:
         # Unsupported/late usage reporting cannot silently accept an over-budget output.
@@ -746,7 +756,8 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         },
         "token_budget": token_monitor.report() if token_monitor is not None else None,
         "submission_selection": submission_selection,
-        "stop_reason": watchdog['reason'] if budget_stopped else provider_infra_failure,
+        "stop_reason": (watchdog['reason'] if budget_stopped else
+                        'verified_submission_boundary' if boundary_verified else provider_infra_failure),
         "retryable": not budget_stopped,
     })
     if watchdog:

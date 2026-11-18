@@ -124,6 +124,10 @@ def record_run(run: Path) -> bool:
             and manifest.get("token_usage") == prior and bound_current):
         return False
     usage = collect_usage(events)
+    if manifest.get('stop_reason')=='verified_submission_boundary':
+        from .submission_boundary import verify_boundary, completed_usage
+        if verify_boundary(run):
+            usage=completed_usage(run,usage)
     usage = preserve_completed_request_bound(usage, budget)
     if manifest.get('stop_reason') == 'output_token_budget_exhausted' and usage['status'] != 'recorded':
         try:

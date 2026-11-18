@@ -69,7 +69,7 @@ def load_config(path: str | Path) -> Benchmark:
     if token_budget is not None and (not isinstance(token_budget, int) or isinstance(token_budget, bool) or token_budget < 1):
         raise ValueError('output_token_budget must be a positive integer or null')
     harness_variant = raw.get('harness_variant', 'baseline')
-    if harness_variant not in ('baseline', 'flash-v1', 'flash-lean', 'flash-api', 'flash-api-receipt', 'flash-taskpack', 'flash-submit'):
+    if harness_variant not in ('baseline', 'flash-v1', 'flash-lean', 'flash-api', 'flash-api-receipt', 'flash-taskpack', 'flash-submit','flash-submit-boundary'):
         raise ValueError('Unknown harness_variant')
     if harness_variant != 'baseline' and protocol in LEGACY_TRACK_PROTOCOLS:
         raise ValueError('Legacy protocols preserve their original harness interface')
@@ -106,7 +106,7 @@ def load_config(path: str | Path) -> Benchmark:
                             provider=provider, tracks=tracks, cli_backend=cli_backend))
     if not models:
         raise ValueError("At least one model is required")
-    if harness_variant == 'flash-submit' and (filesystem_policy != 'case-only-v1'
+    if harness_variant in ('flash-submit','flash-submit-boundary') and (filesystem_policy != 'case-only-v1'
                                              or any(model.cli_backend != 'codex' or 'vision-input' in model.tracks for model in models)):
         raise ValueError('flash-submit requires native Codex and case-only Text/Vision tracks')
     if filesystem_policy == "case-only-v1" and any(

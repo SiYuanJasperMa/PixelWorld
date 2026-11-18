@@ -101,6 +101,18 @@ Model-facing schemas include the additional MCP resource-tool definitions;
 their overhead remains part of measured input. Original and submission arms
 retain separate trace/publication namespaces and explicit scored case sets.
 
+An independent `flash-submit-boundary` mechanism probe is queued after this
+frozen matrix. Four completed submission-tool traces contain exactly one new
+gateway request after acceptance, producing only a short final message and no
+pixel changes. The boundary experiment preserves the task, tools and history,
+verifies the case-bound accepted receipt and current RGB/code hashes, then
+declines that next request before upstream sampling. It records the genuine CLI
+termination; it does not fabricate an assistant reply or normal turn completion.
+Full usage is exposed only when every gateway request has a completed Responses
+usage record and its sum matches the native Codex cumulative input/output counts.
+An incomplete stream or disagreement remains partial. No boundary matrix or
+quality-preservation claim is accepted before its own genuine smoke.
+
 ## Scoring and provenance
 
 Primary development comparisons use all 120 native 24 FPS frames with matching
@@ -166,6 +178,14 @@ GitHub contains code, frontend and small progress metadata. HF contains video,
 full sanitized trace and numerical analysis. Incremental publication alternates
 accepted-video priority with recent attempt history. Media, detail and full trace
 are committed atomically before the readiness flag is set.
+
+Trace format3 includes CLI stderr, technical submission/boundary receipts and
+completed-request ledgers alongside native conversations, images and code
+revisions. Background publishers refresh older trace packages while preserving
+their immutable generation records and existing playable video links. A
+specific pre-client Codex flag rejection may be accounted as no sampling only
+with the exact fixed-version error, conflicting command flags and empty native
+events; ordinary missing usage is never interpreted as zero tokens.
 
 Dataset publishers share a cloud-stored commit budget. Commit reservations are
 spaced at least 45 seconds apart across video, progress and analysis services,

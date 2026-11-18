@@ -4,6 +4,7 @@ import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import secrets
+import uuid
 from pathlib import Path
 import threading
 import time
@@ -11,6 +12,7 @@ from urllib.parse import urlparse
 
 import requests
 from pixelworld.context_replay import compact
+from pixelworld.util import atomic_json
 
 CORE_TOOLS={'exec_command','write_stdin','apply_patch','view_image'}
 
@@ -70,6 +72,15 @@ class Relay(BaseHTTPRequestHandler):
         try:
             token,workspace,path=self.route()
             if path not in ('responses','models'):raise ValueError('Unsupported endpoint')
+            boundary_mode = getattr(self.server,'stop_on_submission',False) and method=='POST' and path=='responses'
+            ledger_path=None
+            if boundary_mode:
+                from pixelworld.submission_boundary import accept_boundary, STOP_MESSAGE
+                digest=hashlib.sha256(body).hexdigest()
+                if accept_boundary(workspace,digest):
+                    return self.error(409,STOP_MESSAGE)
+                ledger_path=workspace.parent/'logs/submission_requests'/(uuid.uuid4().hex+'.json')
+                atomic_json(ledger_path,{'phase':'started','request_sha256':digest,'utc':time.time()})
             headers={'Authorization':self.headers.get('Authorization',''),'Content-Type':'application/json'}
             report=None
             if body is not None:
@@ -102,11 +113,23 @@ class Relay(BaseHTTPRequestHandler):
             self.send_header('Content-Type',upstream.headers.get('Content-Type','application/json'))
             self.send_header('Connection','close');self.end_headers()
             headers_sent=True
+            pending=b''
             try:
                 while True:
                     chunk=upstream.raw.read1(8192)
                     if not chunk:break
                     self.wfile.write(chunk);self.wfile.flush()
+                    if ledger_path is not None:
+                        lines=(pending+chunk).split(b'\n');pending=lines.pop()
+                        for line in lines:
+                            if not line.startswith(b'data:'):continue
+                            try:event=json.loads(line[5:].strip())
+                            except ValueError:continue
+                            if event.get('type')=='response.completed':
+                                response=event.get('response')or{}
+                                atomic_json(ledger_path,{'phase':'completed','request_sha256':digest,
+                                    'utc':time.time(),'response_id':response.get('id'),
+                                    'usage':response.get('usage')or{}})
             finally:
                 upstream.close();self.close_connection=True
         except (BrokenPipeError,ConnectionResetError):
@@ -139,7 +162,10 @@ if __name__=='__main__':
     parser.add_argument('--no-history-compaction',action='store_true')
     parser.add_argument('--core-tools-only',action='store_true')
     parser.add_argument('--only-shrinking-returns',action='store_true')
+    parser.add_argument('--stop-on-accepted-submission',action='store_true')
     args=parser.parse_args()
+    if args.stop_on_accepted_submission and (not args.no_history_compaction or args.core_tools_only):
+        parser.error('Submission boundary preserves the original history and all tools')
     server=ThreadingHTTPServer(('127.0.0.1',args.port),Relay)
     server.registry=args.registry;server.allowed_root=args.allowed_root
     server.log_path=args.log;server.log_path.parent.mkdir(parents=True,exist_ok=True)
@@ -149,4 +175,5 @@ if __name__=='__main__':
     server.no_history_compaction=args.no_history_compaction
     server.core_tools_only=args.core_tools_only
     server.only_shrinking_returns=args.only_shrinking_returns
+    server.stop_on_submission=args.stop_on_accepted_submission
     server.serve_forever()

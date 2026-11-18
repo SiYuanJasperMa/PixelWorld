@@ -80,17 +80,22 @@ def freeze(bundle, destination):
     return report
 
 
+TRACE_FORMAT_VERSION = 3
+
 TRACE_FILES = ('run_manifest.json', 'media_contract.json', 'task_prompt.txt',
     'input_snapshot/prompt.txt', 'logs/events.jsonl', 'logs/events.raw.jsonl',
     'logs/token_budget.json', 'logs/full_rollout.jsonl', 'workspace/generate.py',
     'logs/tool_calls.json', 'logs/full_trace_status.json',
+    'logs/stderr.log', 'logs/submission_receipt.json', 'logs/submission_boundary.json',
+    'logs/manifest_before_config_reclassification.json',
     'workspace/GENERATION_RULES.md', 'workspace/task_spec.json', 'workspace/artifact_io.py',
     'workspace/inspection.png', 'workspace/transition_check.png')
 
 
 def trace_names(run):
     names=list(TRACE_FILES)
-    for folder,patterns in [('logs/tool_images',('*.png','*.jpg','*.jpeg','*.webp')),
+    for folder,patterns in [('logs/submission_requests',('*.json',)),
+                            ('logs/tool_images',('*.png','*.jpg','*.jpeg','*.webp')),
                             ('trace',('round_*/generate.py','round_*/snapshot.json')),
                             ('workspace/_pixelworld_io',('*.py','*.html')),
                             ('workspace/.tmp/harness-history',('*.json','*.png','*.jpg','*.webp'))]:

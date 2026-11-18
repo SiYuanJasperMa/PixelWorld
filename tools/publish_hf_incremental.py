@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import time
 
-from tools.prepare_hf_delivery import public_case,export_trace_run
+from tools.prepare_hf_delivery import public_case,export_trace_run,TRACE_FORMAT_VERSION
 
 DATA_BASE = 'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/data/'
 
@@ -61,8 +61,10 @@ def package_case(source, relative):
             media[remote]=trace
             data['trace_archive']='https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/'+remote
             data['publication']['trace_ready']=True
+            data['publication']['trace_format_version']=TRACE_FORMAT_VERSION
     return {'source_sha256': hashlib.sha256(raw).hexdigest(), 'media': media,
             'trace_ready':data.get('publication',{}).get('trace_ready',False),
+            'trace_format_version':data.get('publication',{}).get('trace_format_version'),
             'detail': json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode()}
 
 
@@ -99,7 +101,8 @@ def publish_cycle(source, state_path, api, batch_size=2):
                 raw_hash = hashlib.sha256(path.read_bytes()).hexdigest()
                 acknowledged=ready.get(relative,{})
                 trace_required=(source.parent.parent/'live_sources.json').is_file()
-                if acknowledged.get('source_sha256') == raw_hash and (not trace_required or acknowledged.get('trace_ready')):
+                if acknowledged.get('source_sha256') == raw_hash and (not trace_required or
+                        acknowledged.get('trace_ready') and acknowledged.get('trace_format_version',0)>=TRACE_FORMAT_VERSION):
                     continue
                 package = package_case(source, relative)
                 if package is None:
@@ -126,7 +129,8 @@ def publish_cycle(source, state_path, api, batch_size=2):
         for relative, package in selected:
             ready[relative] = {'source_sha256': package['source_sha256'],
                               'uploaded_unix': now, 'commit': commit.oid,
-                              'media_files': len(package['media']), 'trace_ready':package['trace_ready']}
+                              'media_files': len(package['media']), 'trace_ready':package['trace_ready'],
+                              'trace_format_version':package.get('trace_format_version')}
         state['last_commit'] = commit.oid
         state['last_uploaded_unix'] = now
     state['checked_unix'] = time.time()

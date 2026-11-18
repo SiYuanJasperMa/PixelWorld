@@ -38,6 +38,21 @@ def mean(values):
     return statistics.mean(values) if values else None
 
 
+def proven_unlaunched(record, run):
+    """Only a specific pre-client CLI flag rejection can account for zero sampling."""
+    command = record.get('command') or []
+    events = run / 'logs/events.jsonl'
+    stderr = run / 'logs/stderr.log'
+    return bool(record.get('cli_backend') == 'codex'
+                and record.get('codex_version') == 'codex-cli 0.169.0'
+                and record.get('stop_reason') == 'local_cli_configuration_failure'
+                and '--trust' in command and '--ignore-user-config' in command
+                and events.is_file() and events.stat().st_size == 0
+                and stderr.is_file()
+                and stderr.read_text().strip().startswith(
+                    'Error: --trust cannot be combined with --ignore-user-config:'))
+
+
 def recorded_trace(path):
     calls = Counter()
     images = Counter()
@@ -253,6 +268,7 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
         valid_protocol_cases = set()
         infra = 0
         closed_attempts = 0
+        unlaunched_attempts = []
         trace_rows = []
         for path in manifests:
             record = read(path)
@@ -275,7 +291,13 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
             # Unknown interrupted spending is still unknown operational cost.
             # Keep it separate from model failures, but never silently make the
             # next success a completely measured all-attempt cost observation.
-            if not measured:unmeasured_cases.add(case_identity)
+            if not measured:
+                if proven_unlaunched(record, path.parent):
+                    unlaunched_attempts.append({'case':case_identity,'attempt':record.get('attempt'),
+                        'basis':'Codex0.169.0 rejected incompatible flags before client/thread creation; no sampling',
+                        'provider_usage_not_fabricated':True})
+                else:
+                    unmeasured_cases.add(case_identity)
             if (usage.get('status') == 'recorded'
                     and isinstance(usage.get('input_tokens'), int)
                     and isinstance(usage.get('output_tokens'), int)):
@@ -312,7 +334,7 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
                     if total['duration_seconds'] is not None and row['duration_seconds'] is not None else None)
         for case in unmeasured_cases:usages[key].pop(case,None)
         measured_deliveries=len({r['case'] for r in rows if r['protocol_delivery']})
-        cost_complete=len(rows)==closed_attempts and not unmeasured_cases
+        cost_complete=len(rows)+len(unlaunched_attempts)==closed_attempts and not unmeasured_cases
         expected_cases=len(experiment.get('arm_case_ids',{}).get(key,experiment.get('case_ids',[]))) if experiment else 20
         entry = {'excluded_from_acceptance': key=='replay' and bool(experiment and experiment.get('replay_status','').startswith('Initial pilot')), 'key': key, 'label': label, 'model': model_label, 'track': 'Vision',
             'expected_cases': expected_cases, 'counts': dict(statuses),
@@ -321,6 +343,7 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
             'original_protocol_pass': len(valid_protocol_cases), 'infrastructure_interruptions': infra,
             'pending': max(0, expected_cases-len(case_histories)), 'usage_measured_cases': len(rows),
             'unknown_prior_usage_cases': sorted(unmeasured_cases),
+            'proven_unlaunched_attempts': unlaunched_attempts,
             'mean_input': mean([r['input'] for r in rows]), 'mean_output': mean([r['output'] for r in rows]),
             'mean_cached_input': mean([r['cached'] for r in rows]),
             'mean_reasoning_output': mean([r['reasoning'] for r in rows]),

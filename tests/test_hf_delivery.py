@@ -59,3 +59,17 @@ def test_complete_case_archive_contains_actual_tool_images_and_code_versions(tmp
         assert 'logs/tool_images/a.png' in names
         assert 'trace/round_001/generate.py' in names
         assert b'/mnt/private' not in archive.extractfile('run_manifest.json').read()
+
+
+def test_submission_receipts_gateway_records_and_stderr_are_in_full_trace(tmp_path):
+    import tarfile
+    from tools.prepare_hf_delivery import export_trace_run
+    run=tmp_path/'run';(run/'logs/submission_requests').mkdir(parents=True)
+    (run/'logs/submission_receipt.json').write_text('{"accepted":true}')
+    (run/'logs/submission_boundary.json').write_text('{"pre_upstream":true}')
+    (run/'logs/submission_requests/one.json').write_text('{"phase":"completed","usage":{"input_tokens":100}}')
+    (run/'logs/stderr.log').write_text('CLI setup failed at /mnt/private/config')
+    with tarfile.open(export_trace_run(run,tmp_path/'trace.tar.gz'))as archive:
+        assert {'logs/submission_receipt.json','logs/submission_boundary.json',
+                'logs/submission_requests/one.json','logs/stderr.log'}<=set(archive.getnames())
+        assert b'/mnt/private' not in archive.extractfile('logs/stderr.log').read()

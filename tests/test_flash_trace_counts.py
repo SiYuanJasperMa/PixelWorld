@@ -150,3 +150,32 @@ def test_explicit_arm_roots_reuse_baseline_without_copying_or_generating(tmp_pat
     assert all(x['model']=='Other model' for x in report['arms'])
     assert report['arms'][1]['paired_economics']['candidate']['mean_input']==50
     assert not (cohort/'generations/baseline').exists()
+
+
+def test_only_proven_preclient_rejection_is_zero_sampling_not_missing_usage(tmp_path):
+    (tmp_path/'experiment_manifest.json').write_text(json.dumps({'arms':['baseline','submit'],
+        'case_ids':['0001'],'arm_folders':{'submit':'actual'}}))
+    values=[('generations/baseline',1,'complete',{'status':'recorded','input_tokens':100,'output_tokens':10}),
+            ('actual',1,'failed',{'status':'missing'}),
+            ('actual',2,'complete',{'status':'recorded','input_tokens':50,'output_tokens':5})]
+    for folder,attempt,status,usage in values:
+        run=tmp_path/f'{folder}/gpt56-luna/vision-agent/case_0001_attempt_{attempt:02d}'
+        run.mkdir(parents=True)
+        record={'case_id':'0001','attempt':attempt,'status':status,'token_usage':usage,
+                'validation':{'pass':status=='complete'}}
+        if status=='failed':
+            record.update(cli_backend='codex',codex_version='codex-cli 0.169.0',
+                stop_reason='local_cli_configuration_failure',command=['codex','--trust','--ignore-user-config'])
+            logs=run/'logs';logs.mkdir();(logs/'events.jsonl').write_text('')
+            (logs/'stderr.log').write_text('Error: --trust cannot be combined with --ignore-user-config: saved project trust decisions must be checked')
+        (run/'run_manifest.json').write_text(json.dumps(record))
+    report=next(x for x in build(tmp_path,tmp_path/'report.json')['arms']if x['key']=='submit')
+    assert report['paired_economics']['paired_closed_cases']==1
+    assert report['usage_measured_cases']==1
+    assert len(report['proven_unlaunched_attempts'])==1
+    assert report['cost_usage_complete_for_closed_attempts']
+    logs=tmp_path/'actual/gpt56-luna/vision-agent/case_0001_attempt_01/logs'
+    (logs/'events.jsonl').write_text('{"type":"turn.started"}\n')
+    report=next(x for x in build(tmp_path,tmp_path/'report.json')['arms']if x['key']=='submit')
+    assert not report['cost_usage_complete_for_closed_attempts']
+    assert report['paired_economics'] is None

@@ -11,6 +11,7 @@ import time
 from tools.publish_dashboard_snapshot import snapshot, SHELLS, validate_script_syntax
 from tools.prepare_hf_delivery import sanitize
 from tools.hf_commit_budget import commit as dataset_commit
+from tools.prepare_hf_delivery import TRACE_FORMAT_VERSION
 
 
 def hf_progress(source, token_file):
@@ -32,14 +33,20 @@ def hf_progress(source, token_file):
     for group in catalogue['groups']:
         payload=sanitize(json.loads((source / group['path']).read_text()))
         synced=0
+        current_traces=0
         for history in payload.get('cases',{}).values():
             for attempt in history:
                 ready=ledger.get(attempt['detail'])
                 current=attempt.get('detail_sha256')
                 attempt['hf_detail_ready']=bool(ready and (not current or current==ready['source_sha256']))
                 attempt['hf_trace_ready']=bool(attempt['hf_detail_ready'] and ready.get('trace_ready'))
+                attempt['hf_trace_format_version']=ready.get('trace_format_version') if ready else None
+                attempt['hf_trace_current_format']=bool(attempt['hf_trace_ready'] and
+                    ready.get('trace_format_version',0)>=TRACE_FORMAT_VERSION)
+                current_traces+=attempt['hf_trace_current_format']
                 synced+=attempt['hf_detail_ready']
-        payload['publication']={'hf_synced_details':synced}
+        payload['publication']={'hf_synced_details':synced,'hf_current_format_traces':current_traces,
+                                'required_trace_format':TRACE_FORMAT_VERSION}
         group['publication']=payload['publication']
         items.append(('live/' + group['path'],payload))
     items += [('live/catalogue.json', catalogue), ('metadata/catalogue.json', catalogue),

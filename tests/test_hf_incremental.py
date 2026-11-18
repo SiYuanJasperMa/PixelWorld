@@ -68,3 +68,21 @@ def test_publication_alternates_accepted_delivery_and_failed_history(tmp_path):
     assert 'live/'+relative in first and 'live/'+failed not in first
     publish_cycle(source,state,api,batch_size=1)
     assert 'live/'+failed in {x.path_in_repo for x in calls[1]}
+
+
+def test_old_trace_format_is_refreshed_without_changing_source_detail(tmp_path,monkeypatch):
+    import hashlib
+    source,relative=fixture(tmp_path/'bundle/source_parent')
+    (source.parent.parent/'live_sources.json').write_text('{"sources":[]}')
+    raw=(source/relative).read_bytes();digest=hashlib.sha256(raw).hexdigest()
+    state=tmp_path/'state.json';state.write_text(json.dumps({'ready':{relative:{
+        'source_sha256':digest,'trace_ready':True,'trace_format_version':2}}}))
+    monkeypatch.setattr('tools.publish_hf_incremental.package_case',lambda *args:{
+        'source_sha256':digest,'media':{},'detail':raw,'trace_ready':True,'trace_format_version':3})
+    calls=[]
+    api=SimpleNamespace(create_commit=lambda **kwargs:(calls.append(kwargs)or SimpleNamespace(oid='new')))
+    publish_cycle(source,state,api)
+    assert len(calls)==1 and (source/relative).read_bytes()==raw
+    assert json.loads(state.read_text())['ready'][relative]['trace_format_version']==3
+    publish_cycle(source,state,api)
+    assert len(calls)==1

@@ -46,7 +46,7 @@ def safe_outputs(workspace, spec):
 def submit(run):
     run = run.resolve()
     manifest = json.loads((run / 'run_manifest.json').read_text())
-    if manifest.get('harness_variant') != 'flash-submit' or manifest.get('filesystem_policy') != 'case-only-v1':
+    if manifest.get('harness_variant') not in ('flash-submit','flash-submit-boundary') or manifest.get('filesystem_policy') != 'case-only-v1':
         raise ValueError('Submission tool requires the explicit isolated experimental variant')
     workspace, logs = run / 'workspace', run / 'logs'
     spec = contract(run / 'media_contract.json')

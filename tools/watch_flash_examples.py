@@ -10,6 +10,7 @@ from tools.prepare_hf_delivery import sanitize
 from tools.publish_hf_incremental import package_case
 from tools.hf_commit_budget import commit
 from tools.flash_attempts import arm_root
+from tools.prepare_hf_delivery import TRACE_FORMAT_VERSION
 from pixelworld.util import atomic_json, utc_now
 
 
@@ -38,7 +39,8 @@ def publish(cohort, api, limit=2):
             if record.get('status')=='running':continue
             relative=f"{namespace}_{arm}/{record['model_key']}/{record['track']}/{run.name}.json"
             stamp=hashlib.sha256(path.read_bytes()).hexdigest()
-            if examples.get(relative,{}).get('source_sha256')==stamp:continue
+            if (examples.get(relative,{}).get('source_sha256')==stamp
+                    and examples.get(relative,{}).get('trace_format_version',0)>=TRACE_FORMAT_VERSION):continue
             priority=(0 if record['case_id'] in priority_cases else 1 if record.get('status')=='failed'
                       else 2 if arm=='taskpack' else 3)
             jobs.append((priority,arm,run,relative,stamp))
@@ -56,6 +58,7 @@ def publish(cohort, api, limit=2):
         row={'arm':arm,'case':public['case_id'],'attempt':public.get('attempt'), 'status':public['delivery_status'],
              'protocol_pass':bool(public.get('validation',{}).get('pass')),
              'source_sha256':stamp,'trace':public.get('trace_archive'),
+             'trace_format_version':package.get('trace_format_version'),
              'detail':'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/'+relative,
              'candidates':[{k:c.get(k) for k in ('label','preview_mp4','poster')}
                            for c in public.get('candidates',[])]}
