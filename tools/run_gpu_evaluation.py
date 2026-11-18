@@ -16,13 +16,14 @@ import time
 
 
 def free_gpus() -> list[tuple[int, int]]:
-    result = subprocess.run(['nvidia-smi', '--query-gpu=index,memory.free',
+    result = subprocess.run(['nvidia-smi', '--query-gpu=index,memory.free,utilization.gpu',
                              '--format=csv,noheader,nounits'], check=True,
                             capture_output=True, text=True, timeout=30)
     rows = []
     for line in result.stdout.splitlines():
-        index, memory = line.split(',', 1)
-        rows.append((int(index.strip()), int(memory.strip())))
+        index, memory, utilization = line.split(',')
+        if utilization.strip().isdigit() and int(utilization.strip()) <= 20:
+            rows.append((int(index.strip()), int(memory.strip())))
     return sorted(rows, key=lambda row: (-row[1], row[0]))
 
 

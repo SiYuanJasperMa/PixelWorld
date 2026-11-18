@@ -67,8 +67,15 @@ def render(name: str, spec: dict, output: Path, costs: dict | None = None, seeda
     plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 9, "svg.fonttype": "none"})
     fig, ax = plt.subplots(figsize=(7.2, 5.0), facecolor="white")
     ax.set_xscale("log")
-    ax.set_xlim(0.3, 40)
-    ax.set_ylim(spec["ylim"][0], max(spec["ylim"][1], 0.84) if name == 'phygenbench' and seedance else spec["ylim"][1])
+    prices=[row[2] for row in spec['models']]+[row[1] for row in spec['baselines']+spec.get('matched_baselines',[])]
+    scores=[row[3] for row in spec['models']]+[row[2] for row in spec['baselines']+spec.get('matched_baselines',[])]
+    positive=[value for value in prices if value>0]
+    ax.set_xlim(min([0.3,*[value/1.5 for value in positive]]),max([40,*[value*1.5 for value in positive]]))
+    low,high=spec['ylim']
+    if scores:
+        pad=max((max(scores)-min(scores))*.12,(high-low)*.05)
+        low=min(low,min(scores)-pad);high=max(high,max(scores)+pad)
+    ax.set_ylim(low,high)
     ax.set_xlabel("Reference-price cost / video (US$, reported cache)" if costs else "Estimated API cost / video (US$, 70% cache)", color=INK)
     ax.set_ylabel(spec["ylabel"], color=INK)
     ax.grid(axis="y", color="#edf1f5")

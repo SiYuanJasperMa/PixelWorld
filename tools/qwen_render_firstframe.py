@@ -29,7 +29,9 @@ def main() -> None:
     parser.add_argument("--negative-prompt", default=None)
     parser.add_argument("--cfg", type=float, default=1.0)
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--seed", type=int, help="Explicit candidate seed; omitted seeds remain recorded as unknown")
+    seeds = parser.add_mutually_exclusive_group()
+    seeds.add_argument("--seed", type=int, help="Explicit candidate seed; omitted seeds remain recorded as unknown")
+    seeds.add_argument("--seeds", type=int, nargs='+', help="Generate multiple candidates with one loaded pipeline")
     parser.add_argument("--revision-label", help="Owner-supplied model revision label; not a weight-hash verification")
     args = parser.parse_args()
     pipe = QwenImage21Pipeline.from_pretrained(
@@ -37,32 +39,28 @@ def main() -> None:
     )
     pipe.to(args.device)
     source = Image.open(args.image).convert("RGB")
-    generator={} if args.seed is None else {"generator":torch.Generator(device=args.device).manual_seed(args.seed)}
-    result = pipe(
-        prompt=args.prompt,
-        negative_prompt=args.negative_prompt,
-        true_cfg_scale=args.cfg,
-        image=source,
-        height=args.height,
-        width=args.width,
-        num_inference_steps=args.steps,
-        output_resolution=max(args.width, args.height),
-        **generator,
-    ).images[0]
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    result.save(args.output)
     index=args.model/'model_index.json'
-    metadata={'pipeline':type(pipe).__name__,'model_reference':args.model.name,
+    for seed in args.seeds or [args.seed]:
+        generator={} if seed is None else {"generator":torch.Generator(device=args.device).manual_seed(seed)}
+        result = pipe(prompt=args.prompt, negative_prompt=args.negative_prompt,
+                      true_cfg_scale=args.cfg, image=source, height=args.height, width=args.width,
+                      num_inference_steps=args.steps, output_resolution=max(args.width, args.height),
+                      **generator).images[0]
+        output=(args.output.with_name(args.output.stem+f'_seed{seed}'+args.output.suffix)
+                if args.seeds else args.output)
+        result.save(output)
+        metadata={'pipeline':type(pipe).__name__,'model_reference':args.model.name,
               'revision_label':args.revision_label,
               'model_index_sha256':hashlib.sha256(index.read_bytes()).hexdigest() if index.exists() else None,
               'condition_image_sha256':hashlib.sha256(args.image.read_bytes()).hexdigest(),
-              'output_image_sha256':hashlib.sha256(args.output.read_bytes()).hexdigest(),
+              'output_image_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),
               'source_size':list(source.size),'requested_size':[args.width,args.height],
-              'native_output_size':list(result.size),'seed':args.seed,'steps':args.steps,
+              'native_output_size':list(result.size),'seed':seed,'steps':args.steps,
               'cfg':args.cfg,'prompt':args.prompt,'negative_prompt':args.negative_prompt,
               'scope':'analysis initial-image preparation only; image passed to pipeline; no video frames generated'}
-    args.output.with_suffix('.render.json').write_text(json.dumps(metadata,indent=2))
-    print({"output": str(args.output), "size": result.size, "mode": result.mode})
+        output.with_suffix('.render.json').write_text(json.dumps(metadata,indent=2))
+        print({"output": str(output), "size": result.size, "mode": result.mode}, flush=True)
 
 
 if __name__ == "__main__":

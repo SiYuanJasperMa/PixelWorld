@@ -713,7 +713,9 @@ def async_update(run_root,destination,cache,pool,pending,render_root,
     merge_render_jobs(destination,cache,pending,render_root,published_assets)
     if history_pending is not None:
         merge_render_jobs(destination,cache,history_pending,render_root,published_assets)
-    catalogue={'groups':[],'updated_utc':datetime.now(timezone.utc).isoformat()}
+    suite_metadata={item['key']:{key:item[key] for key in ('title','output_text','stage') if key in item}
+                    for item in read(run_root/'live_sources.json').get('sources',[])}
+    catalogue={'groups':[],'suites':suite_metadata,'updated_utc':datetime.now(timezone.utc).isoformat()}
     historical=[]
     for suite,source in sources(run_root):
         status=read(source/'status.json')

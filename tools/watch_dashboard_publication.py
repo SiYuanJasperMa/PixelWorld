@@ -72,6 +72,9 @@ def hf_frontend(source, token_file):
     from huggingface_hub import HfApi, CommitOperationAdd
     live_base='https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/'
     files={name:(source/name).read_text() for name in SHELLS}
+    for name in ('phygen_firstframe_smoke.html',):
+        if (source/name).is_file():
+            files[name]=(source/name).read_text()
     validate_script_syntax(files)
     for name, content in files.items():
         if re.search(r'/mnt/|/home/tiger/|\bhf_[A-Za-z0-9]{20,}|\bghp_[A-Za-z0-9]{20,}',content):

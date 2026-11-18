@@ -67,6 +67,15 @@ The run-local `smoke.json`, render logs and manifests provide exact settings and
 hashes. Visual review must verify the pre-action state and scene content;
 artifact validation alone does not establish physical quality.
 
+A subsequent visual audit rejected the v2 image as a pre-action initialization:
+it added a stream flowing into the cup from above. The source agent frame and
+downstream I2V program were inspected; their operations remain in 2D pixel space.
+The existing video remains a pipeline pilot, not an accepted paired analysis
+sample. Three revised candidates are being tested with an explicit unchanged
+pre-action-state instruction. Their requested native canvas is 1536x864 (both
+dimensions divisible by 32), allowing uniform resizing to 1280x720 without
+stretching objects. Selection must precede the next I2V run.
+
 [View the smoke](https://huggingfriends-pixelworld-dashboard.static.hf.space/phygen_firstframe_smoke.html).
 
 ## Evaluation and cost

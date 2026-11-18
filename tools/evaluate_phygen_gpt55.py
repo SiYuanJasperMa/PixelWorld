@@ -65,9 +65,9 @@ def atomic_json(path: Path, value) -> None:
     temporary.replace(path)
 
 
-def selected_run(folder: Path, case: str):
+def selected_run(folder: Path, case: str, suffix: str = ''):
     candidates = []
-    for run in folder.glob(f"case_phygen_{case}_attempt_*"):
+    for run in folder.glob(f"case_phygen_{case}{suffix}_attempt_*"):
         manifest = run / "run_manifest.json"
         if not manifest.is_file():
             continue
@@ -165,6 +165,7 @@ def score_case(client, key_file: Path, job: dict, output: Path, frames: int, max
             parsed = parse_score(response.choices[0].message.content)
             return {
                 "model": model, "case": case, "score": parsed["score"], "reason": parsed["reason"],
+                "track": job.get("track", "vision-agent"),
                 "main_category": job["main_category"], "sub_category": job["sub_category"],
                 "dimension": CATEGORY_MAP.get(job["main_category"], job["main_category"]),
                 "caption": job["caption"], "physical_law": job["physical_law"],
@@ -174,6 +175,7 @@ def score_case(client, key_file: Path, job: dict, output: Path, frames: int, max
                 "response_id": getattr(response, "id", None),
                 "source_type": job.get("source_type", "agent_saved_rgb"),
                 "source_sha256": job.get("source_sha256"),
+                "source_manifest_sha256": job.get("source_manifest_sha256"),
                 "judge_prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
                 "judge_usage": response.usage.model_dump() if response.usage else None,
             }
@@ -192,8 +194,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path,
                         default=ROOT / "runs/final_release_candidate_20261117/evaluation/phygenbench_gpt55_judge")
     parser.add_argument("--models", nargs="+", default=list(DEFAULT_MODELS))
+    parser.add_argument("--track", choices=("text", "vision-agent"), default="vision-agent")
     parser.add_argument("--video-dir", type=Path, help="External baseline MP4 directory; requires exactly one model label")
     parser.add_argument("--cases", nargs="+", default=None, help="Optional case numbers, e.g. 1 2")
+    parser.add_argument("--case-suffix", default='', help="Explicit generation case suffix, e.g. _i2v for an initialization smoke")
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--frames", type=int, default=8)
     parser.add_argument("--max-edge", type=int, default=768)
@@ -210,7 +214,7 @@ def main() -> None:
     if args.video_dir and len(args.models) != 1:
         raise ValueError("External video input requires exactly one --models label")
     for model in args.models:
-        folder = args.generations / model / "vision-agent"
+        folder = args.generations / model / args.track
         for case in cases:
             if args.video_dir:
                 run = args.video_dir.resolve() / f"phygen_{case}.mp4"
@@ -218,14 +222,17 @@ def main() -> None:
                     raise FileNotFoundError(run)
                 attempt = None
             else:
-                attempt, run, _ = selected_run(folder, case)
+                attempt, run, _ = selected_run(folder, case, args.case_suffix)
             metadata = prompts[int(case) - 1]
             jobs.append({"model": model, "case": case, "run": str(run), "attempt": attempt,
+                         "track": args.track,
                          "caption": metadata["caption"], "physical_law": metadata["physical_laws"],
                          "main_category": metadata["main_category"],
                          "sub_category": metadata["sub_category"]})
             if args.video_dir:
                 jobs[-1].update(source_type="external_video", source_sha256=hashlib.sha256(run.read_bytes()).hexdigest())
+            else:
+                jobs[-1]['source_manifest_sha256']=hashlib.sha256((run/'run_manifest.json').read_bytes()).hexdigest()
     args.output.mkdir(parents=True, exist_ok=True)
     checkpoint = args.output / "per_case.jsonl"
     done = set()
@@ -270,6 +277,7 @@ def main() -> None:
                 continue
     summary = {"judge_model": "gpt-5.5-2026-04-24",
                "judge_protocol": "PixelWorld PhyGen GPT-5.5 judge; not official GPT-4o-0513 PhyGenEval",
+               "track": args.track,
                "frames_per_video": args.frames, "models": {}}
     for model in args.models:
         model_rows = [row for row in rows if row["model"] == model]

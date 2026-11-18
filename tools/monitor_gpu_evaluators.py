@@ -14,7 +14,7 @@ for proc in Path('/proc').glob('[0-9]*'):
  try:
   if (proc/'stat').read_text().rsplit(') ',1)[1].split()[0]=='Z':continue
   argv=[x.decode(errors='replace')for x in(proc/'cmdline').read_bytes().split(b'\\0')if x]
-  if argv and root in ' '.join(argv) and any(token in ' '.join(argv)for token in ['evaluate_pcve_full.py','official_driver.py','evaluate_robojudge_shared50.py','run_gpu_evaluation.py','pcve_worker_start.py','watch_physics_evaluation.py','physiq.run_physics_iq']):rows.append([int(proc.name),argv])
+  if argv and root in ' '.join(argv) and any(token in ' '.join(argv)for token in ['evaluate_pcve_full.py','tools.evaluate_pcve_full','official_driver.py','evaluate_robojudge_shared50.py','run_gpu_evaluation.py','pcve_worker_start.py','tools.run_pcve_gpu_worker','watch_physics_evaluation.py','physiq.run_physics_iq']):rows.append([int(proc.name),argv])
  except OSError:pass
 print(json.dumps(rows))
 """

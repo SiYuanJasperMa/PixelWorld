@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from pixelworld.config import load_config
 from pixelworld.constants import PHYSICS_IQ_COMMIT, PHYSICS_IQ_DATASET_REVISION, PHYSICS_IQ_DESCRIPTIONS_SHA256
-from pixelworld.physics_iq import export_videos, official_cases
+from pixelworld.physics_iq import export_videos, official_cases, evaluation_frame_indices
 from pixelworld.supervisor import inspect
 from pixelworld.util import atomic_json, sha256, utc_now
 
@@ -154,12 +154,14 @@ def validate_reference_fps(runtime: dict, fps: int) -> None:
                                f'{len(missing)} missing of {len(expected)}')
 
 
-def exported_videos(config, model, track: str, output: Path) -> Path:
+def exported_videos(config, model, track: str, output: Path, evaluation_fps=None, source_dir=None) -> Path:
     """Reuse a complete, unchanged lossless export after evaluator-only failures."""
     manifest_path = output / 'input_manifest.json'
     if not manifest_path.exists():
-        return export_videos(config, model.key, track, output)
+        return export_videos(config, model.key, track, output,evaluation_fps=evaluation_fps,source_dir=source_dir)
     record = json.loads(manifest_path.read_text())
+    if record.get('evaluation_fps')!=evaluation_fps:
+        raise ValueError('Existing export uses a different evaluation grid')
     cases = official_cases()
     rows = record.get('videos', [])
     if (record.get('model_key') != model.key or record.get('track') != track
@@ -183,7 +185,10 @@ def exported_videos(config, model, track: str, output: Path) -> Path:
                              (directory/row['filename'], row['video_sha256'])]:
             if not digest or not path.is_file() or sha256(path) != digest:
                 raise ValueError('Existing export source or video changed; preserving old export')
-        spec = row['media_contract']
+        source_spec=row['media_contract']
+        spec = row.get('evaluation_media_contract',source_spec)
+        if evaluation_fps is not None and row.get('source_frame_indices')!=evaluation_frame_indices(source_spec,evaluation_fps):
+            raise ValueError('Existing export has a different temporal frame selection')
         if ([spec['width'], spec['height']] != record['resolution']
                 or spec['fps'] != record['fps'] or spec['frames'] != record['frames']
                 or spec['frames']/spec['fps'] != record['duration_seconds']):
@@ -192,7 +197,7 @@ def exported_videos(config, model, track: str, output: Path) -> Path:
 
 
 def step(config, resource: Path | None, output: Path, states: dict, n_process: int = 4,
-         evaluator_ready: Path | None = None, python_override: Path | None = None) -> dict:
+         evaluator_ready: Path | None = None, python_override: Path | None = None, evaluation_fps=None) -> dict:
     cases = official_cases()
     progress_path = config.runs_root/'status.json'
     progress = json.loads(progress_path.read_text()) if progress_path.exists() else {}
@@ -239,11 +244,14 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
                     if any(runtime[k].is_relative_to(config.runs_root.resolve()) for k in ('source','benchmark_parent')):
                         raise ValueError('Evaluator resources must remain outside generation workspaces')
                     run_spec = json.loads((Path(inventory[0]['run'])/'media_contract.json').read_text())
-                    validate_reference_fps(runtime, run_spec['fps'])
+                    rate=evaluation_fps or run_spec['fps']
+                    count=len(evaluation_frame_indices(run_spec,evaluation_fps))
+                    validate_reference_fps(runtime, rate)
                     entry['phase']='official_full_evaluation'
                     states[key]=entry
                     atomic_json(output/'scheduler.json',{'updated_utc':utc_now(),'pid':os.getpid(),'cohorts':states})
-                    videos = exported_videos(config,model,track,cohort/'generated_videos_5s')
+                    videos = exported_videos(config,model,track,cohort/'generated_videos_5s',evaluation_fps,
+                                             runtime['benchmark_parent']/'physics-IQ-benchmark-verified')
                     result = cohort/'official_results'
                     command=[str(runtime['python']),'-u','-m','physiq.run_physics_iq',
                              '--input_folders',str(videos),'--output_folder',str(result),
@@ -257,10 +265,10 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
                         'started_utc':utc_now(), 'command':command})
                     with (cohort/'official_evaluation.log').open('ab') as log:
                         log.write(('\nEvaluation start '+utc_now()+'\n').encode())
-                        prepare_generated_masks(runtime,videos,run_spec['fps'],run_spec['frames'],env,log)
+                        prepare_generated_masks(runtime,videos,rate,count,env,log)
                         code=subprocess.call(command,cwd=runtime['source'],env=env,stdout=log,stderr=subprocess.STDOUT)
                     if code:raise RuntimeError(f'Original evaluator exited {code}; log retained')
-                    verify_full_csv(runtime,videos,result,run_spec['fps'],env)
+                    verify_full_csv(runtime,videos,result,rate,env)
                     metrics_path=result/'physics-IQ-benchmark-verified/results'/f'{videos.name}_metrics.json'
                     metrics=json.loads(metrics_path.read_text())
                     submission=json.loads((cohort/'generated_videos_5s/input_manifest.json').read_text())
@@ -272,6 +280,8 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
                            'verified_score':metrics['final_score_view'],'original_formula_score':metrics['final_score_orig'],
                            'official_metrics_sha256':sha256(metrics_path),'completed_utc':utc_now(),
                            'organizer_published':False,'no_missing_output_imputation':True}
+                    score.update(source_fps=run_spec['fps'],source_frames=run_spec['frames'],
+                                 evaluation_transform=submission.get('evaluation_transform','native_rgb'))
                     if any(not math.isfinite(float(score[k])) for k in ['verified_score','original_formula_score']):
                         raise ValueError('Original evaluator final score is not finite')
                     atomic_json(score_path,score)
@@ -295,6 +305,7 @@ def main() -> None:
     parser.add_argument('--interval',type=float,default=60)
     parser.add_argument('--max-hours',type=float,default=24*14)
     parser.add_argument('--n-process',type=int,default=4)
+    parser.add_argument('--evaluation-fps',type=int,choices=[24],help='Frozen common 24 FPS grid for FPS analysis')
     parser.add_argument('--once',action='store_true')
     args=parser.parse_args();config=load_config(args.config);output=args.output.resolve()
     if output.is_relative_to(config.runs_root.resolve()) or args.interval<1 or args.max_hours<=0 or args.n_process<1:
@@ -318,7 +329,7 @@ def main() -> None:
                          'retry_requested_utc':utc_now()}
     deadline=time.monotonic()+args.max_hours*3600
     while time.monotonic()<deadline and not (output/'STOP').exists():
-        states=step(config,resource,output,states,args.n_process,ready,args.evaluator_python)
+        states=step(config,resource,output,states,args.n_process,ready,args.evaluator_python,args.evaluation_fps)
         if args.once or all(item['phase'] in ('complete','failed','incomplete_official_scope') for item in states.values()):break
         time.sleep(args.interval)
 

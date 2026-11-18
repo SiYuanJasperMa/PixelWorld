@@ -23,6 +23,13 @@ COHORTS = {
     'robojudge':('RoboJudge shared-50','robojudge_full_baseline100k',50),
     'robojudge_seed21_native_v2':('RoboJudge shared-50','robojudge_seed21_native_v2_full',50),
     'pcve_smoke':('PCVE-RigidBench','pcve_full_scheduler',129),
+    'pcve_text':('PCVE-RigidBench · Text','pcve_text_scheduler',129),
+    'robojudge_text':('RoboJudge shared-50 · Text','robojudge_text_scheduler',50),
+    'phygenbench_text':('PhyGenBench · Text','phygenbench_text_gpt55_judge',160),
+    **{key: ('Physics-IQ Verified · '+label, key+'_scheduler',198) for key,label in (
+        ('physics_iq_text','Text'), ('physics_iq_res480','480p'), ('physics_iq_res1080','1080p'),
+        ('physics_iq_fps12','12 FPS'), ('physics_iq_fps48','48 FPS'),
+        ('physics_iq_thinking_low','lower effort'), ('physics_iq_thinking_higher','higher effort'))},
 }
 
 
@@ -57,7 +64,8 @@ def live_commands():
 def evaluator_active(cohort, commands):
     path=str(cohort.resolve())
     for _,argv in commands:
-        identity=('physiq.run_physics_iq' in argv or
+        identity=('physiq.run_physics_iq' in argv or 'tools.evaluate_pcve_full' in argv
+                  or 'tools.evaluate_robojudge_shared50' in argv or
                   any(Path(v).name in ('evaluate_pcve_full.py','evaluate_robojudge_shared50.py') for v in argv))
         if identity and any(v.startswith(path) for v in argv):return True
         if argv and Path(argv[0]).name=='ssh' and any(path in v and 'official_driver.py' in v for v in argv):return True
@@ -121,6 +129,8 @@ def pcve_score(summary, model, track):
 
 
 def phygen_score(summary, model, track):
+    if summary.get('track', 'vision-agent') != track:
+        return None
     entry=(summary.get('models') or {}).get(model)
     if not entry or entry.get('cases')!=160:
         return None
@@ -183,7 +193,8 @@ def collect(run_root: Path):
             elif suite.startswith('pcve'):
                 score=pcve_score(read(cohort/'summary.json'),model,track)
             elif suite.startswith('phygenbench'):
-                score=phygen_score(read(run_root/'evaluation/phygenbench_gpt55_judge/summary.json'),model,track)
+                judge_folder='phygenbench_text_gpt55_judge' if suite=='phygenbench_text' else 'phygenbench_gpt55_judge'
+                score=phygen_score(read(run_root/'evaluation'/judge_folder/'summary.json'),model,track)
             else:
                 score=None
             if score and row['accepted']==expected:
@@ -206,14 +217,15 @@ def collect(run_root: Path):
             if suite.startswith('pcve') and row['accepted']==expected and not row['full_scope_scored']:
                 waiting=read(cohort/'worker_state.json')
                 gpu=read(cohort/'gpu_worker.json')
-                worker_live=any(any(Path(v).name=='pcve_worker_start.py' for v in argv)
+                worker_live=any(any(Path(v).name=='pcve_worker_start.py' or v=='tools.run_pcve_gpu_worker' for v in argv)
                     and model in argv for _,argv in commands)
                 if worker_live and waiting.get('phase')=='waiting_for_verified_checkpoint':
                     row.update(phase='preparing_evaluation',blocker='GPU worker ready; verifying shared evaluator checkpoint')
                 elif worker_live and gpu.get('phase')=='waiting_for_free_gpu':
                     row.update(phase='preparing_evaluation',blocker='Waiting for a GPU with sufficient free memory')
             if suite.startswith('phygenbench') and row['accepted']==expected and not row['full_scope_scored']:
-                judge=read(run_root/'evaluation/phygenbench_gpt55_judge/scheduler.json')
+                judge_folder='phygenbench_text_gpt55_judge' if suite=='phygenbench_text' else 'phygenbench_gpt55_judge'
+                judge=read(run_root/'evaluation'/judge_folder/'scheduler.json')
                 judge_live=any(pid==judge.get('judge_pid') and 'tools.evaluate_phygen_gpt55' in argv
                                for pid,argv in commands)
                 if model in judge.get('current_models',[]) and judge_live:

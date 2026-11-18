@@ -46,8 +46,11 @@ def existing_preflight_state(target, output):
     return {'phase':'retrying_cuda_preflight','previous_evaluation_archive':str(archive)}
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--config',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--allow-unsupported-bf16',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--config',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--allow-unsupported-bf16',action='store_true');p.add_argument('--gpu-state-root',type=Path);a=p.parse_args()
     config=read(a.config);root=Path(config['runs_root']);a.output.mkdir(parents=True,exist_ok=True);done={};blocked={}
+    scheduler_lock=(a.output/'scheduler.lock').open('a')
+    try:fcntl.flock(scheduler_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except BlockingIOError:return
     evaluator=Path(__file__).with_name('evaluate_robojudge_shared50.py')
     while not (a.output/'STOP').exists():
         status=read(root/'status.json');groups=status.get('groups',{})
@@ -75,9 +78,14 @@ def main():
                     if code==0:
                         command=[python,str(evaluator),'run','--output',str(target)]
                         if a.allow_unsupported_bf16:command+=['--allow-unsupported-bf16']
-                        with (a.output.parent/'gpu_metric.lock').open('a+') as lock:
-                            fcntl.flock(lock,fcntl.LOCK_EX)
+                        if a.gpu_state_root:
+                            command=[python,'-m','tools.run_gpu_evaluation','--state-root',str(a.gpu_state_root),
+                                     '--status',str(target/'gpu_worker.json'),'--min-free-gib','32','--',*command]
                             code=subprocess.call(command,stdout=log,stderr=subprocess.STDOUT)
+                        else:
+                            with (a.output.parent/'gpu_metric.lock').open('a+') as lock:
+                                fcntl.flock(lock,fcntl.LOCK_EX)
+                                code=subprocess.call(command,stdout=log,stderr=subprocess.STDOUT)
                 summary=read(target/'summary.json')
                 execution=read(target/'execution.json')
                 if (execution.get('status')=='blocked'

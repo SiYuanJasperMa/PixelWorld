@@ -16,6 +16,7 @@ def main():
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--workers', type=int, default=4)
+    parser.add_argument('--track', choices=('text', 'vision-agent'), default='vision-agent')
     parser.add_argument('--interval', type=float, default=60)
     parser.add_argument('--once', action='store_true')
     args = parser.parse_args()
@@ -33,19 +34,20 @@ def main():
         generation = json.loads((config.runs_root/'status.json').read_text())
         summary_path = output/'summary.json'
         summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
-        ready = [m.key for m in config.models if 'vision-agent' in m.tracks and
-                 generation.get('groups',{}).get(m.key+'/vision-agent',{}).get('counts',{}).get('complete') == 160]
+        ready = [m.key for m in config.models if args.track in m.tracks and
+                 generation.get('groups',{}).get(m.key+'/'+args.track,{}).get('counts',{}).get('complete') == 160]
         pending = [key for key in ready if summary.get('models',{}).get(key,{}).get('cases') != 160]
         cohorts = {m.key: {'phase':'complete' if summary.get('models',{}).get(m.key,{}).get('cases') == 160
                            else 'waiting_for_generation',
-                           'accepted':generation.get('groups',{}).get(m.key+'/vision-agent',{}).get('counts',{}).get('complete',0)}
+                           'accepted':generation.get('groups',{}).get(m.key+'/'+args.track,{}).get('counts',{}).get('complete',0)}
                    for m in config.models}
-        state = {'updated_utc':utc_now(),'pid':__import__('os').getpid(),'current_models':pending,'cohorts':cohorts}
+        state = {'updated_utc':utc_now(),'pid':__import__('os').getpid(),'track':args.track,'current_models':pending,'cohorts':cohorts}
         if pending:
             for key in pending:cohorts[key]['phase']='scoring'
             # Include all ready models so the shared summary retains earlier scores.
             command = [sys.executable,'-u','-m','tools.evaluate_phygen_gpt55',
                 '--generations',str(config.runs_root),'--output',str(output),'--workers',str(args.workers),
+                '--track',args.track,
                 '--models',*ready]
             with (output/'watcher.log').open('ab') as log:
                 child=subprocess.Popen(command,cwd=code,stdout=log,stderr=subprocess.STDOUT)
