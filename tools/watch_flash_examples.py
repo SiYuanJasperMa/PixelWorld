@@ -47,7 +47,7 @@ def publish(cohort, api, limit=2):
         operations=[CommitOperationAdd(path_in_repo=name,path_or_fileobj=path)
                     for name,path in package['media'].items()]
         operations.append(CommitOperationAdd(path_in_repo='live/'+relative,path_or_fileobj=package['detail']))
-        row={'arm':arm,'case':public['case_id'],'status':public['delivery_status'],
+        row={'arm':arm,'case':public['case_id'],'attempt':public.get('attempt'), 'status':public['delivery_status'],
              'protocol_pass':bool(public.get('validation',{}).get('pass')),
              'source_sha256':stamp,'trace':public.get('trace_archive'),
              'detail':'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/'+relative,

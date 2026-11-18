@@ -99,6 +99,15 @@ not provider token savings or evidence of quality preservation.
 
 ## Acceptance and next experiment gate
 
+Case progress selects the first protocol-accepted delivery across preserved
+attempt records. Scoring uses that same selected attempt and isolates retry
+exports/masks by attempt, so an earlier incomplete export cannot stand in for
+a retry. Infrastructure-only cases appear as stale, separate from model failures.
+All attempt records, lower-bound usage and archived videos remain available.
+Unknown interrupted usage excludes the case from a complete paired-cost claim;
+a subsequent success does not make earlier spending known. Actual trace-event
+means are per closed attempt, rather than labeling retry records as cases.
+
 Use scenario-level paired intervals. A single smoke has no sampling interval;
 an interval containing zero does not prove equal quality. The proposed
 relative 5% loss margin is a development criterion, not benchmark policy.

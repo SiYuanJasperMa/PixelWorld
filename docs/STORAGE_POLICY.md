@@ -5,19 +5,28 @@ evaluation results, rendering caches and publication checkouts belong on shared
 BN storage. A path under `/mnt/bn` must also resolve there: a symlink to a local
 disk does not satisfy this policy for permanent artifacts.
 
-The API proxy may use a **2 GiB maximum local durable spool**, with **20 GiB
-minimum free root-disk space**. Admission reserves capacity for both request
-encodings and output/event logs before contacting the upstream provider. An
-independent worker gzip-compresses each record, reads it back from BN, checks
-SHA256, and only then removes an unchanged, closed source record. In-flight
-requests and the current request-summary ledger are never pruned; the summary
-ledger rotates at 8 MiB. Credentials stay private and are excluded from this
-continuous archive. These controls do not change agent prompts or token budgets.
+The current API proxy logging mode uses a bounded asynchronous queue and writes
+proxy diagnostics directly to cloud storage. The native Codex archive is the
+primary full trajectory record; an interrupted proxy writer reports its pending
+state and cannot claim that duplicate diagnostics are complete. A separate
+worker compresses closed records, reads them back, checks SHA256, and only then
+removes unchanged sources. In-flight records are never pruned.
 
-Start the proxy with `--spool-max-bytes 2147483648 --min-free-bytes 21474836480`.
-Start `tools/spool_api_logs.py watch` with `--prune-verified --max-bytes 2147483648`.
-Point its `--archive` and the live publisher's `--checkout` to BN directories.
-The watchdog specification is the authority for service paths and restarts.
+For this mode, use `--async-cloud-logs` with a cloud log directory. Do not also
+enable the old `--spool-max-bytes` admission mechanism: it tracks durable spool
+files but does not account for the asynchronous writer's pending cloud records.
+An observed 3.7 MiB request was rejected while writing its small active marker
+because both mechanisms were enabled. This is an infrastructure configuration
+failure, not a video or context-budget failure. The isolated Flash recovery
+retains the existing 256 MiB queue and 128 MiB request limit; it changes no model
+input, pixel task, output budget or official evaluator.
+
+Historical synchronous durable-spool configurations remain supported separately.
+They reserve request/response capacity before upstream sampling, cap the local
+spool at 2 GiB, and require 20 GiB free root-disk space. Their independent worker
+archives and verifies bytes on cloud storage before reclamation. Do not change a
+live generation route by restarting its busy proxy; validate the isolated route
+first and arrange any later restart at an idle boundary.
 
 Storage backpressure and positively recorded `No space left on device` errors
 are infrastructure interruptions, excluded from the five-model-attempt limit.

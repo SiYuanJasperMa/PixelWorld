@@ -13,6 +13,7 @@ import time
 from pixelworld.constants import (PHYSICS_IQ_COMMIT, PHYSICS_IQ_DATASET_REVISION,
                                  PHYSICS_IQ_DESCRIPTIONS_SHA256)
 from tools.evaluation_memory import check_pool_memory
+from tools.flash_attempts import histories, selected, accepted
 
 
 def one_match(folder, pattern):
@@ -45,6 +46,7 @@ def score(job):
     if result is None:
         raise ValueError('Official process_view returned no metrics')
     return {'arm': job['arm'], 'case': job['case'], 'view': view,
+        'attempt': job.get('attempt', 1),
         'v1': float(result[f'weighted_spatial_iou_v1_{view}']),
         'v2': float(result[f'weighted_spatial_iou_v2_{view}']),
         'pixels_sha256': job['pixels_sha256'], 'metrics': result,
@@ -96,14 +98,15 @@ def update(cohort, resource, ffmpeg, model_key, workers, native_scoring=False):
     existing = {(r['arm'], r['case']): r for r in results}
     jobs = []
     for arm in manifest['arms']:
+        attempts = histories(cohort / 'generations' / arm / model_key / 'vision-agent')
         for case in manifest['case_ids']:
-            run = cohort / 'generations' / arm / model_key / 'vision-agent' / f'case_{case}_attempt_01'
-            path = run / 'run_manifest.json'
-            if not path.exists():
+            if case not in attempts:
                 continue
-            record = json.loads(path.read_text())
-            if record.get('status') != 'complete' or not record.get('validation', {}).get('pass'):
+            path, record = selected(attempts[case])
+            run = path.parent
+            if not accepted(record):
                 continue
+            attempt = int(record.get('attempt', run.name.rsplit('_', 1)[1]))
             identity = (arm, case)
             previous = existing.get(identity)
             if previous and previous.get('pixels_sha256') == record.get('pixels_sha256'):
@@ -114,12 +117,13 @@ def update(cohort, resource, ffmpeg, model_key, workers, native_scoring=False):
             if native_scoring and (spec.get('fps')!=24 or spec.get('frames')!=120):
                 raise ValueError('Native24 subset adapter requires the shared24FPS/120-frame contract')
             name = records[case]['generated_video_name']
-            native = output / 'native_videos' / arm / name
+            export_scope = Path(arm) if attempt == 1 else Path(arm) / f'attempt_{attempt:02d}'
+            native = output / 'native_videos' / export_scope / name
             if native_scoring and not native.exists():
                 # Separate staging avoids colliding with the existing4FPS
                 # adapter when a newly delivered case is exported concurrently.
-                native=output/'native_score_videos'/arm/name
-            sampled = None if native_scoring else output / 'videos_4fps' / arm / name
+                native=output/'native_score_videos'/export_scope/name
+            sampled = None if native_scoring else output / 'videos_4fps' / export_scope / name
             export(run, native, sampled, ffmpeg, spec)
             fps=int(spec['fps']) if native_scoring else 4
             frames=int(spec['frames']) if native_scoring else 20
@@ -127,7 +131,8 @@ def update(cohort, resource, ffmpeg, model_key, workers, native_scoring=False):
                 'fps':fps,'frames':frames,
                 'upstream': str(upstream.resolve()),
                 'dataset': str((resource / 'data/physics-IQ-benchmark-verified').resolve()),
-                'mask_dir': str(output / ('masks_native24' if native_scoring else 'masks') / arm), 'pixels_sha256': record.get('pixels_sha256')})
+                'mask_dir': str(output / ('masks_native24' if native_scoring else 'masks') / export_scope),
+                'attempt': attempt, 'pixels_sha256': record.get('pixels_sha256')})
     print('new validated subset videos', len(jobs), flush=True)
     pilot_cases={case for ids in manifest.get('arm_case_ids',{}).values() if len(ids)==1 for case in ids}
     jobs.sort(key=lambda job:(job['case'] not in pilot_cases,job['arm']!='baseline',job['arm'],job['case']))

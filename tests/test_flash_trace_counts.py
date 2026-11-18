@@ -114,3 +114,23 @@ def test_refinement_summary_rejects_stale_metrics_pixels_and_sampling(tmp_path):
         path.write_text(json.dumps({'per_case': [{**row, field: value}]}))
         result = refinement_summary(tmp_path, quality, {})
         assert result['matched_cases'] == 0 and result['excluded_cases'] == ['0001']
+
+
+def test_infra_retry_counts_one_case_but_preserves_unmeasured_spending(tmp_path):
+    (tmp_path/'experiment_manifest.json').write_text(json.dumps({'arms':['baseline','api'],'case_ids':['0001','0002']}))
+    for arm, attempt, state, usage, validation in [
+        ('baseline',1,'complete',{'status':'recorded','input_tokens':100,'output_tokens':10},{'pass':True}),
+        ('api',1,'failed',{'status':'partial'},{'pass':False,'infra_error':'storage'}),
+        ('api',2,'complete',{'status':'recorded','input_tokens':200,'output_tokens':20},{'pass':True})]:
+        run=tmp_path/f'generations/{arm}/gpt56-luna/vision-agent/case_0001_attempt_{attempt:02d}'
+        run.mkdir(parents=True)
+        (run/'run_manifest.json').write_text(json.dumps({'case_id':'0001','attempt':attempt,'status':state,
+            'token_usage':usage,'validation':{**validation,'frames':120,'png_tensor_exact':True,'frame0_exact':True}}))
+    result=next(x for x in build(tmp_path,tmp_path/'report.json')['arms']if x['key']=='api')
+    assert result['counts']=={'complete':1}
+    assert result['attempt_counts']=={'failed':1,'complete':1}
+    assert result['pending']==1 and result['valid_rgb']==1 and result['original_protocol_pass']==1
+    assert result['infrastructure_interruptions']==1
+    assert result['unknown_prior_usage_cases']==['0001']
+    assert not result['cost_usage_complete_for_closed_attempts']
+    assert result['paired_economics'] is None

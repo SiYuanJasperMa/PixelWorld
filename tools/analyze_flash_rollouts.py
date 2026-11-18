@@ -8,6 +8,7 @@ import re
 import statistics
 
 import numpy as np
+from tools.flash_attempts import histories, selected, accepted, outcome
 
 ARMS = {
     'reference': ('baseline', 'Baseline'),
@@ -235,41 +236,46 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
     arms = []
     usages={}
     for key, (folder, label) in definitions.items():
-        manifests = list((root / folder / 'gpt56-luna/vision-agent').glob('*/run_manifest.json'))
+        case_histories = histories(root / folder / 'gpt56-luna/vision-agent')
+        manifests = [path for values in case_histories.values() for path, _ in values]
         rows = []
         unmeasured_cases=set()
-        statuses = Counter()
-        valid_rgb = 0
-        valid_protocol = 0
+        statuses = Counter(outcome(values) for values in case_histories.values())
+        attempt_statuses = Counter()
+        valid_rgb_cases = set()
+        valid_protocol_cases = set()
         infra = 0
-        closed_noninfra = 0
+        closed_attempts = 0
         trace_rows = []
         for path in manifests:
             record = read(path)
             status = record.get('status') or 'unknown'
-            statuses[status] += 1
+            attempt_statuses[status] += 1
+            case_identity=record.get('case_id') or path.parent.name.split('_attempt_')[0][5:]
             validation = record.get('validation') or {}
             artifact_ok = (validation.get('frames') == 120 and validation.get('png_tensor_exact')
                 and validation.get('frame0_exact') in (True, None) and not validation.get('missing_required'))
-            valid_rgb += bool(artifact_ok)
-            valid_protocol += bool(validation.get('pass'))
+            if artifact_ok:valid_rgb_cases.add(case_identity)
+            if accepted(record):valid_protocol_cases.add(case_identity)
             interrupted = bool(validation.get('infra_error'))
             infra += interrupted
             if status == 'running':
                 continue
-            closed_noninfra += int(not interrupted)
+            closed_attempts += 1
             usage = record.get('token_usage') or {}
-            case_identity=record.get('case_id') or path.parent.name
             measured=(usage.get('status')=='recorded' and isinstance(usage.get('input_tokens'),int)
                       and isinstance(usage.get('output_tokens'),int))
-            if not interrupted and not measured:unmeasured_cases.add(case_identity)
-            if (not interrupted and usage.get('status') == 'recorded'
+            # Unknown interrupted spending is still unknown operational cost.
+            # Keep it separate from model failures, but never silently make the
+            # next success a completely measured all-attempt cost observation.
+            if not measured:unmeasured_cases.add(case_identity)
+            if (usage.get('status') == 'recorded'
                     and isinstance(usage.get('input_tokens'), int)
                     and isinstance(usage.get('output_tokens'), int)):
                 cached = min(usage['input_tokens'], max(0, usage.get('cached_input_tokens') or 0))
                 rows.append({'input': usage['input_tokens'], 'output': usage['output_tokens'],
                     'case':case_identity,
-                    'protocol_delivery': status=='complete' and bool(validation.get('pass')),
+                    'protocol_delivery': bool(accepted(record)),
                     'cached': cached, 'reasoning': usage.get('reasoning_output_tokens'),
                     'duration_seconds': record.get('duration_seconds'),
                     'cost_measured_cache': (usage['input_tokens']-cached)*10/1e6 + cached/1e6 + usage['output_tokens']*50/1e6,
@@ -283,7 +289,9 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
                     saved = {'stamp': stamp, 'data': recorded_trace(trace)}
                     cache[cache_key] = saved
                 trace_rows.append(saved['data'])
-        current = scored.get(key, {})
+        current = {case: result for case, result in scored.get(key, {}).items()
+                   if case in case_histories and accepted(selected(case_histories[case])[1])
+                   and result.get('pixels_sha256') == selected(case_histories[case])[1].get('pixels_sha256')}
         usages[key]={}
         for row in rows:
             total=usages[key].get(row['case'])
@@ -296,13 +304,16 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
                 total['duration_seconds']=(total['duration_seconds']+row['duration_seconds']
                     if total['duration_seconds'] is not None and row['duration_seconds'] is not None else None)
         for case in unmeasured_cases:usages[key].pop(case,None)
-        measured_deliveries=sum(r['protocol_delivery'] for r in rows)
-        cost_complete=len(rows)==closed_noninfra
+        measured_deliveries=len({r['case'] for r in rows if r['protocol_delivery']})
+        cost_complete=len(rows)==closed_attempts and not unmeasured_cases
         expected_cases=len(experiment.get('arm_case_ids',{}).get(key,experiment.get('case_ids',[]))) if experiment else 20
         entry = {'excluded_from_acceptance': key=='replay' and bool(experiment and experiment.get('replay_status','').startswith('Initial pilot')), 'key': key, 'label': label, 'model': 'GPT-5.6-Luna', 'track': 'Vision',
-            'expected_cases': expected_cases, 'counts': dict(statuses), 'valid_rgb': valid_rgb,
-            'original_protocol_pass': valid_protocol, 'infrastructure_interruptions': infra,
-            'pending': max(0, expected_cases-len(manifests)), 'usage_measured_cases': len(rows),
+            'expected_cases': expected_cases, 'counts': dict(statuses),
+            'attempt_counts': dict(attempt_statuses), 'attempt_records': len(manifests),
+            'valid_rgb': len(valid_rgb_cases),
+            'original_protocol_pass': len(valid_protocol_cases), 'infrastructure_interruptions': infra,
+            'pending': max(0, expected_cases-len(case_histories)), 'usage_measured_cases': len(rows),
+            'unknown_prior_usage_cases': sorted(unmeasured_cases),
             'mean_input': mean([r['input'] for r in rows]), 'mean_output': mean([r['output'] for r in rows]),
             'mean_cached_input': mean([r['cached'] for r in rows]),
             'mean_reasoning_output': mean([r['reasoning'] for r in rows]),
@@ -318,7 +329,8 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
             'scored_cases': len(current), 'mean_v1': mean([v['v1'] for v in current.values()]),
             'mean_v2': mean([v['v2'] for v in current.values()]),
             'paired': paired_quality(scored.get(reference_key, {}), current, scenario) if key != reference_key else None,
-            'trace': {'cases': len(trace_rows),
+            'trace': {'cases': sum(outcome(values) != 'running' for values in case_histories.values()),
+                'closed_attempts': len(trace_rows), 'mean_scope': 'closed_attempt',
                 'mean_model_requests': mean([r.get('model_requests') for r in trace_rows]),
                 'mean_exec_calls': mean([r.get('calls', {}).get('exec_command', 0) for r in trace_rows]),
                 'mean_patch_calls': mean([r.get('calls',{}).get('apply_patch',0) for r in trace_rows]),
