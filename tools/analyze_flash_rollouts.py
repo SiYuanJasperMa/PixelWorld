@@ -250,6 +250,8 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
         definitions['submit'] = ('generations', 'Technical submission tool')
     if experiment and 'boundary' in experiment.get('arms', []):
         definitions['boundary'] = ('generations', 'Verified submission boundary')
+    if experiment and 'prompt' in experiment.get('arms', []):
+        definitions['prompt'] = ('generations', 'Efficiency prompt only')
     for key,label in [('replay_keepcalls','Retained calls · replay'),('core_tools','Core task tools'),
                       ('replay_shrinking','Shrinking returns · corrected replay')]:
         if experiment and key in experiment.get('arms',[]):definitions[key]=('generations/'+key,label)
@@ -380,7 +382,7 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
             if entry['key']!=reference_key else None)
     from datetime import datetime, timezone
     result = {'schema': 'pixelworld-flash-development-v2', 'updated_utc': datetime.now(timezone.utc).isoformat(),
-        'scope': ('Independent Physics-IQ subset with verified working image tools' if experiment else 'Physics-IQ 20-case development subset with failed output image tools; not the 198-case Verified score'),
+        'scope': experiment.get('scope', 'Independent Physics-IQ subset with verified working image tools') if experiment else 'Physics-IQ 20-case development subset with failed output image tools; not the 198-case Verified score',
         'cohort': 'confirmation' if experiment else 'legacy-development',
         'mask_assignment': quality.get('mask_assignment'), 'canvas': '1280x720,24fps,120frames',
         'quality_scoring_fps':quality.get('scoring_fps',24 if quality_checkpoint else 4),

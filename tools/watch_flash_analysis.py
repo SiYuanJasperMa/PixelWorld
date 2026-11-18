@@ -33,6 +33,9 @@ if __name__ == '__main__':
     parser.add_argument('--submission-probe', type=Path)
     parser.add_argument('--submission-study', type=Path)
     parser.add_argument('--boundary-study', type=Path)
+    parser.add_argument('--study', nargs=2, action='append', default=[],
+                        metavar=('NAME', 'ROOT'), help='Additional native24 study report')
+    parser.add_argument('--only-extra-studies', action='store_true')
     parser.add_argument('--interval', type=int, default=120)
     args = parser.parse_args()
     from huggingface_hub import HfApi
@@ -44,6 +47,13 @@ if __name__ == '__main__':
             reports = []
             sources = [('legacy',args.legacy_root,None),('confirmation',args.cohort,None),
                 ('confirmation_native24',args.cohort,args.cohort/'quality/flash_quality_native24_checkpoint.json')]
+            if args.only_extra_studies:
+                sources = []
+            for name, value in args.study:
+                if not name.replace('_', '').isalnum():
+                    raise ValueError('Invalid public study name')
+                root = Path(value)
+                sources.append((name, root, root/'quality/flash_quality_native24_checkpoint.json'))
             if args.submission_study:
                 sources.append(('submission_native24', args.submission_study,
                                 args.submission_study/'quality/flash_quality_native24_checkpoint.json'))
