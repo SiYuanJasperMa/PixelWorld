@@ -228,6 +228,27 @@ def export_candidate(source, destination, spec, label, utc):
     return value
 
 
+def distinct_candidate_previews(versions):
+    """Merge completion-only duplicate previews while retaining their records."""
+    result=[]
+    for candidate in versions:
+        current=dict(candidate)
+        identity=current.get('rgb_content_sha256') or current.get('asset_id') or current.get('pixels')
+        records=list(current.get('preview_records') or [{'label':current.get('label'),'utc':current.get('utc')}])
+        current['preview_records']=records
+        if result:
+            previous=result[-1]
+            previous_identity=previous.get('rgb_content_sha256') or previous.get('asset_id') or previous.get('pixels')
+            if identity and identity==previous_identity:
+                revisions=list(previous.get('code_revisions')or[])
+                for value in [previous.get('code'),current.get('code')]:
+                    if value and value not in revisions:revisions.append(value)
+                result[-1]={**current,'preview_records':previous['preview_records']+records,'code_revisions':revisions}
+                continue
+        result.append(current)
+    return result
+
+
 def case_data(run, destination, previous=None):
     manifest = read(run / 'run_manifest.json')
     spec = read(run / 'media_contract.json')
@@ -303,6 +324,8 @@ def case_data(run, destination, previous=None):
                 events.append({'kind': event['type'],
                                'utc': (event.get('_harness_received') or {}).get('utc'),
                                'text': clean(str(event.get('message') or event.get('error') or ''))})
+    preview_record_count=sum(len(v.get('preview_records')or[None])for v in versions)
+    versions=distinct_candidate_previews(versions)
     return {'case_id': manifest['case_id'], 'model_key': manifest['model_key'],
             'model': manifest['model'], 'track': manifest['track'],
             'attempt': manifest['attempt'], 'status': manifest['status'],
@@ -323,7 +346,9 @@ def case_data(run, destination, previous=None):
             'spec': spec, 'prompt': clean(prompt.read_text()) if prompt.exists() else '',
             'first_frame': image_asset(run / 'input_snapshot/first_frame.png', destination),
             'source_video': image_asset(run / 'input_snapshot/source_video.mp4', destination),
-            'candidates': versions, 'events': events, 'media_stamp': media_stamp,
+            'candidates': versions, 'snapshot_record_count':len(snapshots),
+            'preview_record_count':preview_record_count,'distinct_candidate_count':len(versions),
+            'events': events, 'media_stamp': media_stamp,
             'native_output_present': pixels.is_file(), 'media_export_errors': export_errors,
             'schema_version': PUBLIC_SCHEMA}
 

@@ -206,3 +206,23 @@ cycling camera views and using no outcome-based selection. It will compare fresh
 baseline/candidate runs on GPT-5.6-Luna and GPT-5.6-Sol after a candidate is
 selected. This confirmation has not launched and cannot support current quality
 claims.
+
+
+## Candidate-record identity and native refinement comparison
+
+The20 baseline runs contain58 saved snapshot records but42 distinct RGB
+candidates. Some records capture RGB writing and then completion of the player
+and inspection files; they are the same video. Snapshot records and executable
+code are preserved, while duplicate preview entries are merged for display.
+
+First-versus-final analysis selects the first snapshot with all required output
+files, exact conditioning frame and matching PNG/tensor/code checks. It verifies
+source hashes and uses native24FPS scoring. Unchanged first/final pixels reuse
+the final metric, and cases without a valid first record are explicitly missing.
+This is a descriptive analysis of the existing successful runs, not a causal
+claim about mandatory revision or an accepted inspection cap.
+
+Incremental publication now exposes a configurable batch size. It alternates
+accepted-video priority with recent attempt history so success and failure
+records both advance. Media, detail and complete sanitized trace remain atomic
+in one commit; readiness is recorded only after the commit succeeds.

@@ -69,6 +69,7 @@ def package_case(source, relative):
 def publish_cycle(source, state_path, api, batch_size=2):
     from huggingface_hub import CommitOperationAdd
     state = read(state_path)
+    if batch_size<1:raise ValueError('Positive publication batch size required')
     ready = state.setdefault('ready', {})
     catalogue = read(source / 'catalogue.json')
     groups = catalogue.get('groups', [])
@@ -76,6 +77,7 @@ def publish_cycle(source, state_path, api, batch_size=2):
         return state
     cursor = state.get('cursor', 0) % len(groups)
     selected = []
+    delivery_priority=state.get('publication_round',0)%2==0
     checked = 0
     for group in groups[cursor:] + groups[:cursor]:
         checked += 1
@@ -84,7 +86,12 @@ def publish_cycle(source, state_path, api, batch_size=2):
         latest = (group.get('latest_completion') or ['', ''])[1]
         ids = ([latest] if latest in histories else []) + [k for k in sorted(histories, reverse=True) if k != latest]
         for case in ids:
-            for attempt in sorted(histories[case], key=lambda a: a['attempt'], reverse=True):
+            if delivery_priority:
+                ordered=sorted(histories[case],key=lambda a:(a.get('status')!='complete',not a.get('reused',False),
+                    a['attempt'] if a.get('status')=='complete' else -a['attempt']))
+            else:
+                ordered=sorted(histories[case],key=lambda a:-a['attempt'])
+            for attempt in ordered:
                 relative = attempt['detail']
                 path = source / relative
                 if not path.is_file() or attempt.get('status') == 'running':
@@ -104,6 +111,7 @@ def publish_cycle(source, state_path, api, batch_size=2):
         if len(selected) >= batch_size:
             break
     state['cursor'] = (cursor + checked) % len(groups)
+    state['publication_round']=state.get('publication_round',0)+1
     if selected:
         assets = {}
         for _, package in selected:
@@ -133,6 +141,7 @@ if __name__ == '__main__':
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--token-file', type=Path, required=True)
     parser.add_argument('--interval', type=int, default=60)
+    parser.add_argument('--batch-size',type=int,default=2)
     args = parser.parse_args()
     import os
     os.environ['HF_HUB_DISABLE_XET'] = '1'
@@ -143,7 +152,7 @@ if __name__ == '__main__':
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         while True:
             try:
-                result = publish_cycle(args.source, args.state, api)
+                result = publish_cycle(args.source, args.state, api,args.batch_size)
                 print(json.dumps({'checked_unix': result.get('checked_unix'),
                                   'ready_details': len(result.get('ready', {})),
                                   'last_commit': result.get('last_commit')}), flush=True)

@@ -1,6 +1,15 @@
 import json
 import numpy as np
-from tools.live_benchmark_data import case_data, update
+from tools.live_benchmark_data import case_data, update, distinct_candidate_previews
+
+
+def test_completion_snapshots_merge_preview_without_losing_code_or_record():
+    versions=[{'asset_id':'same','label':'partial','utc':'t1','code':'v1'},
+              {'asset_id':'same','label':'complete','utc':'t2','code':'v2'},
+              {'asset_id':'new','label':'revision','utc':'t3','code':'v3'}]
+    merged=distinct_candidate_previews(versions)
+    assert len(merged)==2 and len(merged[0]['preview_records'])==2
+    assert merged[0]['code_revisions']==['v1','v2'] and versions[0]['code']=='v1'
 
 
 def test_time_bucket_pointer_is_immutable_and_names_an_existing_revision(tmp_path):
