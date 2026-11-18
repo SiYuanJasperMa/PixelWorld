@@ -68,12 +68,76 @@
       "spec": "1280×720 · 24 FPS · 5 秒 · T2V"
     }
   ],
-  "baseline_scores": {
-    "seedance25_phygen_v1": {
-      "score": 0.7953125000000001,
-      "cases": 160,
-      "protocol": "PixelWorld PhyGen GPT-5.5 judge; not official GPT-4o-0513 PhyGenEval",
-      "source": "provided Seedance 2.5 v1 T2V videos; re-evaluated with same PixelWorld judge"
+  "video_baselines": [
+    {
+      "key": "seedance25",
+      "label": "Seedance 2.5",
+      "price": {
+        "usd_per_video": 1.155,
+        "resolution": "720p",
+        "fps": 24,
+        "seconds": 5,
+        "source": "user-verified standard list quote: $0.231/s"
+      },
+      "scores": {
+        "physics_iq": {
+          "value": 42.43,
+          "kind": "published_reference",
+          "note": "Verified I2V original model, no Best-of-N"
+        },
+        "pcve": {
+          "value": -0.087,
+          "kind": "published_reference",
+          "note": "PCVE full-129 published PES; price shown is a 5-second tariff reference"
+        },
+        "phygenbench": {
+          "value": 0.7953125000000001,
+          "kind": "matched_rerun",
+          "judge": "GPT-5.5",
+          "cases": 160,
+          "note": "v1 T2V; same PixelWorld judge"
+        },
+        "robojudge": {
+          "value": 3.92,
+          "kind": "matched_rerun",
+          "judge": "RoboJudge-9B",
+          "cases": 50,
+          "note": "provided shared-50 I2V videos"
+        }
+      }
+    },
+    {
+      "key": "minimax-h3",
+      "label": "MiniMax H3",
+      "price": {
+        "usd_per_video": 0.4,
+        "resolution": "768p",
+        "fps": 24,
+        "seconds": 5,
+        "source": "user-verified standard list quote: $0.08/s"
+      },
+      "scores": {
+        "physics_iq": {
+          "value": 39.8,
+          "kind": "published_reference",
+          "note": "Verified I2V original model, no Best-of-N"
+        },
+        "pcve": {
+          "value": -0.096,
+          "kind": "published_reference",
+          "note": "PCVE full-129 published PES; price shown is a 5-second tariff reference"
+        },
+        "phygenbench": {
+          "value": 0.61,
+          "kind": "published_reference",
+          "note": "Original model published score; original PhyGenEval protocol"
+        },
+        "robojudge": {
+          "value": 3.716,
+          "kind": "provided_reference",
+          "note": "User-provided mean over five seeds; PA/IA/Overall aggregation"
+        }
+      }
     }
-  }
+  ]
 }
