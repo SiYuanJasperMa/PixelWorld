@@ -20,6 +20,7 @@ def publish(cohort, api, limit=2):
     manifest=json.loads((cohort/'experiment_manifest.json').read_text())
     namespace=manifest.get('publication_namespace','flash_confirm')
     report_name=manifest.get('example_report_name','examples')
+    priority_cases=manifest.get('example_priority_cases',['0047'])
     if not namespace.replace('_','').isalnum() or not report_name.replace('_','').isalnum():
         raise ValueError('Invalid publication namespace')
     arms=[a for a in manifest['arms'] if a!='replay']
@@ -38,7 +39,7 @@ def publish(cohort, api, limit=2):
             relative=f"{namespace}_{arm}/{record['model_key']}/{record['track']}/{run.name}.json"
             stamp=hashlib.sha256(path.read_bytes()).hexdigest()
             if examples.get(relative,{}).get('source_sha256')==stamp:continue
-            priority=(0 if record['case_id']=='0047' else 1 if record.get('status')=='failed'
+            priority=(0 if record['case_id'] in priority_cases else 1 if record.get('status')=='failed'
                       else 2 if arm=='taskpack' else 3)
             jobs.append((priority,arm,run,relative,stamp))
     for _,arm,run,relative,stamp in sorted(jobs)[:limit]:
