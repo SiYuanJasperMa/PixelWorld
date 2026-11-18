@@ -10,6 +10,7 @@ import time
 
 from tools.publish_dashboard_snapshot import snapshot, SHELLS, validate_script_syntax
 from tools.prepare_hf_delivery import sanitize
+from tools.hf_commit_budget import commit as dataset_commit
 
 
 def hf_progress(source, token_file):
@@ -49,7 +50,7 @@ def hf_progress(source, token_file):
         items.append(('live/evaluation.json',sanitize(json.loads(evaluation_source.read_text()))))
     operations = [CommitOperationAdd(path_in_repo=name,
         path_or_fileobj=json.dumps(data, ensure_ascii=False).encode()) for name, data in items]
-    commit = api.create_commit('HuggingFriends/PixelWorld', repo_type='dataset',
+    commit = dataset_commit(api, repo_id='HuggingFriends/PixelWorld', repo_type='dataset',
         operations=operations, commit_message='Refresh live model and benchmark progress')
     return {'updated_utc': catalogue['updated_utc'], 'commit': commit.oid}
 

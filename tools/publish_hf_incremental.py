@@ -119,7 +119,8 @@ def publish_cycle(source, state_path, api, batch_size=2):
         operations = [CommitOperationAdd(path_in_repo=name, path_or_fileobj=path) for name, path in assets.items()]
         operations += [CommitOperationAdd(path_in_repo='live/' + relative, path_or_fileobj=package['detail'])
                        for relative, package in selected]
-        commit = api.create_commit('HuggingFriends/PixelWorld', repo_type='dataset',
+        from tools.hf_commit_budget import commit as dataset_commit
+        commit = dataset_commit(api, repo_id='HuggingFriends/PixelWorld', repo_type='dataset',
             operations=operations, commit_message='Publish ready case videos and detailed traces together')
         now = time.time()
         for relative, package in selected:

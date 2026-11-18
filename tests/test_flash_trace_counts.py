@@ -1,5 +1,5 @@
 import json
-from tools.analyze_flash_rollouts import recorded_trace, paired_quality, paired_economics, build
+from tools.analyze_flash_rollouts import recorded_trace, paired_quality, paired_economics, build, refinement_summary
 import pytest
 
 
@@ -90,3 +90,27 @@ def test_unknown_failed_attempt_usage_prevents_complete_paired_cost_claim(tmp_pa
     result=next(x for x in build(tmp_path,tmp_path/'report.json')['arms']if x['key']=='api')
     assert result['paired_economics'] is None
     assert result['cost_per_protocol_delivery_normalized70'] is None
+
+
+def test_refinement_summary_rejects_stale_metrics_pixels_and_sampling(tmp_path):
+    folder = tmp_path / 'quality'
+    folder.mkdir()
+    row = {'case': '0001', 'status': 'scored', 'sampling': 'native24FPS/120frames',
+           'first_pixels_sha256': 'first', 'final_pixels_sha256': 'final',
+           'first_v1': .2, 'first_v2': .3, 'final_v1': .25, 'final_v2': .35}
+    path = folder / 'refinement_native24.json'
+    path.write_text(json.dumps({'per_case': [row]}))
+    quality = {'scoring_fps': 24, 'scoring_frames': 120, 'per_case': [
+        {'arm': 'baseline', 'case': '0001', 'pixels_sha256': 'final', 'v1': .25, 'v2': .35}]}
+    result = refinement_summary(tmp_path, quality, {})
+    assert result['matched_cases'] == 1 and result['changed_tensor_cases'] == 1
+    assert not result['causal_claim']
+    assert result['paired']['v1']['ci95'] is None
+    quality['scoring_fps'] = 4
+    assert refinement_summary(tmp_path, quality, {}) is None
+    quality['scoring_fps'] = 24
+    for field, value in [('final_pixels_sha256', 'stale'), ('final_v1', .26),
+                         ('sampling', 'development4FPS')]:
+        path.write_text(json.dumps({'per_case': [{**row, field: value}]}))
+        result = refinement_summary(tmp_path, quality, {})
+        assert result['matched_cases'] == 0 and result['excluded_cases'] == ['0001']

@@ -24,14 +24,23 @@ measurements remain a separately labeled development condition.
 | Does a smaller save interface suffice? | Template reads and returned text decrease, but cumulative input and cost do not | Interface size alone is insufficient | Does not isolate every source of additional calls |
 | Does a write receipt help? | Native quality meets the proposed development interval while cost does not decrease | Reliable write feedback is a quality candidate | No standalone efficiency advantage or held-out proof |
 | Can calls/revisions be capped aggressively? | Tokens fall; matched native quality does not meet the loss criterion | Cost-quality tradeoff, not an accepted setting | Bundle does not identify each removed interaction's value |
-| Can task discovery be batched? | Exact prompt/rules/spec contents are sent initially; later outcomes and failures are measured | A process-only intervention without forced revision limits | Single-case success did not establish a global benefit |
-| Are generic tool schemas overhead? | Actual requests include8 schemas;4 general user/goal tools occupy4572 of8142 serialized bytes | Test4 pixel-task tools independently, preserving full history | Byte savings are not provider token savings; one focused smoke is exploratory |
-| Can older results be archived? | Initial replay lost task-file content and caused repeated reads; corrected version retains task discovery and original calls | Test retrievable returns without losing executable code or source inputs | Full paired quality and cross-model evidence remain required |
+| Can task discovery be batched? | Exact prompt/rules/spec text is sent initially; the full 20-case comparison has 19 accepted deliveries and higher failed-inclusive cost | Single-case savings did not generalize to this development cohort | Does not rule out every task-delivery design |
+| Are generic tool schemas overhead? | Four general workflow tools occupy 4572 of 8142 serialized schema bytes; the 20-case core-tool comparison has higher cumulative cost | Schema reduction alone did not improve the measured trajectory | Actual request counts also increase; no universal tool-schema conclusion |
+| Can older results be archived? | The 20-case retained-call comparison has no cost advantage; many archive receipts are larger than their original returns | Keep the negative result; test a shrinking-only guard separately | Corrected replay is still running and has no acceptance claim |
+| Does exact image deduplication address the main overhead? | Only 3 of 147 real image returns are exact duplicates, across 2/20 baseline cases | Exact deduplication alone has limited coverage | Different crops/frames cannot be classified as redundant from byte identity |
+| Is computation after first delivery valuable? | Native first/final means are close, with large individual differences; request usage after the first saved delivery is directly measured | Test late interactions separately from pre-generation computation | Descriptive completion-time accounting does not prove all such spending avoidable |
 
 Count exec calls, custom apply_patch calls and actual image returns separately.
 Issued image calls do not establish delivered image observations. Cumulative
 provider input includes repeated conversation context; serialized byte size is
 only a mechanism measurement.
+
+First/final candidate results are published only when final tensor hashes and
+metrics match the current native checkpoint. Post-delivery request totals must
+agree with terminal usage. The public table exposes both the paired score
+interval and the fraction of tokens reported after the first saved delivery;
+that interval includes checking, corrections and validation. It is not a causal
+early-stopping comparison or proof that refinement can be removed safely.
 
 ## Acceptance and reproducibility
 

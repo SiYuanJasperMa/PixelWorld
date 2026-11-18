@@ -8,6 +8,7 @@ import time
 from tools.live_benchmark_data import case_data
 from tools.prepare_hf_delivery import sanitize
 from tools.publish_hf_incremental import package_case
+from tools.hf_commit_budget import commit
 from pixelworld.util import atomic_json, utc_now
 
 
@@ -57,7 +58,7 @@ def publish(cohort, api, limit=2):
                          'examples':list(updated.values())})
         operations.append(CommitOperationAdd(path_in_repo='analyses/flash/examples.json',
                           path_or_fileobj=json.dumps(report,ensure_ascii=False).encode()))
-        result=api.create_commit('HuggingFriends/PixelWorld',repo_type='dataset',operations=operations,
+        result=commit(api,repo_id='HuggingFriends/PixelWorld',repo_type='dataset',operations=operations,
                                 commit_message='Publish existing Flash candidate videos and full sanitized traces')
         examples[relative]=row;state['last_commit']=result.oid;atomic_json(ledger,state)
         print(arm,public['case_id'],public['delivery_status'],result.oid,flush=True)

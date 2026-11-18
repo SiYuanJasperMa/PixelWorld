@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 
 from tools.analyze_flash_rollouts import build
+from tools.hf_commit_budget import commit
 
 
 if __name__ == '__main__':
@@ -30,7 +31,7 @@ if __name__ == '__main__':
                 temporary.write_bytes(raw)
                 temporary.replace(args.web_root / ('flash_' + name + '.json'))
                 operations.append(CommitOperationAdd(path_in_repo='analyses/flash/' + name + '.json', path_or_fileobj=raw))
-            result = api.create_commit('HuggingFriends/PixelWorld', repo_type='dataset',
+            result = commit(api, repo_id='HuggingFriends/PixelWorld', repo_type='dataset',
                 operations=operations, commit_message='Refresh trace-grounded Flash cost and quality reports')
             print(json.dumps({'updated_unix': time.time(), 'commit': result.oid}), flush=True)
         except Exception as error:

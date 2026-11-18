@@ -150,6 +150,60 @@ def paired_economics(reference,current):
     return result
 
 
+def refinement_summary(root, quality, scenario):
+    """Expose saved-candidate evidence only against its matching native scores."""
+    if quality.get('scoring_fps') != 24 or quality.get('scoring_frames') != 120:
+        return None
+    data = read(root / 'quality/refinement_native24.json')
+    if not data:
+        return None
+    finals = {row['case']: row for row in quality.get('per_case', [])
+              if row['arm'] == 'baseline'}
+    first, final, excluded = {}, {}, []
+    changed = 0
+    for row in data.get('per_case', []):
+        current = finals.get(row['case'])
+        if (row.get('status') != 'scored' or not current
+                or row.get('sampling') != 'native24FPS/120frames'
+                or row.get('final_pixels_sha256') != current.get('pixels_sha256')
+                or any(row.get('final_' + metric) != current[metric]
+                       for metric in ('v1', 'v2'))):
+            excluded.append(row['case'])
+            continue
+        first[row['case']] = {metric: row['first_' + metric] for metric in ('v1', 'v2')}
+        final[row['case']] = {metric: row['final_' + metric] for metric in ('v1', 'v2')}
+        changed += row['first_pixels_sha256'] != row['final_pixels_sha256']
+    usage_rows = read(root / 'analysis/post_first_delivery_usage.json').get('per_case', [])
+    matched_usage = [row for row in usage_rows if row['case'] in final
+                     and row.get('final_pixels_sha256') == finals[row['case']]['pixels_sha256']
+                     and row.get('first_pixels_sha256') == next(
+                         x['first_pixels_sha256'] for x in data['per_case'] if x['case'] == row['case'])]
+    input_total = sum(row['input_tokens'] for row in matched_usage)
+    output_total = sum(row['output_tokens'] for row in matched_usage)
+    post_submission = {
+        'measured_cases': len(matched_usage),
+        'input_fraction_reported_after': (sum(row['input_reported_after'] for row in matched_usage) / input_total
+                                         if input_total else None),
+        'output_fraction_reported_after': (sum(row['output_reported_after'] for row in matched_usage) / output_total
+                                          if output_total else None),
+        'mean_seconds_after': mean([row['seconds_after'] for row in matched_usage]),
+        'limitation': 'Usage completion timestamps after the snapshot, including checking, corrections and validation; not proven avoidable cost',
+    }
+    return {
+        'scope': 'Descriptive first saved deliverable versus final baseline candidates',
+        'causal_claim': False,
+        'scoring_fps': 24,
+        'scoring_frames': 120,
+        'matched_cases': len(first),
+        'changed_tensor_cases': changed,
+        'excluded_cases': excluded,
+        'first_mean': {metric: mean([x[metric] for x in first.values()]) for metric in ('v1', 'v2')},
+        'final_mean': {metric: mean([x[metric] for x in final.values()]) for metric in ('v1', 'v2')},
+        'paired': paired_quality(first, final, scenario),
+        'post_submission_usage': post_submission,
+    }
+
+
 def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=None):
     cache = read(cache_path) if cache_path else {}
     quality = read(quality_checkpoint or root / 'quality/flash_quality_checkpoint_v2.json')
@@ -175,7 +229,7 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
     if experiment and 'taskpack' in experiment.get('arms',[]):
         definitions['taskpack']=('generations/taskpack','Exact initial task pack')
     for key,label in [('replay_keepcalls','Retained calls · replay'),('core_tools','Core task tools'),
-                      ('replay_shrinking','Shrinking returns · corrective smoke')]:
+                      ('replay_shrinking','Shrinking returns · corrected replay')]:
         if experiment and key in experiment.get('arms',[]):definitions[key]=('generations/'+key,label)
     reference_key = 'baseline' if experiment else 'reference'
     arms = []
@@ -290,7 +344,8 @@ def build(root, output, descriptions=None, cache_path=None, quality_checkpoint=N
         'quality_temporal_sampling':quality.get('temporal_sampling','native submission frames' if quality_checkpoint else 'integer decimation to4FPS'),
         'reference_tariff_usd_per_m': {'uncached_input': 10, 'cached_input': 1, 'output': 50},
         'normalized_cache_rate': 0.7, 'quality_target': 'Confirm with independent held-out cases; proposed relative loss tolerance 5%',
-        'accepted_flash': None, 'arms': arms}
+        'accepted_flash': None, 'arms': arms,
+        'refinement': refinement_summary(root, quality, scenario)}
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix('.tmp')
     temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2))

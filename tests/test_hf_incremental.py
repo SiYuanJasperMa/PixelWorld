@@ -1,6 +1,13 @@
 import json
 from types import SimpleNamespace
+import pytest
 from tools.publish_hf_incremental import package_case, publish_cycle
+
+
+@pytest.fixture(autouse=True)
+def no_live_publication_budget(monkeypatch):
+    monkeypatch.setattr('tools.hf_commit_budget.commit',
+                        lambda api, **kwargs: api.create_commit(**kwargs))
 
 
 def fixture(tmp_path):
