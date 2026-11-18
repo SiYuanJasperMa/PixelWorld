@@ -90,6 +90,17 @@ disabled features remain. The pre-model startup failure is retained separately
 as infrastructure and the retry uses a new directory. No main run uses this
 submission-tool variant, and no efficiency or quality claim is accepted yet.
 
+The fixed-version one-case probe completed a genuine MCP call, an accepted
+technical receipt, natural CLI completion and native24FPS scoring. Its input and
+output usage decreased substantially against the same high-overhead baseline
+case, but the physical score decreased beyond the proposed margin. This is not
+quality-preservation evidence. A matched20-scenario development comparison is
+running with two generation slots; it reuses the20 immutable baseline videos
+and the completed smoke and generates only the remaining19 candidates.
+Model-facing schemas include the additional MCP resource-tool definitions;
+their overhead remains part of measured input. Original and submission arms
+retain separate trace/publication namespaces and explicit scored case sets.
+
 ## Scoring and provenance
 
 Primary development comparisons use all 120 native 24 FPS frames with matching
