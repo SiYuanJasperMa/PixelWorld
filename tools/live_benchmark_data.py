@@ -205,11 +205,17 @@ def export_candidate(source, destination, spec, label, utc):
     locks=destination/'.asset-locks';locks.mkdir(parents=True,exist_ok=True)
     with (locks/(digest+'.lock')).open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
-        if spec['width']*spec['height']*spec['frames']*3 > 100*1024**2:
+        native_frames=source/'frames'
+        streaming=(native_frames.is_dir() and all((native_frames/f'{i:02d}.png').is_file() for i in range(spec['frames'])))
+        if spec['width']*spec['height']*spec['frames']*3 > 100*1024**2 and not streaming:
             with LARGE_MEDIA_RENDER_LOCK:
                 if not large_media_headroom(spec):
                     raise OSError('Native media export deferred for container memory headroom')
                 video = export_native_preview(source, target, spec)
+        elif spec['width']*spec['height']*spec['frames']*3 > 100*1024**2:
+            if not large_media_headroom(spec):
+                raise OSError('Native media export deferred for container memory headroom')
+            video = export_native_preview(source, target, spec)
         else:
             video = export_pixels(source, target, spec)
     if not video:
@@ -249,7 +255,7 @@ def distinct_candidate_previews(versions):
     return result
 
 
-def case_data(run, destination, previous=None):
+def case_data(run, destination, previous=None, include_history=True):
     manifest = read(run / 'run_manifest.json')
     spec = read(run / 'media_contract.json')
     budget = read(run / 'logs/token_budget.json')
@@ -266,10 +272,14 @@ def case_data(run, destination, previous=None):
     reused = (previous is not None and previous.get('schema_version') == PUBLIC_SCHEMA
               and previous.get('media_stamp') == media_stamp
               and (previous.get('candidates') or not pixels.is_file())
+              and (not include_history or not previous.get('candidate_history_pending'))
               and candidate_media_available(previous, destination))
     if reused:
         versions = previous.get('candidates', [])
-    for path in ([] if reused else snapshots):
+    if not include_history and not reused and previous and candidate_media_available(previous,destination):
+        versions=list(previous.get('candidates',[]))
+    selected_snapshots=snapshots if include_history else ([] if pixels.is_file() else snapshots[-1:])
+    for path in ([] if reused else selected_snapshots):
         record = read(path)
         try:
             video = export_candidate(path.parent, destination, spec,
@@ -281,7 +291,7 @@ def case_data(run, destination, previous=None):
             export_errors.append({'candidate': path.parent.name,
                                   'reason': clean(f'{type(error).__name__}: {error}')})
             continue
-    if not reused and (not versions or manifest.get('status') == 'complete'):
+    if not reused and (not include_history or not versions or manifest.get('status') == 'complete'):
         try:
             final = export_candidate(run / 'workspace', destination, spec,
                                      '当前保存结果', manifest.get('completed_utc'))
@@ -347,6 +357,8 @@ def case_data(run, destination, previous=None):
             'first_frame': image_asset(run / 'input_snapshot/first_frame.png', destination),
             'source_video': image_asset(run / 'input_snapshot/source_video.mp4', destination),
             'candidates': versions, 'snapshot_record_count':len(snapshots),
+            'candidate_history_pending':bool(snapshots and not include_history and
+                                            not (reused and not previous.get('candidate_history_pending'))),
             'preview_record_count':preview_record_count,'distinct_candidate_count':len(versions),
             'events': events, 'media_stamp': media_stamp,
             'native_output_present': pixels.is_file(), 'media_export_errors': export_errors,
@@ -563,16 +575,16 @@ def update(run_root, destination, cache, initial_limit=2, suites=None):
     save(destination / 'catalogue.json', catalogue)
 
 
-def render_case_set(folder, case, identity, render_root, saved):
+def render_case_set(folder, case, identity, render_root, saved, include_history=True):
     """All potentially slow case I/O stays off the publication thread."""
     locks=render_root/'.case-locks';locks.mkdir(parents=True,exist_ok=True)
     key=hashlib.sha256((identity+'/'+str(case)).encode()).hexdigest()
     with (locks/(key+'.lock')).open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
-        return _render_case_set(folder,case,identity,render_root,saved)
+        return _render_case_set(folder,case,identity,render_root,saved,include_history)
 
 
-def _render_case_set(folder, case, identity, render_root, saved):
+def _render_case_set(folder, case, identity, render_root, saved, include_history=True):
     rows = []
     for run, cache_key, provenance in run_sources(folder, case):
         manifest = run / 'run_manifest.json'
@@ -590,11 +602,11 @@ def _render_case_set(folder, case, identity, render_root, saved):
         if cached.get('stamp') == stamp:
             detail = read(render_root/relative) or read(render_root.parent/'pixelworld'/relative)
             needs_preview = (detail.get('native_output_present') or read(manifest).get('status') == 'complete') and not detail.get('candidates')
-            if not needs_preview and candidate_media_available(detail, render_root):
+            if not needs_preview and (not include_history or not detail.get('candidate_history_pending')) and candidate_media_available(detail, render_root):
                 continue
         try:
             previous=read(render_root/relative) or read(render_root.parent/'pixelworld'/relative)
-            detail = case_data(run, render_root, previous=previous)
+            detail = case_data(run, render_root, previous=previous,include_history=include_history)
         except (OSError,ValueError,KeyError,EOFError,BadZipFile):
             continue
         if provenance:
@@ -631,7 +643,7 @@ def render_backfill_set(folder,identity,render_root,saved,excluded=(),limit=4):
         poster=entry.get('poster')
         lost_media=bool(entry.get('candidate_count') and poster and not any(
             (root/poster).is_file() for root in (render_root,render_root.parent/'pixelworld')))
-        if len(cached)<2 or cached[0]!=PUBLIC_SCHEMA or cached[1]!=stamp or cached[-1]!=DIAGNOSTICS_VERSION or missing_preview or lost_media:
+        if len(cached)<2 or cached[0]!=PUBLIC_SCHEMA or cached[1]!=stamp or cached[-1]!=DIAGNOSTICS_VERSION or missing_preview or lost_media or entry.get('candidate_history_pending'):
             cases.add(case)
     rows=[]
     for case in sorted(cases)[:limit]:
@@ -663,6 +675,7 @@ def merge_render_jobs(destination,cache,pending,render_root,published_assets=Non
             cache.setdefault(identity,{})[name]={'stamp':stamp,'detail':relative,
                 'case':detail['case_id'],'attempt':detail['attempt'],
                 'status':detail['delivery_status'],'raw_status':detail['status'],
+                'candidate_history_pending':detail.get('candidate_history_pending',False),
                 'output_tokens':detail['output_tokens'],'candidate_count':len(detail['candidates']),
                 'reused':detail.get('reused',False),
                 'detail_sha256':hashlib.sha256(json.dumps(detail,ensure_ascii=False,separators=(',',':')).encode()).hexdigest(),
@@ -733,8 +746,8 @@ def async_update(run_root,destination,cache,pool,pending,render_root,
             overlay_current_status(source/model/track,desired,identity,destination,stored)
             for case in desired:
                 job=(identity,case)
-                if job not in pending and (history_pending is None or job not in history_pending) and len(pending)<48:
-                    pending[job]=pool.submit(render_case_set,source/model/track,case,identity,render_root,dict(stored))
+                if job not in pending and (history_pending is None or job not in history_pending) and len(pending)<128:
+                    pending[job]=pool.submit(render_case_set,source/model/track,case,identity,render_root,dict(stored),False)
             if (history_pool is not None and status.get('cases',0)>4):
                 historical.append((identity,source/model/track,dict(stored),desired))
             cases={}
