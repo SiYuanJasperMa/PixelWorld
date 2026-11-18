@@ -63,6 +63,33 @@ source/task discovery, input images and recent inspections, with full originals
 retrievable inside that case. This guard changes no revision or observation cap.
 The original replay arm and the correction remain separate recorded conditions.
 
+## Explicit submission-tool probe
+
+The next one-case mechanism test exposes `submit_video` through a case-bound
+MCP server in Codex0.169.0. It checks the original technical output and execution
+contract, returns compact acceptance/errors, and provides no physics score or
+pixels. Original writing, autonomous inspection and revision remain available.
+The current probe does not force automatic termination or impose call limits.
+Its additional task sentence asks the agent to finish after accepted=true.
+
+A conservative baseline trace audit finds7 post-deliverable validation-command
+signatures across6 of20 cases. This supports testing consolidated verification
+but does not account for all late input consumption, prove those checks wasted,
+or establish a cost benefit for the new tool.
+
+The privileged checker accepts no arbitrary paths, rejects outputs escaping the
+case through symlinks, bounds packed-tensor archives before loading, and compares
+the first frame with the frozen input. Its pre-submission report is labeled
+`submission_requested`; it does not invent a normal CLI turn-completion event.
+The final runner still records actual CLI termination and native provider usage.
+
+Codex0.169.0 rejects `--trust` with `--ignore-user-config`. The experimental
+variant instead reads an empty, isolated case-specific Codex configuration and
+trusts only the operator-vetted MCP command; named case-only permissions and
+disabled features remain. The pre-model startup failure is retained separately
+as infrastructure and the retry uses a new directory. No main run uses this
+submission-tool variant, and no efficiency or quality claim is accepted yet.
+
 ## Scoring and provenance
 
 Primary development comparisons use all 120 native 24 FPS frames with matching

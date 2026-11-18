@@ -244,6 +244,11 @@ def _provider_infra_failure(events: Path) -> str | None:
 
 def _execution_infra_failure(logs: Path) -> str | None:
     """Identify native sandbox-launch errors, never an assistant's excuse."""
+    stderr = logs / 'stderr.log'
+    events = logs / 'events.jsonl'
+    if (stderr.is_file() and (not events.is_file() or events.stat().st_size == 0)
+            and '--trust cannot be combined with --ignore-user-config' in stderr.read_text(errors='replace')):
+        return 'local_cli_configuration_failure'
     archive = logs / 'full_rollout.jsonl'
     if not archive.is_file():
         return None
@@ -485,6 +490,10 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     if config.harness_variant=='flash-taskpack':
         from .flash import pack_task
         task_text,flash_record=pack_task(task_text,workspace)
+    if config.harness_variant == 'flash-submit':
+        task_text += ('\nWhen satisfied with the saved video, call submit_video to check and submit it. '
+                      'Fix reported errors; finish after accepted=true. This tool checks the technical '
+                      'delivery contract, not appearance or physics.\n')
     task_snapshot.write_text(task_text)
     # Preserve only the supplied workspace inputs, before the model can edit them.
     # This directory stays outside the agent's visible workspace.
@@ -511,6 +520,24 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         model=replace(model,provider=replace(model.provider,model_catalog_json=str(catalog_snapshot)))
     command = codex_command(model, track, workspace, binary, has_image,
                             filesystem_policy=config.filesystem_policy)
+    if config.harness_variant == 'flash-submit':
+        module_root = Path(__file__).resolve().parents[1]
+        # Codex0.169.0 forbids --trust together with --ignore-user-config.
+        # The provider still reads only this fresh case-specific empty home.
+        command.remove('--ignore-user-config')
+        (codex_home / 'config.toml').write_text('')
+        # Trust only this operator-vetted MCP command in the isolated Codex
+        # home. The existing named case-only filesystem policy is unchanged.
+        command += ['--trust', '-c', 'mcp_servers.pixelworld_submit.command=' + _toml(sys.executable),
+                    '-c', 'mcp_servers.pixelworld_submit.args=' + json.dumps(
+                        ['-m', 'pixelworld.submission', '--run', str(run)]),
+                    '-c', 'mcp_servers.pixelworld_submit.env.PYTHONPATH=' + _toml(str(module_root)),
+                    '-c', 'mcp_servers.pixelworld_submit.tool_timeout_sec=180']
+        flash_record = {'schema': 'pixelworld-submit-tool-v1',
+                        'module_sha256': sha256(module_root / 'pixelworld/submission.py'),
+                        'physics_score_provided': False, 'generation_tools_unchanged': True,
+                        'codex_config_scope': 'empty case-specific CODEX_HOME with vetted MCP trust',
+                        'automatic_harness_stop_enabled': False}
     permissions_record = None
     if config.filesystem_policy == 'case-only-v1':
         from .permissions import case_permissions

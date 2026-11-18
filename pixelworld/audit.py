@@ -438,7 +438,7 @@ def terminal_shutdown_verified(events_path: Path, exit_status: int) -> bool:
 
 def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
              require_reports: bool = True, media: dict | None = None,
-             budget_frozen: bool = False) -> dict:
+             budget_frozen: bool = False, submission_requested: bool = False) -> dict:
     spec = media or DEFAULT_MEDIA
     FRAMES, HEIGHT, WIDTH = (spec[k] for k in ("frames", "height", "width"))
     TENSOR_SHAPE = (HEIGHT, WIDTH, FRAMES)
@@ -540,7 +540,8 @@ def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
     if track in ("text", "vision-input") and visual_calls:
         track_violation = "view_image was invoked in a Track that disables output visual tools"
     shutdown_verified = terminal_shutdown_verified(events_path, exit_status)
-    completed = (exit_status == 0 and "turn.completed" in terminal) or budget_frozen or shutdown_verified
+    completed = ((exit_status == 0 and "turn.completed" in terminal) or budget_frozen
+                 or shutdown_verified or submission_requested)
     passed = (completed and not missing and
               len(frame_paths) == FRAMES and frame0_exact and tensor_exact and
               not outside_reads and not outside_changes and not network_commands and
@@ -548,7 +549,7 @@ def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
               audio_check is not False)
     return {
         "exit_status": exit_status,
-        "completion_mode": ('budget_frozen' if budget_frozen else
+        "completion_mode": ('submission_requested' if submission_requested else 'budget_frozen' if budget_frozen else
                             'agent_finished_cli_teardown_recovered' if shutdown_verified else 'agent_finished'),
         "terminal_shutdown_verified": shutdown_verified,
         "terminal_events": terminal,

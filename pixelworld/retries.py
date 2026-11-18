@@ -19,7 +19,8 @@ def infrastructure_failure(manifest: dict) -> bool:
     return bool((manifest.get('validation') or {}).get('infra_error')
                 or manifest.get('stop_reason') in ('provider_queue_exceeded','provider_connection_failed',
                                                  'storage_infrastructure_failure','local_proxy_request_limit',
-                                                 'local_proxy_auth_failure','provider_first_token_stall'))
+                                                 'local_proxy_auth_failure','provider_first_token_stall',
+                                                 'local_cli_configuration_failure'))
 
 
 def ledger_path(config: Benchmark) -> Path:
