@@ -110,6 +110,11 @@ def hf_progress(source, token_file):
     if not evaluation_source.is_file():evaluation_source=source/'evaluation.json'
     if evaluation_source.is_file():
         items.append(('live/evaluation.json',sanitize(json.loads(evaluation_source.read_text()))))
+    analysis_source=source/'analysis_progress.json'
+    if not analysis_source.is_file():
+        analysis_source=bundle/'live_preview/pixelworld/analysis_progress.json'
+    if analysis_source.is_file():
+        items.append(('live/analysis_progress.json',sanitize(json.loads(analysis_source.read_text()))))
     operations = [CommitOperationAdd(path_in_repo=name,
         path_or_fileobj=json.dumps(data, ensure_ascii=False).encode()) for name, data in items]
     commit = dataset_commit(api, repo_id='HuggingFriends/PixelWorld', repo_type='dataset',
@@ -122,7 +127,7 @@ def hf_frontend(source, token_file):
     from huggingface_hub import HfApi, CommitOperationAdd
     live_base='https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/'
     files={name:(source/name).read_text() for name in SHELLS}
-    for name in ('phygen_firstframe_smoke.html',):
+    for name in ('phygen_firstframe_smoke.html', 'phygen_acd_smoke.html'):
         if (source/name).is_file():
             files[name]=(source/name).read_text()
     for path in (source/'charts').glob('*.svg'):

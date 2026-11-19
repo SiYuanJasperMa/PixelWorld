@@ -153,7 +153,38 @@ def permitted_tool_roots(workspace: Path) -> list[Path]:
     return roots
 
 
-def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] | None = None) -> list[str]:
+def unsafe_parent_references(command: str, workspace: Path, working_directory: str | Path | None = None) -> bool:
+    """Resolve literal parents only when the command's directory is known."""
+    if not re.search(r"(?:^|[\s'\"])(?:\.\./)+",command):return False
+    try:
+        base=workspace.resolve()
+        cwd=Path(working_directory) if working_directory is not None else base
+        if not cwd.is_absolute():cwd=base/cwd
+        cwd=cwd.resolve()
+        if cwd!=base and base not in cwd.parents:return True
+        prefix=re.match(r"^\s*cd\s+(?P<path>'[^'\n]+'|\"[^\"\n]+\"|[^\s;&|<>]+)\s*&&\s*",command)
+        rest=command
+        if prefix:
+            token=shlex.split(prefix.group('path'))[0]
+            if any(x in token for x in ('$','`','~')):return True
+            cwd=(cwd/token).resolve()
+            if not cwd.is_dir() or (cwd!=base and base not in cwd.parents):return True
+            rest=command[prefix.end():]
+        # More complex directory changes need execution evidence; keep them
+        # conservative rather than guessing shell/Python state.
+        if re.search(r"(?:^|[;\n&|])\s*(?:cd|pushd|popd)\b|\b(?:os|posix)\.chdir\s*\(",rest):return True
+        paths=re.findall(r"(?:^|[\s'\"])((?:\.\./)+[^\s'\";&|<>]*)",rest)
+        if not paths:return True
+        for path in paths:
+            if any(x in path for x in ('$','`','\\')):return True
+            resolved=(cwd/path.rstrip('),:]')).resolve()
+            if resolved!=base and base not in resolved.parents:return True
+        return False
+    except (OSError,ValueError):return True
+
+
+def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] | None = None,
+                          working_directory: str | Path | None = None) -> list[str]:
     # Codex logs shell invocations as /bin/bash -lc "<actual script>".
     # Unwrap the script before identifying Python heredoc arithmetic; otherwise
     # the first header is not at line start and division is treated as a path.
@@ -193,7 +224,7 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
         if value == PLAYWRIGHT_SOFTWARE_CACHE or value.startswith(PLAYWRIGHT_SOFTWARE_CACHE + '/'):
             continue
         values.append(value)
-    if re.search(r"(?:^|[\s'\"])(?:\.\./)+", command):
+    if unsafe_parent_references(command,workspace,working_directory):
         values.append("relative-parent-traversal")
     return values
 
@@ -217,14 +248,15 @@ def denied_script_body_for_path_audit(item: dict) -> str:
 
 
 def classify_outside_command_paths(command: str, workspace: Path,
-                                   tool_roots: list[Path] | None = None) -> tuple[list[str], list[str]]:
+                                   tool_roots: list[Path] | None = None,
+                                   working_directory: str | Path | None = None) -> tuple[list[str], list[str]]:
     """Keep unknown outside paths blocked; record a failed literal cd as a warning.
 
     Only recognize a nonexistent absolute directory followed immediately by
     an explicit return to this workspace. Preserve the raw command and do not
     exempt file reads, writes, substitutions, or later uses of that path.
     """
-    paths = outside_command_paths(command, workspace, tool_roots)
+    paths = outside_command_paths(command, workspace, tool_roots, working_directory)
     match = re.match(
         r"\s*cd\s+(?P<outside>/[^\s;'\"`$]+)\s+2>/dev/null;\s*"
         r"cd\s+(?P<inside>/[^\s&;'\"`$]+)\s*&&", command)
@@ -546,7 +578,9 @@ def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
     path_checks = []
     tool_roots = permitted_tool_roots(workspace)
     for item in command_items:
-        blocked, warnings = classify_outside_command_paths(denied_script_body_for_path_audit(item), workspace, tool_roots)
+        directory=item.get('working_directory') or item.get('cwd')
+        blocked, warnings = classify_outside_command_paths(denied_script_body_for_path_audit(item), workspace, tool_roots,
+                                                          directory if isinstance(directory,str) else None)
         denied = [path for path in blocked if failed_scratch_path(path, item)]
         failed_scratch.extend(denied)
         path_checks.append(([path for path in blocked if path not in denied], warnings))

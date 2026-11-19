@@ -20,7 +20,7 @@ from diffusers import QwenImage21Pipeline
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, required=True)
-    parser.add_argument("--image", type=Path, required=True)
+    parser.add_argument("--image", type=Path, help="Omit for analysis-only text-to-image initialization")
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--width", type=int, default=1280)
@@ -29,6 +29,7 @@ def main() -> None:
     parser.add_argument("--negative-prompt", default=None)
     parser.add_argument("--cfg", type=float, default=1.0)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--cpu-offload", action="store_true", help="Use bounded GPU memory and cloud-packaged CPU runtime")
     seeds = parser.add_mutually_exclusive_group()
     seeds.add_argument("--seed", type=int, help="Explicit candidate seed; omitted seeds remain recorded as unknown")
     seeds.add_argument("--seeds", type=int, nargs='+', help="Generate multiple candidates with one loaded pipeline")
@@ -37,8 +38,13 @@ def main() -> None:
     pipe = QwenImage21Pipeline.from_pretrained(
         str(args.model), torch_dtype=torch.bfloat16, local_files_only=True
     )
-    pipe.to(args.device)
-    source = Image.open(args.image).convert("RGB")
+    if args.cpu_offload:
+        pipe.enable_model_cpu_offload()
+        pipe.vae.enable_slicing()
+        pipe.vae.enable_tiling()
+    else:
+        pipe.to(args.device)
+    source = Image.open(args.image).convert("RGB") if args.image else None
     args.output.parent.mkdir(parents=True, exist_ok=True)
     index=args.model/'model_index.json'
     for seed in args.seeds or [args.seed]:
@@ -53,12 +59,13 @@ def main() -> None:
         metadata={'pipeline':type(pipe).__name__,'model_reference':args.model.name,
               'revision_label':args.revision_label,
               'model_index_sha256':hashlib.sha256(index.read_bytes()).hexdigest() if index.exists() else None,
-              'condition_image_sha256':hashlib.sha256(args.image.read_bytes()).hexdigest(),
+              'condition_image_sha256':hashlib.sha256(args.image.read_bytes()).hexdigest() if args.image else None,
               'output_image_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),
-              'source_size':list(source.size),'requested_size':[args.width,args.height],
+              'source_size':list(source.size) if source else None,'requested_size':[args.width,args.height],
               'native_output_size':list(result.size),'seed':seed,'steps':args.steps,
               'cfg':args.cfg,'prompt':args.prompt,'negative_prompt':args.negative_prompt,
-              'scope':'analysis initial-image preparation only; image passed to pipeline; no video frames generated'}
+              'scope':'analysis initial-image preparation only; no video frames generated',
+              'initialization_mode':'image-conditioned restyle' if source else 'text-to-image'}
         output.with_suffix('.render.json').write_text(json.dumps(metadata,indent=2))
         print({"output": str(output), "size": result.size, "mode": result.mode}, flush=True)
 
