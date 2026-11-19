@@ -50,6 +50,7 @@ public benchmark reference is
 - [Final experiment protocol](docs/FINAL_EXPERIMENT_PROTOCOL.md)
 - [Main benchmark reference](docs/MAIN_EXPERIMENT_PROTOCOL.md)
 - [Automatic scoring and GPU dispatch](docs/AUTOMATIC_EVALUATION.md)
+- [Retained-result provenance and configuration audits](docs/RESULT_PROVENANCE.md)
 - [Add a model](docs/ADD_MODEL_RUNBOOK.md)
 - [Copy-paste collaborator handoff](docs/COLLABORATOR_HANDOFF.md)
 - [Codex integration](docs/CODEX.md)
