@@ -17,6 +17,15 @@ tail of each `requests.jsonl` index. HTTP 200 streams with errors or client
 disconnects are not counted as successful responses; missing indexes remain
 unknown. This monitoring never restarts generation because of a long wait.
 
+The matrix manager separately detects a stuck dispatcher: its status must be
+unchanged for at least 15 minutes, its command must match the owned matrix,
+the kernel must report disk sleep (`D`), and it must have no active child
+processes. On Linux with pidfd support, it pins that dispatcher process before
+sending SIGTERM and lets the existing manager restart it. Queued model requests,
+active generation children and unknown observations never trigger this recovery.
+`--dispatcher-stale-seconds 0` disables it. Historical outputs and attempt
+limits are preserved.
+
 ## PCVE
 
 `tools.watch_pcve_gpu_evaluation` watches both `pcve_full.json` and
