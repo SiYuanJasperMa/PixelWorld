@@ -122,6 +122,29 @@ the native postprocessing. Source-copy and edited-oracle controls are run with
 tracking can fall below one because the official tracker can miss objects.
 Controls are diagnostics and never substitute for coding-agent predictions.
 
+### Released-code calibration discrepancy
+
+The source-copy control does not reproduce the published No edit PES=0 on
+three bowling cases under the pinned release. Saved prediction and null tracks
+have identical centroids, areas and masks, so this discrepancy persists with
+a fresh cache and verified native postprocessing.
+
+`physics.py` applies `_presence_gated_uv` to prediction trajectories before
+their errors enter PES, but uses ungated source trajectories for the null
+denominator. An independent CPU diagnostic using the saved tracks reproduced
+PES -0.584, -0.467 and -0.449 for `edit_light_ball`, `edit_heavy_pins` and
+`edit_grippy_ball`. Disabling only the prediction gate in that diagnostic
+returns zero on all three. That diagnostic is not an official score and is
+never substituted into the main result. The pinned evaluation source and all
+production scoring formulas remain unchanged.
+
+Consequently, a full score from the released implementation is distinct from
+a verified reproduction of the published Table 1. Keep paper values labeled
+published references until baseline videos are rerun under the same evaluator,
+or the authors' table-generation implementation is verified. The pinned public
+dataset contains source/reference scenes but does not release baseline
+prediction videos in its root tree.
+
 ## PhyGenBench Text and Vision
 
 The same GPT-5.5 adapter supports either track. Run a separate watcher and output
