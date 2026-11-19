@@ -45,6 +45,20 @@ def test_low_delivery_cohort_is_not_given_rescues(tmp_path):
     assert model_attempt_cap(config,model,'text','bad')==5
 
 
+def test_95_percent_large_cohort_is_not_blocked_by_absolute_three_case_limit(tmp_path):
+    config,model=fixture(tmp_path)
+    good=[f'good{i}'for i in range(153)];bad=[f'bad{i}'for i in range(7)]
+    config=replace(config,max_attempts=5,max_total_attempts=5,case_ids=tuple(good+bad))
+    for case in good:manifest(config,model,case,1,{'status':'complete','validation':{'pass':True}})
+    for case in bad:
+        for attempt in range(1,6):manifest(config,model,case,attempt,{'status':'failed'})
+    assert authorize_near_complete(config,max_missing=3,apply=False)['authorized_cases']==0
+    result=authorize_near_complete(config,apply=True)
+    assert result['authorized_cases']==7
+    assert all(row['model_attempt_cap']==6 for row in result['items'])
+    assert config.max_total_attempts==5
+
+
 def test_infrastructure_retries_keep_scoped_real_attempt_cap(tmp_path):
     config,model=nearly_done(tmp_path)
     authorize_near_complete(config,apply=True)

@@ -144,7 +144,7 @@ def authorize_failed(config: Benchmark, extra_attempts: int = 2, max_rounds: int
 
 
 def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
-                            min_fraction: float = .95, max_missing: int = 3,
+                            min_fraction: float = .95, max_missing: int | None = None,
                             apply: bool = False) -> dict:
     """Grant one fresh attempt to a sparse terminal tail under user authorization.
 
@@ -155,7 +155,7 @@ def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
     from .supervisor import case_ids, configurations, inspect
     from .runner import run_path
     from .util import sha256
-    if not 1<=extra_attempts<=2 or not 0<min_fraction<=1 or max_missing<1:
+    if not 1<=extra_attempts<=2 or not 0<min_fraction<=1 or (max_missing is not None and max_missing<1):
         raise ValueError('Invalid sparse rescue policy')
     if config.max_total_attempts is None:return {'authorized_cases':0,'items':[]}
     path=ledger_path(config);config.runs_root.mkdir(parents=True,exist_ok=True)
@@ -184,7 +184,7 @@ def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
             info={case:inspect(config,model,track,case)for case in ids}
             done=sum(row['state']=='complete'for row in info.values())
             missing=[case for case,row in info.items()if row['state']=='exhausted']
-            if (not missing or len(missing)>max_missing or done<len(ids)*min_fraction
+            if (not missing or (max_missing is not None and len(missing)>max_missing) or done<len(ids)*min_fraction
                     or any(row['state']in('pending','running')for row in info.values())):continue
             for case in missing:
                 row=info[case];consumed=row.get('model_attempts',0)

@@ -154,7 +154,7 @@ def publish(root, public, summary, token_file):
         name=path.relative_to(public).as_posix()
         if done.get(name)==hashlib.sha256(path.read_bytes()).hexdigest():continue
         buckets.setdefault(path.suffix,[]).append(path)
-    buckets['.mp4'].sort(key=lambda p:(p.relative_to(public).parts[0]=='A',str(p)))
+    buckets['.mp4'].sort(key=lambda p:(p.name!=SMOKE_PREVIEW_NAME,p.relative_to(public).parts[0]=='A',str(p)))
     buckets['.gz'].sort(key=lambda p:(p.relative_to(public).parts[0]=='A',str(p)))
     order=['.mp4','.png','.json','.gz','.py']
     if state.get('media_round',0)%3==2:order=['.gz','.mp4','.png','.json','.py']
@@ -182,6 +182,8 @@ def publish(root, public, summary, token_file):
                     if key=='video':item['media_sync_pending']=True
             if 'candidate_images' in item:
                 item['candidate_images']=[url for url in item['candidate_images'] if url.removeprefix(REMOTE) in now]
+    for key in ['analysis_chart','analysis_csv']:
+        if summary.get(key) and summary[key].removeprefix(REMOTE) not in now:summary.pop(key)
     data=json.dumps(sanitize(summary),ensure_ascii=False).encode()
     # Poll time alone is not a change to a video, score or initialization.
     fingerprint=copy.deepcopy(summary);fingerprint.pop('updated_unix',None)
@@ -281,6 +283,11 @@ def main():
                 except Exception as exc:
                     entry['routes'][route]={'state':'infra_stale','error':str(exc)[:500]}
             summary['cases'].append(entry)
+        analysis=read(public/'report/summary.json')
+        if analysis:
+            summary['analysis_summary']=analysis
+            summary['analysis_chart']=REMOTE+'report/paired_summary.png'
+            summary['analysis_csv']=REMOTE+'report/paired_cases.csv'
         write(root/'progress.json',summary)
         if upload is None:upload=pool.submit(publish,root,public,copy.deepcopy(summary),args.token_file)
         time.sleep(30)

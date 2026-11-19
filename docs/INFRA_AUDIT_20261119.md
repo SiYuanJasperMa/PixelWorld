@@ -111,6 +111,11 @@ five-attempt cap; infrastructure failures remain separate. Only user-authorized
 nearly completed cohorts receive additional recovery attempts. Keep the existing
 model/global concurrency controls and cgroup memory-headroom gate. API queueing
 is an upstream wait, not a reason to kill a live generating case.
+The default rescue threshold is at least 95% delivered with all ordinary
+attempts terminal. The default does not also impose an unrelated absolute
+three-missing-case limit; an explicit `max_missing` may still narrow a specific
+cohort. Each eligible case remains limited to two additional real attempts,
+without looking at evaluator scores or changing the global five-attempt policy.
 
 Workspaces, inputs, environments, caches, scratch paths, logs and publication
 state remain on cloud storage. GPU SSH workers provide computation and use the
