@@ -77,9 +77,9 @@ def free_gpus() -> list[tuple[int, int]]:
             keeper_only=(index in keepers and info['apps']==1 and info['used_mib']<=1024)
             available=(info['apps']==0 and low_util) or keeper_only
         else:
-            # Preserve the original low-utilization policy when NVML process
-            # metadata is unavailable; never exempt an unknown busy device.
-            available=low_util
+            # Unknown process ownership is not evidence of an idle device.
+            # Wait for the next NVML probe rather than sharing an unseen job.
+            available=False
         if available:rows.append((index,int(memory.strip())))
     return sorted(rows, key=lambda row: (-row[1], row[0]))
 

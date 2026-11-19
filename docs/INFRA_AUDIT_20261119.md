@@ -102,6 +102,8 @@ PIDs are never compared directly to NVML host PIDs. The allocator never signals
 another GPU workload. A live query on the evaluation worker returned available
 devices after the preceding evaluator jobs finished; regression tests cover
 high-utilization keeper-only devices, real idle workloads and source tampering.
+If NVML process ownership is unavailable, the allocator waits for the next probe
+instead of inferring that low utilization means an unused device.
 
 Required harness verification is `pytest -q` and `pixelworld doctor`; new matrices
 begin with a case smoke. The corrected path audit passed the full 523-test suite

@@ -7,6 +7,8 @@ from tools import run_gpu_evaluation
 def test_gpu_with_free_memory_but_busy_compute_is_not_selected(monkeypatch):
     monkeypatch.setattr(run_gpu_evaluation.subprocess, 'run',
                         lambda *args, **kwargs: SimpleNamespace(stdout='0, 75000, 87\n1, 60000, 0\n2, 70000, N/A\n'))
+    monkeypatch.setattr(run_gpu_evaluation,'gpu_app_snapshot',lambda:{i:{'apps':0,'used_mib':0}for i in [0,1,2]})
+    monkeypatch.setattr(run_gpu_evaluation,'known_keepalive_devices',lambda:set())
     assert run_gpu_evaluation.free_gpus() == [(1, 60000)]
 
 
@@ -39,3 +41,9 @@ def test_keepalive_name_without_verified_source_is_not_trusted(tmp_path):
     assert run_gpu_evaluation.known_keepalive_devices(tmp_path,trusted)=={0}
     script.write_text('modified untrusted fixture')
     assert run_gpu_evaluation.known_keepalive_devices(tmp_path,trusted)==set()
+
+
+def test_unknown_nvml_ownership_waits_instead_of_sharing_gpu(monkeypatch):
+    monkeypatch.setattr(run_gpu_evaluation.subprocess,'run',lambda *a,**k:SimpleNamespace(stdout='0, 75000, 0\n'))
+    monkeypatch.setattr(run_gpu_evaluation,'gpu_app_snapshot',lambda:None)
+    assert run_gpu_evaluation.free_gpus()==[]
