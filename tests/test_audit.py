@@ -96,6 +96,31 @@ def test_denied_scratch_in_successful_compound_command_is_warning(tmp_path):
     assert result['outside_workspace_command_paths']==[]
 
 
+def test_denied_unexecuted_script_body_does_not_become_an_outside_access(tmp_path):
+    from pixelworld.audit import denied_script_body_for_path_audit
+    workspace=tmp_path/'workspace';make_artifacts(workspace)
+    path='/tmp/pixelworld_absent_body_fixture_e50a/analyze.py'
+    command=f"cat > {path} <<'PY'\nimport cv2\ncv2.imwrite('/tmp/unexecuted_edges.png', None)\nPY\npython3 {path}\npython generate.py"
+    item={'type':'command_execution','status':'completed','exit_code':0,'command':command,
+          'aggregated_output':f"/bin/bash: line 1: {path}: No such file or directory\npython3: can't open file '{path}': [Errno 2] No such file or directory\n"}
+    assert '/tmp/unexecuted_edges.png' not in denied_script_body_for_path_audit(item)
+    log=tmp_path/'events.jsonl';log.write_text('\n'.join(json.dumps(e) for e in [
+        {'type':'item.completed','item':item},{'type':'turn.completed'}]))
+    result=validate(workspace,log,0,'text')
+    assert result['pass'] and result['outside_workspace_command_paths']==[]
+    assert result['failed_outside_scratch_operations']==[path]
+
+
+def test_unproven_script_body_and_later_outside_access_remain_blocked(tmp_path):
+    from pixelworld.audit import denied_script_body_for_path_audit
+    path='/tmp/pixelworld_absent_body_fixture_e50a/analyze.py'
+    command=f"cat > {path} <<'PY'\nopen('/tmp/possible_output.dat','w')\nPY\ncat /outside/reference.png"
+    item={'command':command,'aggregated_output':f'/bin/bash: line 1: {path}: No such file or directory\n'}
+    assert '/tmp/possible_output.dat' in denied_script_body_for_path_audit(item)
+    item['aggregated_output']+=f"python3: can't open file '{path}': [Errno 2] No such file or directory\n"
+    assert '/outside/reference.png' in denied_script_body_for_path_audit(item)
+
+
 def test_command_classification_is_command_level():
     assert invokes_subagent("codex exec 'child task'")
     assert not invokes_subagent("cat > METHOD.md <<'EOF'\nNo codex exec was used.\nEOF")

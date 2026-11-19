@@ -198,6 +198,24 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
     return values
 
 
+def denied_script_body_for_path_audit(item: dict) -> str:
+    """Exclude only a scratch script proven neither created nor executed."""
+    command=_unwrap_shell(str(item.get('command','')))
+    pattern=re.compile(r"(?m)^cat\s*>\s*(?P<path>/tmp/[^\s<>;'\"]+\.py)\s+<<\s*['\"]?(?P<tag>[A-Za-z_]\w*)['\"]?\s*\n")
+    for header in reversed(list(pattern.finditer(command))):
+        path=header.group('path')
+        output=str(item.get('aggregated_output',''))
+        if not failed_scratch_path(path,item):continue
+        if not any(path in line and "can't open file" in line and
+                   ('No such file or directory' in line or 'Permission denied' in line)
+                   for line in output.splitlines()):continue
+        tail=command[header.end():]
+        end=re.search(r'(?m)^'+re.escape(header.group('tag'))+r'\s*$',tail)
+        if end:
+            command=command[:header.end()]+command[header.end()+end.start():]
+    return command
+
+
 def classify_outside_command_paths(command: str, workspace: Path,
                                    tool_roots: list[Path] | None = None) -> tuple[list[str], list[str]]:
     """Keep unknown outside paths blocked; record a failed literal cd as a warning.
@@ -528,7 +546,7 @@ def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
     path_checks = []
     tool_roots = permitted_tool_roots(workspace)
     for item in command_items:
-        blocked, warnings = classify_outside_command_paths(item.get('command',''), workspace, tool_roots)
+        blocked, warnings = classify_outside_command_paths(denied_script_body_for_path_audit(item), workspace, tool_roots)
         denied = [path for path in blocked if failed_scratch_path(path, item)]
         failed_scratch.extend(denied)
         path_checks.append(([path for path in blocked if path not in denied], warnings))
