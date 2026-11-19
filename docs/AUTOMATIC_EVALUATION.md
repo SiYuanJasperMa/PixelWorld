@@ -82,7 +82,8 @@ all eight official metrics:
 | FVD | Lower | `eval/metrics/fvd.py`, I3D features |
 
 PES is dimensionless, not a percentage. For each case, the official scorer
-computes `max(1 - sum(TE_pred) / sum(TE_null), -1)` and averages the resulting
+sums predicted and null trajectory errors over eligible objects, computes
+`max(round(1 - sum(TE_pred) / sum(TE_null), 3), -1)`, and averages the resulting
 case scores. It does not take the ratio of two benchmark-wide TE means.
 Official eligibility and missing-track handling are preserved.
 

@@ -1,5 +1,7 @@
 # PhyGenBench A/C/D initialization diagnostic
 
+Status: **shelved by user; historical evidence only**. No new runs or expansion.
+
 This analysis investigates whether scene appearance limits coding-agent T2V.
 It does not tune a Qwen-assisted method to maximize benchmark scores.
 

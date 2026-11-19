@@ -28,9 +28,7 @@ CONDITIONS = [
     {"id": "pcve_text", "title": "PCVE · Text", "question": "Text vs Vision", "track": "text", "cases": 129, "runs": "pcve_text", "config": "pcve_text_analysis.json"},
     {"id": "phygenbench_text", "title": "PhyGenBench · Text", "question": "Text vs Vision", "track": "text", "cases": 160, "runs": "phygenbench_text", "config": "phygenbench_text_analysis.json"},
 ]
-PLANNED = [
-    {"id": "phygen_i2v", "title": "PhyGenBench · AgentPixel → Qwen → I2V", "question": "agent 构建场景 + Qwen 真实化", "track": "vision-agent", "cases": 160, "planned": True},
-]
+PLANNED = []
 
 
 def read(path: Path):
@@ -113,9 +111,9 @@ PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta na
 <style>
 body{background:#f5f7fa}.wrap{max-width:1320px;margin:auto;padding:26px}.head{display:flex;justify-content:space-between;gap:20px;align-items:end}.head h1{margin:4px 0 6px}.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:22px 0}.stat{background:#fff;border:1px solid #dfe5ee;border-radius:12px;padding:14px}.stat b{display:block;font-size:24px}.card{background:#fff;border:1px solid #dfe5ee;border-radius:13px;padding:18px;margin:14px 0}.bar{height:8px;background:#e8edf4;border-radius:8px;overflow:hidden;margin:10px 0}.bar i{display:block;height:100%;background:#3978dd}.row{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.muted{color:#64748b}.small{font-size:12px}.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;background:#eaf0f7;color:#526479}.active{background:#e4f2ed;color:#19724e}.paused{background:#fff1d6;color:#97651a}.planned{background:#eef0f4;color:#667085}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #eef1f5;font-size:13px}th{color:#65758d;font-size:11px}.num{font-variant-numeric:tabular-nums}@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><div class="wrap">
-<div class="head"><div><p class="small muted">ANALYSIS · LIVE PROGRESS</p><h1>分析实验进度</h1><p class="muted small">5 个模型 · Text / 分辨率 / FPS / 场景构造 · 主实验 Vision 720p/24fps 复用</p></div><p class="small muted" id="sync">加载中…</p></div>
+<div class="head"><div><p class="small muted">ANALYSIS · LIVE PROGRESS</p><h1>分析实验进度</h1><p class="muted small">5 个模型 · Text / 分辨率 / FPS / Thinking · 主实验 Vision 720p/24fps 复用</p></div><p class="small muted" id="sync">加载中…</p></div>
 <div class="stats" id="stats"></div><div id="content"></div>
-<p><a href="phygen_acd_smoke.html">PhyGenBench · 10 条 A/C/D 首帧对照与实时视频 →</a> · <a href="index.html">主实验总览</a></p>
+<p><a href="phygen_acd_smoke.html">Legacy · 已搁置的 PhyGen 初始化分析</a> · <a href="index.html">主实验总览</a></p>
 <p class="small muted">分析使用 GPT-6.1-Sol / GPT-5.6-Sol / GPT-5.6-Terra / GPT-5.6-Luna / DeepSeek-V4.1-Flash，均为免费模型；进度按各矩阵 status.json 统计，暂停条件显示为 paused。</p>
 </div><script>
 const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
