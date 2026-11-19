@@ -16,7 +16,7 @@ def video_baselines(bundle: Path) -> list[dict]:
     local_progress=read(local_root/'progress.json')
     if local_progress:
         local={'key':'minimax-h3-local','label':'MiniMax H3 · 本地校准','scores':{},
-               'progress':{k:local_progress[k]for k in ('phase','completed','total','failed_cases','updated_utc')if k in local_progress}}
+               'progress':{k:local_progress[k]for k in ('phase','completed','total','failed_cases','updated_utc','allocated_gpus','waiting_gpu_shards')if k in local_progress}}
         summary=read(local_root/'evaluation_subset/summary.json')
         overall=summary.get('scores',{}).get('overall',{})
         if summary.get('case_count')==local_progress.get('total')and finite(overall.get('pes')):
