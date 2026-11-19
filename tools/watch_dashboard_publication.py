@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import time
@@ -12,6 +13,55 @@ from tools.publish_dashboard_snapshot import snapshot, SHELLS, validate_script_s
 from tools.prepare_hf_delivery import sanitize
 from tools.hf_commit_budget import commit as dataset_commit
 from tools.prepare_hf_delivery import TRACE_FORMAT_VERSION
+
+def chart_evidence(source):
+    """Only completed scores and their usage coverage trigger chart rebuilding."""
+    from tools.baseline_data import video_baselines
+    from tools.live_evaluation_data import read
+    evaluation=read(source/'evaluation.json')
+    main={'physics_iq_720p24fps','robojudge_main720p24fps',
+          'pcve_standard720p24fps','phygenbench_t2v_main720p24fps'}
+    cohorts=[{key:row.get(key) for key in ('suite','model_key','track','score')}
+             for row in evaluation.get('cohorts',[]) if row.get('full_scope_scored')
+             and row.get('suite') in main and row.get('track')=='vision-agent']
+    keys={(row['suite'],row['model_key'],row['track']) for row in cohorts}
+    usage=[]
+    for group in read(source/'catalogue.json').get('groups',[]):
+        if (group['suite'],group['model_key'],group['track']) in keys:
+            usage.append({key:group.get(key) for key in ('suite','model_key','track',
+                'mean_input_tokens','mean_output_tokens','mean_cached_input_tokens',
+                'input_tokens_measured_cases','output_tokens_measured_cases',
+                'cached_input_tokens_measured_cases')})
+    renderer=Path(__file__).with_name('render_bench_scale_charts.py')
+    payload={'cohorts':cohorts,'usage':usage,'baselines':video_baselines(source.parent.parent),
+             'renderer_sha256':hashlib.sha256(renderer.read_bytes()).hexdigest()}
+    return hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest()
+
+
+def refresh_charts(source, frontend):
+    """Build measured-cost charts off the progress publication thread."""
+    bundle=source.parent.parent
+    os.environ['MPLCONFIGDIR']=str(bundle/'state/matplotlib')
+    from tools.cost_report import cohort_report, DEFAULT_PRICES
+    from tools.render_bench_scale_charts import score_specs, render
+    state=bundle/'state/benchmark_chart_refresh.json'
+    digest=chart_evidence(source)
+    previous=json.loads(state.read_text()) if state.is_file() else {}
+    if previous.get('digest')==digest:return previous
+    costs=cohort_report(bundle/'formal_generations',{},uniform_price=DEFAULT_PRICES['gpt61-sol'])
+    report=bundle/'state/cost_report_accepted_current.json'
+    temporary=report.with_suffix('.tmp');temporary.write_text(json.dumps(costs,indent=2));temporary.replace(report)
+    stage=bundle/'state/chart_refresh_staging';stage.mkdir(parents=True,exist_ok=True)
+    specs=score_specs(bundle,costs)
+    for name,spec in specs.items():render(name,spec,stage/(name+'_scale'),costs)
+    charts=frontend/'charts';charts.mkdir(exist_ok=True)
+    for name in specs:
+        for suffix in ('.svg','.png'):
+            (stage/(name+'_scale'+suffix)).replace(charts/(name+'_scale'+suffix))
+    record={'digest':digest,'updated_unix':time.time(),'charts':len(specs),
+            'cost_scope':'accepted full cohorts; reported cache; shared reference tariff; retries excluded'}
+    temporary=state.with_suffix('.tmp');temporary.write_text(json.dumps(record));temporary.replace(state)
+    return record
 
 
 def hf_progress(source, token_file):
@@ -121,6 +171,7 @@ if __name__ == '__main__':
                     ('github', snapshot, (args.source, args.checkout,
                         'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/')),
                     ('hf', hf_progress, (args.source, args.token_file)),
+                    ('charts', refresh_charts, (args.source,args.frontend_source or args.source)),
                     ('hf_frontend', hf_frontend, (args.frontend_source or args.source, args.token_file))):
                     if name=='github' and args.hf_only:
                         statuses[name]={'enabled':False,'reason':'Generated metadata/media are published to HF'}

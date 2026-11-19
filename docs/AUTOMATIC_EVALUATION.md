@@ -26,6 +26,17 @@ active generation children and unknown observations never trigger this recovery.
 `--dispatcher-stale-seconds 0` disables it. Historical outputs and attempt
 limits are preserved.
 
+The publication service rebuilds the four cost-quality charts in a separate
+background job when a completed main score or its recorded usage coverage
+changes. A full benchmark point requires cost counters for the same complete
+case count. Missing cache counters remain unknown, and partial cost pools cannot
+price a full score. Token prices are explicitly labeled reference assumptions;
+70/80% cache scenarios remain separate from reported cache usage.
+
+PhyGenBench's chart uses the PixelWorld GPT-5.5 scale. Baselines evaluated under
+a different judge stay in the main table as labeled references and are excluded
+from that chart's shared score axis.
+
 ## PCVE
 
 `tools.watch_pcve_gpu_evaluation` watches both `pcve_full.json` and

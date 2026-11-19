@@ -41,7 +41,7 @@ def score_specs(bundle: Path, costs: dict) -> dict:
             models[key]=(model.get('display_name',model['model'].split('/')[-1]),'#475569')
     specs={}
     for name,meta in BENCH.items():
-        spec={**meta,'models':[],'baselines':[],'matched_baselines':[],
+        spec={**meta,'models':[],'baselines':[],'matched_baselines':[],'excluded_baselines':[],
               'pending':'Full-cohort scores only; missing cost counters omitted'}
         for key,(label,color) in models.items():
             root=bundle/'evaluation'/folders.get(name,'')/key/'vision-agent'
@@ -49,14 +49,19 @@ def score_specs(bundle: Path, costs: dict) -> dict:
             elif name=='robojudge':score=robo_score(read(root/'summary.json'),read(root/'plan.json'),read(root/'execution.json'),key,'vision-agent')
             elif name=='pcve':score=pcve_score(read(root/'summary.json'),key,'vision-agent')
             else:score=phygen_score(read(bundle/'evaluation/phygenbench_gpt55_judge/summary.json'),key,'vision-agent')
-            cost=costs.get(name,{}).get(key,{}).get('mean_cost_usd')
+            cost_row=costs.get(name,{}).get(key,{})
+            cost=cost_row.get('mean_cost_usd')
             metric={'physics_iq':'Verified','robojudge':'Mean','pcve':'PES','phygenbench':'Overall'}[name]
-            if score and cost is not None:
+            if (score and cost is not None and cost_row.get('accepted_cases')==score['scope']
+                    and cost_row.get('cache_usage_complete_cases')==score['scope']):
                 spec['models'].append((key,label,cost,score['metrics'][metric],color))
         for baseline in video_baselines(bundle):
             entry=baseline.get('scores',{}).get(name,{})
             price=baseline.get('price',{}).get('usd_per_video')
             if entry.get('value') is not None and price is not None:
+                if name=='phygenbench' and entry.get('kind')!='matched_rerun':
+                    spec['excluded_baselines'].append(baseline['label'])
+                    continue
                 field='matched_baselines' if entry.get('kind')=='matched_rerun' else 'baselines'
                 spec[field].append((baseline['label'],price,entry['value']))
         specs[name]=spec
@@ -70,7 +75,7 @@ def render(name: str, spec: dict, output: Path, costs: dict | None = None, seeda
     prices=[row[2] for row in spec['models']]+[row[1] for row in spec['baselines']+spec.get('matched_baselines',[])]
     scores=[row[3] for row in spec['models']]+[row[2] for row in spec['baselines']+spec.get('matched_baselines',[])]
     positive=[value for value in prices if value>0]
-    ax.set_xlim(min([0.3,*[value/1.5 for value in positive]]),max([40,*[value*1.5 for value in positive]]))
+    ax.set_xlim((min(positive)/1.6,max(positive)*1.6) if positive else (0.3,40))
     low,high=spec['ylim']
     if scores:
         pad=max((max(scores)-min(scores))*.12,(high-low)*.05)
@@ -107,7 +112,7 @@ def render(name: str, spec: dict, output: Path, costs: dict | None = None, seeda
     fig.text(0.02, 0.012,
              ("DRAFT: reported cache; one accepted delivery/case; shared reference token prices; retries excluded; "
               if costs else "DRAFT: main 720p/24 FPS Vision; agent cost from successful runs at 70% cache; ")
-             + spec["pending"] + ".",
+             + spec["pending"] + ("; different-judge baselines omitted" if spec.get('excluded_baselines') else "") + ".",
              fontsize=6.5, color=MUTED)
     fig.text(0.02, 0.036,
              "* Reference score; diamond: matched re-evaluation. Video prices are 5-second tariff references. Token reference: $10/$1/$50 per 1M input/cache/output.",
