@@ -146,6 +146,7 @@ def phygen_score(summary, model, track):
     return {'metrics':metrics,'units':'0-1 (GPT-5.5 judge)','scope':160,
             'judge_model':summary.get('judge_model'),
             'judge_protocol':summary.get('judge_protocol'),
+            'frame_sampling_revision':summary.get('frame_sampling_revision'),
             'official_gpt4o_phygeneval':False}
 
 
