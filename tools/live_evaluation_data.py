@@ -10,6 +10,7 @@ from pixelworld import pcve
 from pixelworld.smoke_web import clean
 from tools.evaluate_robojudge_shared50 import CODE_REVISION, CHECKPOINT_REVISION, DATASET_REVISION, TASKS_SHA256
 from tools.phygen_protocol import FRAME_SAMPLING_REVISION,MAIN_JUDGE_FOLDER,TEXT_JUDGE_FOLDER
+from tools.pcve_native import native_summary,NATIVE_EVALUATION
 
 COHORTS = {
     'physics_iq_720p24fps':('Physics-IQ Verified · 720p24fps','physics_720p24fps_full_scheduler',198),
@@ -126,7 +127,9 @@ def pcve_score(summary, model, track):
             'units':'original metrics','scope':129,'fps':summary.get('fps'),
             'frames':summary.get('frames'),'resolution':summary.get('resolution'),
             'completed_utc':summary.get('completed_utc'),'source_revision':summary['source_revision'],
-            'dataset_revision':summary['dataset_revision'],'metrics_sha256':summary.get('official_metrics_sha256')}
+            'dataset_revision':summary['dataset_revision'],'metrics_sha256':summary.get('official_metrics_sha256'),
+            'sam2_native_postprocessing':summary.get('sam2_native_postprocessing') is True,
+            'sam2_native_extension_sha256':summary.get('sam2_native_extension_sha256')}
 
 
 def phygen_score(summary, model, track):
@@ -152,6 +155,9 @@ def phygen_score(summary, model, track):
 
 def collect(run_root: Path):
     result={'updated_utc':datetime.now(timezone.utc).isoformat(),'cohorts':[]}
+    references=read(run_root/'evaluation/pcve_paper_reference_table.json')
+    if not references:references=read(Path(__file__).resolve().parents[1]/'docs/PCVE_TABLE1_REFERENCE.json')
+    if references:result['benchmark_references']={'pcve':references}
     commands=live_commands()
     worker_health=read(run_root/'state/evaluator_worker_health.json')
     age=time.time()-worker_health.get('checked_unix',0)
@@ -181,7 +187,9 @@ def collect(run_root: Path):
                 scope=read(cohort/'plan.json').get('scope') or {}
                 if scope.get('complete_shared50') is True and scope.get('prepared_count')==50:
                     counts={'complete':50,'running':0,'pending':0,'exhausted':0}
-            execution=read(cohort/'execution.json')
+            current_pcve=suite in ('pcve_standard720p24fps','pcve_text')
+            evaluation_cohort=native_summary(cohort).parent if current_pcve else cohort
+            execution=read(evaluation_cohort/'execution.json')
             active=evaluator_active(cohort,commands)
             blocked=(scheduler.get('blocked') or {}).get(key) or {}
             phase=blocked.get('phase') or entry.get('phase') or 'waiting_for_generation'
@@ -193,12 +201,20 @@ def collect(run_root: Path):
                  'expected':expected,'accepted':counts.get('complete',0),'generation_counts':counts,
                  'phase':phase,'blocker':note(blocker),'scheduler_updated_utc':scheduler.get('updated_utc'),
                  'full_scope_scored':False,'score':None,'evaluator_active':active}
+            if current_pcve:
+                row['evaluation_progress']={'completed':execution.get('evaluated_cases',0),'expected':129,
+                                            'updated_utc':execution.get('updated_utc')}
             if suite.startswith('physics_iq'):
                 score=physics_score(read(cohort/'scores.json'),model,track)
             elif suite.startswith('robojudge'):
                 score=robo_score(read(cohort/'summary.json'),read(cohort/'plan.json'),execution,model,track)
             elif suite.startswith('pcve'):
-                score=pcve_score(read(cohort/'summary.json'),model,track)
+                score=pcve_score(read(evaluation_cohort/'summary.json'),model,track)
+                if current_pcve and score and not score['sam2_native_postprocessing']:
+                    score=None
+                if current_pcve:
+                    row['evaluation_revision']=NATIVE_EVALUATION
+                    row['previous_environment_score']=pcve_score(read(cohort/'summary.json'),model,track)
             elif suite.startswith('phygenbench'):
                 judge_folder=TEXT_JUDGE_FOLDER if suite=='phygenbench_text' else MAIN_JUDGE_FOLDER
                 score=phygen_score(read(run_root/'evaluation'/judge_folder/'summary.json'),model,track)
@@ -230,6 +246,10 @@ def collect(run_root: Path):
                     row.update(phase='preparing_evaluation',blocker='GPU worker ready; verifying shared evaluator checkpoint')
                 elif worker_live and gpu.get('phase')=='waiting_for_free_gpu':
                     row.update(phase='preparing_evaluation',blocker='Waiting for a GPU with sufficient free memory')
+                elif worker_live and waiting.get('sam2_native_postprocessing'):
+                    row.update(phase='official_evaluation',blocker='Verified SAM2 native postprocessing; full 129 cases, eight metrics')
+                elif current_pcve and row.get('previous_environment_score') and not active:
+                    row.update(phase='waiting_for_evaluator',blocker='Previous score retained; re-evaluation uses verified SAM2 native postprocessing')
             if suite.startswith('phygenbench') and row['accepted']==expected and not row['full_scope_scored']:
                 judge_folder=TEXT_JUDGE_FOLDER if suite=='phygenbench_text' else MAIN_JUDGE_FOLDER
                 judge=read(run_root/'evaluation'/judge_folder/'scheduler.json')

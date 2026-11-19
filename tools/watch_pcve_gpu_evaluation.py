@@ -11,6 +11,7 @@ import time
 from pixelworld.config import load_config
 from pixelworld.util import atomic_json, utc_now
 from tools.live_evaluation_data import pcve_score, read
+from tools.pcve_native import native_summary
 
 
 PROBE = '''import json,sys
@@ -62,7 +63,7 @@ def ready_jobs(bundle):
                 counts = groups.get(model.key + '/' + track, {}).get('counts', {})
                 output = bundle / 'evaluation' / folder / model.key / track
                 if (counts.get('complete') == 129 and not counts.get('exhausted', 0)
-                        and not pcve_score(read(output / 'summary.json'), model.key, track)):
+                        and not pcve_score(read(native_summary(output)), model.key, track)):
                     jobs.append({'key': (str(path), model.key, track), 'config': path,
                                  'model': model.key, 'track': track, 'output': output})
     return jobs

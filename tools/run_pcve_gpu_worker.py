@@ -8,6 +8,7 @@ import sys
 
 from pixelworld.util import atomic_json
 from tools.live_evaluation_data import pcve_score, read
+from tools.pcve_native import native_directory,NATIVE_EVALUATION,native_summary
 
 
 def environment(code, bundle, output):
@@ -49,22 +50,27 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
-        if pcve_score(read(output / 'summary.json'), args.model, args.track):
+        native = native_directory(bundle)
+        if pcve_score(read(native_summary(output)), args.model, args.track):
             return
         if not all((bundle / 'state' / name).is_file() for name in ('gdino_ready.json', 'clip_ready.json')):
             raise RuntimeError('Wait for verified shared evaluator weights before launch')
-        env = environment(code, bundle, output)
+        evaluated_output=output/NATIVE_EVALUATION
+        evaluated_output.mkdir(exist_ok=True)
+        env = environment(code, bundle, evaluated_output)
         env['IMAGEIO_FFMPEG_EXE'] = str(args.ffmpeg.absolute())
         evaluator = [str(args.python.absolute()), '-u', '-m', 'tools.evaluate_pcve_full',
                      '--config', str(args.config.resolve()), '--model', args.model, '--track', args.track,
-                     '--output', str(output), '--evaluator-python', str(args.python.absolute()),
+                     '--output', str(evaluated_output), '--evaluator-python', str(args.python.absolute()),
+                     '--sam2-native-dir',str(native),
                      '--evaluator-source', str(code / 'vendor/pcve-rigid-eval-pinned'), '--device', 'cuda']
         command = [str(args.python.absolute()), '-u', '-m', 'tools.run_gpu_evaluation',
                    '--state-root', str(bundle / 'state/gpu_claims'),
                    '--status', str(output / 'gpu_worker.json'), '--min-free-gib', '32', '--', *evaluator]
         import time
         state = {'phase': 'evaluation_running', 'pid': os.getpid(), 'updated_at': time.time(),
-                 'config': str(args.config.resolve()), 'model': args.model, 'track': args.track}
+                 'config': str(args.config.resolve()), 'model': args.model, 'track': args.track,
+                 'evaluation_output':str(evaluated_output),'sam2_native_postprocessing':True}
         atomic_json(output / 'worker_state.json', state)
         status = subprocess.call(command, cwd=code, env=env)
         state.update(phase='finished' if status == 0 else 'failed', returncode=status, updated_at=time.time())

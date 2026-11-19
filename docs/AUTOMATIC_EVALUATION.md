@@ -63,6 +63,64 @@ The dispatcher writes `state/pcve_gpu_dispatch.json`. Per-cohort logs and scores
 are under `evaluation/pcve_standard720p24fps_scheduler` for the main experiment
 and `evaluation/pcve_text_scheduler` for Text analysis.
 
+### Table 1 scope and metrics
+
+The primary PCVE score uses all 129 official cases: 92 SET, 7 ADD and 30 DELETE.
+DELETE remains part of Table 1; the separate Table 2 removal analysis is not
+reported. The main experiment table shows only PES. The PCVE detail page shows
+all eight official metrics:
+
+| Metric | Direction | Official implementation |
+|---|---|---|
+| PES | Higher | `eval/metrics/physics.py`, per-case floor and mean in `compute_metrics.py` |
+| TE, pixels | Lower | `eval/metrics/physics.py` |
+| Mask IoU | Higher | `eval/metrics/physics.py` |
+| PSNR | Higher | `eval/metrics/perceptual.py` |
+| SSIM | Higher | `eval/metrics/perceptual.py` |
+| LPIPS | Lower | `eval/metrics/perceptual.py` |
+| CLIP similarity | Higher | `eval/metrics/perceptual.py` |
+| FVD | Lower | `eval/metrics/fvd.py`, I3D features |
+
+PES is dimensionless, not a percentage. For each case, the official scorer
+computes `max(1 - sum(TE_pred) / sum(TE_null), -1)` and averages the resulting
+case scores. It does not take the ratio of two benchmark-wide TE means.
+Official eligibility and missing-track handling are preserved.
+
+The evaluator source and dataset are pinned by `pixelworld.pcve`; the manifest
+hash is verified. Checkpoint paths and the shared tracking-cache directory are
+portable overrides. No metric formula, tracker threshold or reference video is
+changed. Paper Table 1 values are labeled published references; matching code
+does not by itself establish identical tracker outputs to the authors' run.
+
+### SAM2 native postprocessing
+
+`tools.build_sam2_native_eval` builds the unmodified connected-component CUDA
+kernel in cloud storage. `state/sam2_native_eval/ready.json` records the extension
+hash, compiler archives, Torch/CUDA versions, supported CUDA architectures,
+and 32 random-mask parity tests. The binary contains SM80 and SM90/PTX code for
+the provided SM80/A800 and Hopper workers. Each evaluator executes a kernel on its
+actual GPU before scoring, and rejects SAM2 postprocessing-fallback warnings.
+The automatic worker requires this verified binary and loads it explicitly;
+otherwise evaluation fails before scoring. Run from a provided GPU worker with
+the shared evaluator Python environment.
+
+Native-enabled full results are saved in each cohort's `sam2_native_v2/`
+subdirectory. Existing evaluation results and accepted generation artifacts are
+preserved. The live main score only uses the native-enabled result once all 129
+cases and all eight finite aggregate metrics validate. Evaluation progress is
+written per case to `execution.json` and published in the dashboard.
+Existing video exports are reused only when both the accepted attempt's
+manifest hash and the exported video's hash match. A changed export is rebuilt
+in the new evaluation directory without overwriting the original.
+Published reference values are versioned in `docs/PCVE_TABLE1_REFERENCE.json`.
+
+GT/source tracking caches are isolated by dataset revision and extension hash
+under `state/pcve_native_gt_tracks/`; they cannot reuse earlier tracking without
+the native postprocessing. Source-copy and edited-oracle controls are run with
+`tools.evaluate_pcve_controls`. The source-copy PES should be zero; edited-oracle
+tracking can fall below one because the official tracker can miss objects.
+Controls are diagnostics and never substitute for coding-agent predictions.
+
 ## PhyGenBench Text and Vision
 
 The same GPT-5.5 adapter supports either track. Run a separate watcher and output

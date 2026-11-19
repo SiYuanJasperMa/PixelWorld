@@ -31,6 +31,7 @@ MODELS = {
 def score_specs(bundle: Path, costs: dict) -> dict:
     from tools.live_evaluation_data import read, physics_score, robo_score, pcve_score, phygen_score
     from tools.phygen_protocol import MAIN_JUDGE_FOLDER
+    from tools.pcve_native import native_summary
     from tools.baseline_data import video_baselines
     folders={'physics_iq':'physics_720p24fps_full_scheduler',
              'robojudge':'robojudge_main720p24fps_scheduler',
@@ -48,7 +49,9 @@ def score_specs(bundle: Path, costs: dict) -> dict:
             root=bundle/'evaluation'/folders.get(name,'')/key/'vision-agent'
             if name=='physics_iq':score=physics_score(read(root/'scores.json'),key,'vision-agent')
             elif name=='robojudge':score=robo_score(read(root/'summary.json'),read(root/'plan.json'),read(root/'execution.json'),key,'vision-agent')
-            elif name=='pcve':score=pcve_score(read(root/'summary.json'),key,'vision-agent')
+            elif name=='pcve':
+                score=pcve_score(read(native_summary(root)),key,'vision-agent')
+                if score and not score.get('sam2_native_postprocessing'):score=None
             else:score=phygen_score(read(bundle/'evaluation'/MAIN_JUDGE_FOLDER/'summary.json'),key,'vision-agent')
             cost_row=costs.get(name,{}).get(key,{})
             cost=cost_row.get('mean_cost_usd')

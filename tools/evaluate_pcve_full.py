@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -12,6 +13,7 @@ from pixelworld import pcve
 from pixelworld.config import load_config
 from pixelworld.supervisor import inspect
 from pixelworld.util import atomic_json, sha256, utc_now
+from tools.pcve_native import native_setup,native_cache,NATIVE_EVALUATION
 
 
 def main():
@@ -26,6 +28,7 @@ def main():
     parser.add_argument('--sam2-checkpoint', type=Path, default=Path(os.environ.get('PCVE_SAM2_CHECKPOINT', str(ROOT/'vendor/pcve-eval-models/sam2.1_hiera_large.pt'))))
     parser.add_argument('--i3d-checkpoint', type=Path, default=Path(os.environ.get('PCVE_I3D_CHECKPOINT', str(ROOT/'vendor/pcve-eval-models/i3d_torchscript.pt'))))
     parser.add_argument('--device', default='cuda')
+    parser.add_argument('--sam2-native-dir',type=Path,help='Isolated verified SAM2 native extension directory')
     args = parser.parse_args()
     config = load_config(args.config)
     output = args.output.resolve()
@@ -78,7 +81,8 @@ def main():
             raise
     baseline = f'pixelworld_{args.model}_{args.track}'
     prediction_root = output/'predictions'
-    exported = pcve.export(args.config,args.model,args.track,args.data_root,baseline,prediction_root)
+    reuse_root=output.parent/'predictions' if args.sam2_native_dir and output.name==NATIVE_EVALUATION else None
+    exported = pcve.export(args.config,args.model,args.track,args.data_root,baseline,prediction_root,reuse_root=reuse_root)
     if not exported['full_official_scope']:
         raise ValueError('Export did not produce all 129 videos')
     media=[json.loads((Path(row['source_run'])/'media_contract.json').read_text()) for row in exported['rows']]
@@ -86,6 +90,11 @@ def main():
     if any(spec['fps']!=24 or spec['frames']!=96 for spec in media):
         raise ValueError('Exported cohort does not preserve the official 24 FPS / 96-frame timeline')
     driver = output/'official_driver.py'
+    setup=''
+    if args.sam2_native_dir:
+        native=args.sam2_native_dir.resolve()
+        if not (native/'_C.so').is_file():raise FileNotFoundError(native/'_C.so')
+        setup=native_setup(native,native_cache(config.source.parent.parent,native))
     # Override only author-specific checkpoint paths. Scoring code and all
     # thresholds, frame alignment, tracking and aggregation remain original.
     driver.write_text(
@@ -93,15 +102,25 @@ def main():
         + 'import functools,os,open_clip\n'
         + 'open_clip.create_model_and_transforms=functools.partial(open_clip.create_model_and_transforms,cache_dir=os.path.join(os.environ["HF_HOME"],"open_clip"))\n'
         + f'sys.path.insert(0,{str(source/"eval")!r})\n'
+        + setup
         + 'from metrics import grounded_sam2_tracker as tracker, fvd\n'
         + f'tracker.GroundedSam2Tracker.__init__.__defaults__=({str(args.sam2_checkpoint.resolve())!r},)+tracker.GroundedSam2Tracker.__init__.__defaults__[1:]\n'
         + f'fvd.I3DFeatures.__init__.__defaults__=({str(args.i3d_checkpoint.resolve())!r},)+fvd.I3DFeatures.__init__.__defaults__[1:]\n'
         + f'sys.argv={[str(source/"eval/compute_metrics.py"),"--benchmark-root",str(args.data_root.resolve()),"--predictions-root",str(prediction_root),"--baseline",baseline,"--device",args.device]!r}\n'
         + f'runpy.run_path({str(source/"eval/compute_metrics.py")!r},run_name="__main__")\n')
     execution = {'phase':'official_evaluation','source_revision':revision,'dataset_revision':pcve.DATASET_REVISION,
-                 'source_files_unchanged':True,'checkpoint_paths_only_overridden':True,'updated_utc':utc_now()}
+                 'source_files_unchanged':True,'checkpoint_paths_only_overridden':True,
+                 'sam2_native_postprocessing':bool(args.sam2_native_dir),'updated_utc':utc_now()}
     atomic_json(output/'execution.json',execution)
-    code = subprocess.call([args.evaluator_python,str(driver)],cwd=source/'eval')
+    process=subprocess.Popen([args.evaluator_python,'-u',str(driver)],cwd=source/'eval',
+                             stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
+    for line in process.stdout:
+        sys.stdout.write(line);sys.stdout.flush()
+        progress=re.match(r'^\[(\d+)/129\]',line)
+        if progress:
+            execution.update(evaluated_cases=int(progress.group(1)),expected_cases=129,updated_utc=utc_now())
+            atomic_json(output/'execution.json',execution)
+    code=process.wait()
     execution.update(phase='finished' if code==0 else 'failed',returncode=code,updated_utc=utc_now())
     atomic_json(output/'execution.json',execution)
     if code:
@@ -126,6 +145,8 @@ def main():
                 'dataset_revision':pcve.DATASET_REVISION,'fps':24,'frames':96,
                 'resolution':list(resolutions[0]) if len(resolutions)==1 else None,
                 'resolution_variants':[list(size) for size in resolutions],
+                'sam2_native_postprocessing':bool(args.sam2_native_dir),
+                'sam2_native_extension_sha256':sha256(args.sam2_native_dir/'_C.so') if args.sam2_native_dir else None,
                 'no_missing_output_imputation':True,'completed_utc':utc_now()})
 
 

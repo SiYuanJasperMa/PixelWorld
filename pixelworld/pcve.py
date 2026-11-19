@@ -89,10 +89,12 @@ def prepare(root: Path, inputs: Path, indices=None, long_edge: int = 256):
 
 
 def export(config_path: Path, model: str, track: str, benchmark_root: Path, baseline: str,
-           predictions_root: Path | None = None):
+           predictions_root: Path | None = None, reuse_root: Path | None = None):
     config=load_config(config_path);config.model(model);selected={}
     prediction_base = predictions_root or benchmark_root/'predictions'
     previous=prediction_base/baseline/'pixelworld_submission.json'
+    if not previous.exists() and reuse_root is not None:
+        previous=Path(reuse_root)/baseline/'pixelworld_submission.json'
     cache={row['case_id']:row for row in json.loads(previous.read_text()).get('rows',[])} if previous.exists() else {}
     for path in (config.runs_root/model/track).glob('case_*/run_manifest.json'):
         m=json.loads(path.read_text())
@@ -105,9 +107,22 @@ def export(config_path: Path, model: str, track: str, benchmark_root: Path, base
         output=prediction_base/baseline/'videos'/info['scene']/(info['official_case_id']+'.mp4')
         fingerprint=sha256(run/'run_manifest.json')
         old=cache.get(case,{})
+        if (not output.exists() and old.get('source_manifest_sha256')==fingerprint
+                and reuse_root is not None and old.get('output')):
+            original=Path(old['output'])
+            # A reused export must belong to the explicitly supplied evaluation
+            # root and match this accepted attempt and its recorded video hash.
+            if (original.resolve().is_relative_to(Path(reuse_root).resolve())
+                    and original.is_file() and old.get('export_sha256')==sha256(original)):
+                output.parent.mkdir(parents=True,exist_ok=True)
+                if output.is_symlink():output.unlink()
+                output.symlink_to(original.resolve())
         reusable=(old.get('source_manifest_sha256')==fingerprint and output.is_file()
                   and old.get('export_sha256')==sha256(output))
-        if not reusable:encode_pixels(run/'workspace',m['media_contract'],output)
+        if not reusable:
+            # Never overwrite the original video through a reused symlink.
+            if output.is_symlink():output.unlink()
+            encode_pixels(run/'workspace',m['media_contract'],output)
         rows.append({'case_id':case,'global_id':info['global_id'],'attempt':m['attempt'],'output':str(output),
                      'frames':96,'fps':24,'source_run':str(run),'source_manifest_sha256':fingerprint,
                      'export_sha256':sha256(output),'reused_export':reusable})
