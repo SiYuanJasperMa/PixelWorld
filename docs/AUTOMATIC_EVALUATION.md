@@ -4,6 +4,19 @@ Generation and evaluation use separate directories. Evaluation never feeds
 scores, masks, reference outcomes, or judge feedback back into a generation run.
 Existing validated deliveries and completed scores are reused.
 
+## Monitoring generation and API activity
+
+Video delivery times and API response times measure different events. The model
+row shows the latest successful API request across that model's experiments;
+each benchmark cell retains its own latest video delivery time. API activity
+does not establish that a particular case is generating frames or has finished.
+
+The live exporter reads the proxy `--log-dir` entries in the bundle's cloud
+service registry, `state/recovered_worker_services.json`. It reads only a bounded
+tail of each `requests.jsonl` index. HTTP 200 streams with errors or client
+disconnects are not counted as successful responses; missing indexes remain
+unknown. This monitoring never restarts generation because of a long wait.
+
 ## PCVE
 
 `tools.watch_pcve_gpu_evaluation` watches both `pcve_full.json` and

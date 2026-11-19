@@ -392,39 +392,58 @@ def upstream_wait(folder: Path, running_cases) -> dict:
     return {"waiting": waiting, "oldest_seconds": round(oldest)}
 
 
-def provider_health() -> dict:
-    """Last successful upstream call per model, from the local proxy spool."""
-    roots = [Path.home() / ".cache/pixelworld-api-spool-active",
-             Path.home() / ".cache/pixelworld-api-spool-4k"]
+def provider_health(run_root=None, log_roots=None) -> dict:
+    """Observe configured proxy indexes without scanning raw request files."""
+    roots = list(log_roots or [])
+    if run_root is not None:
+        services = read(Path(run_root) / 'state/recovered_worker_services.json')
+        for service in services.get('services', []):
+            command = service.get('command', [])
+            if '--log-dir' in command:
+                index = command.index('--log-dir') + 1
+                if index < len(command):
+                    roots.append(Path(command[index]))
     latest = {}
     now = time.time()
-    for root in roots:
+    observed = 0
+    for root in dict.fromkeys(Path(root) for root in roots):
         try:
-            files = sorted(root.glob("requests*.jsonl"), key=lambda p: p.stat().st_mtime)[-3:]
+            with (root / 'requests.jsonl').open('rb') as stream:
+                stream.seek(0, 2)
+                offset = max(0, stream.tell() - 2 * 1024 * 1024)
+                stream.seek(offset)
+                if offset:
+                    stream.readline()  # Discard a partial first JSON record.
+                lines = stream.read(2 * 1024 * 1024).splitlines()
         except OSError:
             continue
-        for path in files:
+        observed += 1
+        for line in lines:
             try:
-                lines = path.read_text(errors="replace").splitlines()[-4000:]
-            except OSError:
+                row = json.loads(line)
+            except (ValueError, UnicodeDecodeError):
                 continue
-            for line in lines:
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                model, started = row.get("model"), row.get("started")
-                if not isinstance(started, (int, float)) or now - started > 7200:
-                    continue
-                if row.get("http_status") != 200:
-                    continue
-                if model not in latest or started > latest[model]:
-                    latest[model] = started
+            if not isinstance(row, dict):
+                continue
+            model, started, elapsed = row.get('model'), row.get('started'), row.get('elapsed')
+            if not isinstance(model, str) or not isinstance(started, (int, float)):
+                continue
+            if (row.get('http_status') != 200 or row.get('error_type') or
+                    row.get('error_message') or row.get('client_disconnected')):
+                continue
+            if not isinstance(elapsed, (int, float)) or elapsed < 0:
+                continue  # A completed request index must record elapsed time.
+            completed = started + elapsed
+            if not 0 <= now - completed <= 7200:
+                continue
+            if model not in latest or completed > latest[model]:
+                latest[model] = completed
     models = {}
     for model, started in latest.items():
         models[model] = {"last_success_utc": datetime.fromtimestamp(started, timezone.utc).isoformat(),
                          "age_seconds": round(now - started)}
-    return {"checked_utc": datetime.now(timezone.utc).isoformat(), "models": models}
+    return {"checked_utc": datetime.now(timezone.utc).isoformat(), "models": models,
+            "status": 'observed' if observed else 'unknown', "index_count": observed}
 
 
 def sources(run_root):
@@ -571,7 +590,7 @@ def update(run_root, destination, cache, initial_limit=2, suites=None):
             save(destination / relative, payload)
             catalogue['groups'].append({k: payload[k] for k in ('suite', 'model_key', 'track', 'counts', 'cases_total', 'mean_duration_seconds', 'mean_output_tokens_cached', 'token_mean_cases', 'upstream_wait')})
             catalogue['groups'][-1]['path'] = relative
-    catalogue['provider_health'] = provider_health()
+    catalogue['provider_health'] = provider_health(run_root)
     save(destination / 'catalogue.json', catalogue)
 
 
@@ -787,7 +806,7 @@ def async_update(run_root,destination,cache,pool,pending,render_root,
             relative=identity+'/index.json';save(destination/relative,payload)
             catalogue['groups'].append({k:v for k,v in payload.items() if k not in ('cases','updated_utc')})
             catalogue['groups'][-1]['path']=relative
-    catalogue['provider_health']=provider_health()
+    catalogue['provider_health']=provider_health(run_root)
     save(destination/'catalogue.json',catalogue)
     if history_pool is not None and history_pending is not None and historical:
         start=history_cursor[0] % len(historical) if history_cursor is not None else 0
