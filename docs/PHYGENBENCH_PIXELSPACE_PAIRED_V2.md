@@ -5,6 +5,12 @@ extension tests the same physical descriptions with an agent-constructed scene
 whose appearance is re-rendered by Qwen-Image-2.1. It is a PixelWorld analysis,
 not an official PhyGenBench I2V leaderboard.
 
+This is a diagnostic comparison of initialization conditions. Retain and report
+the observed outcomes whether re-rendering helps or hurts. Downstream video
+scores do not determine image selection, admission of a valid sample, or further
+prompt tuning. Image selection checks only the declared scene and pre-action
+input condition.
+
 ## Four conditions
 
 | Condition | Input to the video agent | Visual tools |
@@ -51,24 +57,24 @@ retained externally.
 
 ## Current smoke and evidence
 
-The first published pilot was one GPT-6.1-Sol Vision case demonstrating the
-agent-frame → Qwen re-render → I2V path. A revised pre-action initialization now
-has valid Text and Vision deliveries for that same prompt. This remains a
-one-prompt smoke, not a completed 160-case paired evaluation or a four-domain suite.
+The current v3 smoke has valid GPT-6.1-Sol Text and Vision deliveries for one
+prompt. It is not a completed 160-case paired evaluation or a four-domain suite.
 
-- Agent pixel frame: 1280x720, one saved frame.
-- Qwen v1 retained a stylized appearance; v2 used a photographic prompt and a
-  negative prompt excluding CGI, illustrations, labels and UI, with CFG 5 and
-  50 steps.
-- Native re-render size: 1280x704. The selected image is resized once to
-  1280x720 before the I2V input is frozen; frame-zero validation uses that image.
-- I2V: 120 frames at 24 FPS, artifact validation passed.
+- The agent pixel frame is 1280x720, with one saved frame.
+- Three Qwen candidates were produced on a native 1536x864 canvas. The selected
+  pre-action image is uniformly resized to 1280x720, without stretching objects.
+- Both downstream tracks use the same frozen image hash and produce 120 frames
+  at 24 FPS. Frame zero matches the conditioning image exactly.
+- Token usage, time, videos and physical-judge results are external artifacts.
+  A valid delivery is retained even when its physical-quality score is low.
 
 The run-local `smoke.json`, render logs and manifests provide exact settings and
 hashes. Visual review must verify the pre-action state and scene content;
 artifact validation alone does not establish physical quality.
 
-A subsequent visual audit rejected the v2 image as a pre-action initialization:
+Earlier pilots remain available for provenance. Qwen v1 retained stylized
+appearance. The earlier v2 used a native 1280x704 canvas resized to 1280x720.
+A subsequent visual audit rejected that v2 image as a pre-action initialization:
 it added a stream flowing into the cup from above. The source agent frame and
 downstream I2V program were inspected; their operations remain in 2D pixel space.
 The existing video remains a pipeline pilot, not an accepted paired analysis
