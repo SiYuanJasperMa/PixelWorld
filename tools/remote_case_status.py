@@ -16,7 +16,9 @@ def remote_case_status(config, model, track, case, inspected, now=None, max_age=
             if case in group.get('running_cases', []):
                 return {**inspected, 'state': 'running', 'state_source': 'fresh worker status'}
             if case in group.get('exhausted_cases', []):
-                return {**inspected, 'state': 'exhausted', 'state_source': 'fresh worker status'}
+                cap=getattr(config,'max_total_attempts',None)
+                state='retry_pending' if cap is not None and inspected.get('model_attempts',cap)<cap else 'exhausted'
+                return {**inspected, 'state': state, 'state_source': 'fresh worker status'}
         # A running manifest and an unverified foreign PID are infrastructure
         # uncertainty, not evidence that the model ended without delivering.
         for manifest in (config.runs_root / model.key / track).glob(f'case_{case}_attempt_*/run_manifest.json'):
