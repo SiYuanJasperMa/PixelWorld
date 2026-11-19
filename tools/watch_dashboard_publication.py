@@ -68,6 +68,7 @@ def hf_progress(source, token_file):
     from huggingface_hub import HfApi, CommitOperationAdd
     token = token_file.read_text().strip() if token_file else None
     api = HfApi(token=token)
+    started=time.monotonic()
     catalogue = sanitize(json.loads((source / 'catalogue.json').read_text()))
     from urllib.parse import urljoin
     bundle=source.parent.parent
@@ -115,11 +116,38 @@ def hf_progress(source, token_file):
         analysis_source=bundle/'live_preview/pixelworld/analysis_progress.json'
     if analysis_source.is_file():
         items.append(('live/analysis_progress.json',sanitize(json.loads(analysis_source.read_text()))))
-    operations = [CommitOperationAdd(path_in_repo=name,
-        path_or_fileobj=json.dumps(data, ensure_ascii=False).encode()) for name, data in items]
-    commit = dataset_commit(api, repo_id='HuggingFriends/PixelWorld', repo_type='dataset',
-        operations=operations, commit_message='Refresh live model and benchmark progress')
-    return {'updated_utc': catalogue['updated_utc'], 'commit': commit.oid}
+    # Completed groups are re-exported with fresh poll timestamps even when no
+    # status, token usage, score or media readiness changed. Do not resend them.
+    state_path=bundle/'state/hf_progress_ack.json'
+    previous=json.loads(state_path.read_text()) if state_path.is_file() else {}
+    acknowledged=previous.get('digests',{})
+    operations=[];digests={};bytes_sent=0
+    for name,data in items:
+        digest=progress_digest(data);digests[name]=digest
+        if acknowledged.get(name)==digest:continue
+        encoded=json.dumps(data,ensure_ascii=False).encode();bytes_sent+=len(encoded)
+        operations.append(CommitOperationAdd(path_in_repo=name,path_or_fileobj=encoded))
+    read_seconds=time.monotonic()-started
+    if operations:
+        result=dataset_commit(api,repo_id='HuggingFriends/PixelWorld',repo_type='dataset',
+            operations=operations,commit_message='Refresh changed live model and benchmark progress')
+        previous={'digests':digests,'updated_utc':catalogue['updated_utc'],'commit':result.oid}
+        state_path.parent.mkdir(parents=True,exist_ok=True)
+        temporary=state_path.with_suffix('.tmp');temporary.write_text(json.dumps(previous,indent=2));temporary.replace(state_path)
+    return {'updated_utc':previous.get('updated_utc'), 'commit':previous.get('commit'),
+            'changed_items':len(operations),'unchanged_items':len(items)-len(operations),
+            'bytes_sent':bytes_sent,'read_seconds':round(read_seconds,3),
+            'cycle_seconds':round(time.monotonic()-started,3)}
+
+
+def progress_digest(value):
+    """Ignore poll timestamps; preserve every actual result/readiness field."""
+    def stable(item):
+        if isinstance(item,dict):
+            return {k:stable(v) for k,v in item.items() if k not in ('updated_utc','generation_updated_utc')}
+        if isinstance(item,list):return [stable(v) for v in item]
+        return item
+    return hashlib.sha256(json.dumps(stable(value),sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 
 def hf_frontend(source, token_file):

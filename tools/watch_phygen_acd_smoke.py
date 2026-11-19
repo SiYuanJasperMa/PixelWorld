@@ -148,14 +148,28 @@ def publish(root, public, summary, token_file):
     state=read(root/'publication.json'); done=state.get('assets',{})
     operations=[]; now=dict(done);size=0
     # The first progress update is tiny and must not wait for ten video/trace uploads.
-    pending=sorted((p for p in public.rglob('*') if p.is_file()),
-                   key=lambda p:({'.png':0,'.json':1,'.mp4':2,'.py':3,'.gz':4}.get(p.suffix,5),str(p)))
+    buckets={suffix:[] for suffix in ('.mp4','.png','.json','.gz','.py')}
+    for path in sorted(p for p in public.rglob('*')if p.is_file()):
+        name=path.relative_to(public).as_posix()
+        if done.get(name)==hashlib.sha256(path.read_bytes()).hexdigest():continue
+        buckets.setdefault(path.suffix,[]).append(path)
+    buckets['.mp4'].sort(key=lambda p:(p.relative_to(public).parts[0]=='A',str(p)))
+    buckets['.gz'].sort(key=lambda p:(p.relative_to(public).parts[0]=='A',str(p)))
+    order=['.mp4','.png','.json','.gz','.py']
+    if state.get('media_round',0)%3==2:order=['.gz','.mp4','.png','.json','.py']
+    pending=[]
+    # Serve new videos, initialization and full traces fairly. A large trace
+    # receives a leading slot periodically; it cannot be displaced forever.
+    while any(buckets.values()):
+        for suffix in order+sorted(set(buckets)-set(order)):
+            if buckets.get(suffix):pending.append(buckets[suffix].pop(0))
     if state.get('summary_digest'):
         for path in pending:
             name=path.relative_to(public).as_posix();digest=hashlib.sha256(path.read_bytes()).hexdigest()
             if done.get(name)==digest:continue
             amount=path.stat().st_size
-            if operations and (size+amount>8*1024*1024 or len(operations)>=6):break
+            if len(operations)>=6:break
+            if operations and size+amount>8*1024*1024:continue
             operations.append(CommitOperationAdd(path_in_repo='live/smoke/phygen_acd10/'+name,path_or_fileobj=str(path)))
             now[name]=digest;size+=amount
     for row in summary['cases']:
@@ -168,13 +182,16 @@ def publish(root, public, summary, token_file):
             if 'candidate_images' in item:
                 item['candidate_images']=[url for url in item['candidate_images'] if url.removeprefix(REMOTE) in now]
     data=json.dumps(sanitize(summary),ensure_ascii=False).encode()
-    digest=hashlib.sha256(data).hexdigest()
+    # Poll time alone is not a change to a video, score or initialization.
+    fingerprint=copy.deepcopy(summary);fingerprint.pop('updated_unix',None)
+    digest=hashlib.sha256(json.dumps(sanitize(fingerprint),sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     if state.get('summary_digest')!=digest:
         operations.append(CommitOperationAdd(path_in_repo='live/smoke/phygen_acd10/progress.json',path_or_fileobj=data))
     if operations:
         result=commit(api,repo_id='HuggingFriends/PixelWorld',repo_type='dataset',operations=operations,
                       commit_message='Refresh paired A C D smoke initialization videos and traces')
-        write(root/'publication.json',{'assets':now,'summary_digest':digest,'commit':result.oid,'updated_unix':time.time()})
+        write(root/'publication.json',{'assets':now,'summary_digest':digest,'commit':result.oid,'updated_unix':time.time(),
+                                      'media_round':state.get('media_round',0)+(size>0)})
 
 
 def main():

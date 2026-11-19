@@ -216,6 +216,28 @@ def _launch(config: Benchmark, model: Model, track: str, case_id: str, attempt: 
     return process.pid
 
 
+def expand_case_scope(config: Benchmark) -> Benchmark:
+    """Adopt prepared additional cases without changing a live experiment."""
+    from dataclasses import replace
+    from .config import load_config
+    try:
+        updated=load_config(config.source)
+    except (OSError,json.JSONDecodeError):
+        return config
+    if not config.case_ids or not updated.case_ids:
+        return config
+    if len(updated.case_ids)!=len(set(updated.case_ids)):
+        raise ValueError('Duplicate case IDs in expanded scope')
+    if not set(config.case_ids).issubset(updated.case_ids):
+        return config
+    if replace(updated,case_ids=config.case_ids)!=config:
+        return config
+    added=set(updated.case_ids)-set(config.case_ids)
+    if not all((config.inputs_root/case/'prompt.txt').is_file() for case in added):
+        return config
+    return updated
+
+
 def run(config: Benchmark, interval: float = 5.0) -> None:
     config.runs_root.mkdir(parents=True, exist_ok=True)
     owner_lock = (config.runs_root / "matrix.lock").open("a")
@@ -225,6 +247,7 @@ def run(config: Benchmark, interval: float = 5.0) -> None:
     group_order = {key: index for index, key in enumerate(
         (f"{model.key}/{track}" for model, track in configurations(config)))}
     while not stop.exists():
+        config=expand_case_scope(config)
         status, info = snapshot(config, os.getpid())
         atomic_json(config.runs_root / "status.json", status)
         try:

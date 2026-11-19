@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,15 +16,71 @@ import subprocess
 import time
 
 
+# Verified versions yield their small CUDA worker when another compute app
+# arrives. A process name alone is insufficient evidence for this exception.
+YIELDING_KEEPALIVE_HASHES = frozenset({
+    'ce37530f18b3592b0080a5b697b0ad0191633f28255865797bc5345772507a32',
+    '477b37963885f79964057036c5d04bdddb97dd3c82735c160244c6daba990446',
+})
+
+
+def known_keepalive_devices(proc_root=Path('/proc'), allowed_hashes=YIELDING_KEEPALIVE_HASHES):
+    devices=set()
+    for proc in proc_root.glob('[0-9]*'):
+        try:
+            if (proc/'stat').read_text().rsplit(') ',1)[1].split()[0]=='Z':continue
+            argv=[a.decode()for a in(proc/'cmdline').read_bytes().split(b'\0')if a]
+            if '--worker' not in argv or '--gpu' not in argv:continue
+            script=next((a for a in argv if a.endswith('spring_keepalive.py')),None)
+            if not script:continue
+            path=Path(script)
+            if not path.is_absolute():path=(proc/'cwd').resolve()/path
+            if hashlib.sha256(path.read_bytes()).hexdigest() not in allowed_hashes:continue
+            devices.add(int(argv[argv.index('--gpu')+1]))
+        except (OSError,ValueError,UnicodeError,IndexError):continue
+    return devices
+
+
+def gpu_app_snapshot():
+    """Map NVML host PIDs by GPU UUID; never compare them to container PIDs."""
+    try:
+        result=subprocess.run(['nvidia-smi','--query-gpu=index,uuid,memory.used',
+            '--format=csv,noheader,nounits'],check=True,capture_output=True,text=True,timeout=30)
+        rows={};mapping={}
+        for line in result.stdout.splitlines():
+            index,uuid,used=(s.strip()for s in line.split(','))
+            if not uuid.startswith('GPU-'):return None
+            mapping[uuid]=int(index);rows[int(index)]={'apps':0,'used_mib':int(used)}
+        result=subprocess.run(['nvidia-smi','--query-compute-apps=gpu_uuid,pid',
+            '--format=csv,noheader,nounits'],check=True,capture_output=True,text=True,timeout=30)
+        for line in result.stdout.splitlines():
+            if not line.strip() or 'No running' in line:continue
+            uuid,pid=(s.strip()for s in line.split(','))
+            int(pid)
+            if uuid in mapping:rows[mapping[uuid]]['apps']+=1
+        return rows
+    except (subprocess.SubprocessError,ValueError):return None
+
+
 def free_gpus() -> list[tuple[int, int]]:
     result = subprocess.run(['nvidia-smi', '--query-gpu=index,memory.free,utilization.gpu',
                              '--format=csv,noheader,nounits'], check=True,
                             capture_output=True, text=True, timeout=30)
-    rows = []
+    rows = [];apps=gpu_app_snapshot();keepers=known_keepalive_devices() if apps is not None else set()
     for line in result.stdout.splitlines():
         index, memory, utilization = line.split(',')
-        if utilization.strip().isdigit() and int(utilization.strip()) <= 20:
-            rows.append((int(index.strip()), int(memory.strip())))
+        index=int(index.strip())
+        low_util=utilization.strip().isdigit() and int(utilization.strip()) <= 20
+        if apps is not None:
+            info=apps.get(index)
+            if info is None:continue
+            keeper_only=(index in keepers and info['apps']==1 and info['used_mib']<=1024)
+            available=(info['apps']==0 and low_util) or keeper_only
+        else:
+            # Preserve the original low-utilization policy when NVML process
+            # metadata is unavailable; never exempt an unknown busy device.
+            available=low_util
+        if available:rows.append((index,int(memory.strip())))
     return sorted(rows, key=lambda row: (-row[1], row[0]))
 
 

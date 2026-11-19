@@ -45,11 +45,39 @@ manifest must not be silently reclassified as a model delivery failure.
 The paired-analysis regression tests cover this distinction and preserve
 validated completed deliveries.
 
+Incrementally prepared smoke cases are adopted by the live matrix only when
+they add prepared prompts to an explicit case list. Existing cases cannot be
+removed; model, protocol, budget and other configuration changes are not adopted
+through this mechanism. A code reload signals only the dispatcher, preserving
+its independently launched generation processes. The expanded scope is visible
+in the next worker snapshot rather than waiting for all earlier cases to finish.
+
 Generation, review, evaluation, HF media upload and frontend publication have
 separate services. Candidate selection is frozen before downstream video scores.
 HF smoke uploads are bounded batches: the first small progress snapshot does
 not wait for all ten baseline videos and traces. Links are exposed only when the
 corresponding assets are included in an acknowledged or atomic publication.
+Smoke media batches interleave new C/D videos, initialization images, selection
+records, traces and code. New route videos precede duplicated A previews. Every
+third media batch offers a leading slot to a full trace, so oversized trace
+archives cannot be displaced forever by incoming images. The bounded batch
+may send one oversized trace alone; links still require the atomic asset commit.
+
+HF progress publication fingerprints actual states, usage, scores and media
+readiness. Fresh poll timestamps alone no longer resend unchanged model groups
+or unchanged smoke summaries. Failed commits are not acknowledged, so the next
+cycle retries their real changes. The publisher records changed/unchanged file
+counts, bytes sent, local preparation time and whole-cycle time. An initial live
+measurement prepared 5.54 MB in 3.02 seconds, while the complete publish cycle
+took 144.5 seconds; that cycle's larger delay was outside local data preparation.
+Transfer time and the shared HF commit wait are not separately measured by
+these counters. Verify subsequent measurements before claiming a speedup.
+
+The next measured progress cycle sent 39 changed files and skipped 46 unchanged
+files: 2.96 MB rather than the initial 5.54 MB (about 46.5% fewer bytes).
+Its whole cycle was 191.9 seconds, so this demonstrates reduced redundant
+traffic, not a measured reduction in end-to-end refresh latency. The shared
+commit schedule and transfer delay still determine public refresh timing.
 
 ## Attempt, resource and storage policy
 
@@ -64,6 +92,16 @@ state remain on cloud storage. GPU SSH workers provide computation and use the
 same cloud repository. Select a device without a real compute task; yielding
 keepalive processes are distinct from evaluation workloads. Do not terminate
 unrelated GPU jobs.
+
+The GPU allocator distinguishes actual compute apps from two source-hash-pinned
+versions of the yielding keepalive. A keepalive exception requires a live local
+worker, matching GPU, exactly one NVML compute app and at most 1 GiB used VRAM.
+Real compute apps remain excluded even when their instantaneous utilization is
+low; extra apps or an unverified keepalive source are not exempted. Container
+PIDs are never compared directly to NVML host PIDs. The allocator never signals
+another GPU workload. A live query on the evaluation worker returned available
+devices after the preceding evaluator jobs finished; regression tests cover
+high-utilization keeper-only devices, real idle workloads and source tampering.
 
 Required harness verification is `pytest -q` and `pixelworld doctor`; new matrices
 begin with a case smoke. The corrected path audit passed the full 523-test suite
