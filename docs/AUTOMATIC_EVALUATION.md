@@ -145,6 +145,17 @@ or the authors' table-generation implementation is verified. The pinned public
 dataset contains source/reference scenes but does not release baseline
 prediction videos in its root tree.
 
+The completed 129-case source-copy control gives PES **-0.0115814** and
+the edited-reference oracle gives **0.9505271**. The source-copy control's
+other metrics are TE 143.1011 px, Mask IoU 0.2892093, PSNR 31.2332,
+SSIM 0.9743571, LPIPS 0.0362050, CLIP 0.9569989 and FVD 249.6580.
+These agree closely with the published No edit row outside PES. Full results
+have been checked for 129 unique completed cases, finite metrics, exact
+per-case aggregation, and matching source/data/native-extension/artifact hashes.
+Released-code results carry `published_table1_comparability_verified=false`
+in the live evaluation metadata. This flag separates successful scoring from
+reproduction of the published reference table.
+
 ## PhyGenBench Text and Vision
 
 The same GPT-5.5 adapter supports either track. Run a separate watcher and output

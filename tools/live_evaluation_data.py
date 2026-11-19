@@ -129,7 +129,10 @@ def pcve_score(summary, model, track):
             'completed_utc':summary.get('completed_utc'),'source_revision':summary['source_revision'],
             'dataset_revision':summary['dataset_revision'],'metrics_sha256':summary.get('official_metrics_sha256'),
             'sam2_native_postprocessing':summary.get('sam2_native_postprocessing') is True,
-            'sam2_native_extension_sha256':summary.get('sam2_native_extension_sha256')}
+            'sam2_native_extension_sha256':summary.get('sam2_native_extension_sha256'),
+            'validated_numeric_physics_cases':summary.get('validated_numeric_physics_cases'),
+            'published_table1_comparability_verified':summary.get('published_table1_comparability_verified') is True,
+            'evaluation_label':summary.get('evaluation_label','Pinned released evaluator')}
 
 
 def phygen_score(summary, model, track):

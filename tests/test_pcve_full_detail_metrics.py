@@ -13,6 +13,7 @@ def test_pcve_score_exposes_all_eight_official_metrics():
     assert set(result['metrics'])=={'PES','TE px','Mask IoU','PSNR','SSIM','LPIPS','CLIP','FVD'}
     assert result['metrics']['PES']==.2
     assert result['sam2_native_postprocessing'] is False
+    assert result['published_table1_comparability_verified'] is False
     summary.update(sam2_native_postprocessing=True,sam2_native_extension_sha256='verified-binary')
     assert live.pcve_score(summary,'m','vision-agent')['sam2_native_extension_sha256']=='verified-binary'
 
