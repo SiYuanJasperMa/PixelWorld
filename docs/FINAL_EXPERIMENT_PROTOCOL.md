@@ -121,7 +121,12 @@ extra generated RGB. Preserve raw 60/120/240-frame artifacts, and price/bubble
 size them using their real output count. The official evaluator and its
 24-FPS references remain unchanged. Do not claim unmeasured native 48-FPS
 ground truth. Native playback smoothness and reference matching answer
-different questions. The normalization exporter still needs its smoke audit.
+different questions. A one-case export smoke passed for both FPS conditions:
+the lossless decoded RGB matches the selected source frames, while the raw
+60/240-frame artifacts remain unchanged. Separate one-case 480p and 1080p
+exports also passed with the same 720p conditioning image and the declared
+Lanczos frame-zero resize. These export checks establish media/provenance
+correctness; they are not full-benchmark quality scores.
 
 The cost/score figure uses measured token usage and recorded cached input.
 Use verified model-specific tariffs where available. Served proxy aliases without

@@ -46,7 +46,36 @@ remain explicitly labeled as the PixelWorld GPT-5.5 adaptation rather than the
 official PhyGenEval. Live evaluation metadata keeps each analysis condition and
 track in its own score location; a Vision score cannot fill a Text cell.
 
-## Physics-IQ FPS analysis
+## Physics-IQ analysis evaluation
+
+Use one watcher and a separate output directory per condition. Each watcher
+waits for all 198 accepted deliveries of a model/track before evaluating that
+cohort. Main Vision results remain the shared reference; they are not generated
+or scored again for each analysis.
+
+| Condition | Bundle config | Evaluation output directory | Additional argument |
+|---|---|---|---|
+| Text | `physics_iq_text_analysis.json` | `physics_iq_text_scheduler` | None |
+| 480p | `physics_iq_res480_analysis.json` | `physics_iq_res480_scheduler` | None |
+| 1080p | `physics_iq_res1080_analysis.json` | `physics_iq_res1080_scheduler` | None |
+| 12 FPS | `physics_iq_fps12_analysis.json` | `physics_iq_fps12_scheduler` | `--evaluation-fps 24` |
+| 48 FPS | `physics_iq_fps48_analysis.json` | `physics_iq_fps48_scheduler` | `--evaluation-fps 24` |
+| Lower requested effort | `physics_iq_thinking_low_analysis.json` | `physics_iq_thinking_low_scheduler` | None |
+| Higher requested effort | `physics_iq_thinking_higher_analysis.json` | `physics_iq_thinking_higher_scheduler` | None |
+
+The watcher checks the pinned evaluator, dataset and Python dependencies before
+entering its scheduling loop. Its Python interpreter must import `numpy`,
+`cv2`, `pandas`, `scipy` and `matplotlib`. If dependencies are supplied through
+`PYTHONPATH`, preserve that environment for both the watcher and its evaluator
+subprocesses. Reuse the verified cloud environment instead of installing
+packages separately for every watcher.
+
+A launcher PID alone does not prove readiness. Verify the process command,
+the matching output directory's `scheduler.json` updates, and the current log.
+Report preflight failures separately from model generation failures. A failed
+observation of a healthy evaluator does not authorize a duplicate launch.
+
+### Common FPS evaluation grid
 
 The frozen analysis uses a common 24 FPS evaluation grid. Pass
 `--evaluation-fps 24` to `tools.watch_physics_evaluation` for the 12/48 FPS
