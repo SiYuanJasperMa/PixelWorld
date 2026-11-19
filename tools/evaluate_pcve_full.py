@@ -1,6 +1,7 @@
 """Export a full cohort and run pinned PCVE code with portable weight paths."""
 import argparse
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -14,6 +15,17 @@ from pixelworld.config import load_config
 from pixelworld.supervisor import inspect
 from pixelworld.util import atomic_json, sha256, utc_now
 from tools.pcve_native import native_setup,native_cache,NATIVE_EVALUATION
+
+
+def finite_number(value):
+    return not isinstance(value,bool) and isinstance(value,(int,float)) and math.isfinite(value)
+
+
+def incomplete_physics_cases(rows):
+    """A returned tracker failure is not a completed physics measurement."""
+    return [row['global_id'] for row in rows
+            if row.get('physics_status')!='completed'
+            or any(not finite_number(row.get(key)) for key in ('pes','traj_px','mask_iou'))]
 
 
 def main():
@@ -133,8 +145,8 @@ def main():
             or any(r.get('status')!='completed' for r in evaluated)):
         raise ValueError('Original metrics contain missing, failed, or duplicate cases')
     scores = metrics['aggregate']
-    missing_physics = [r['global_id'] for r in evaluated if r.get('physics_status') == 'no_ground_truth']
-    if missing_physics or any(scores.get('overall',{}).get(k) is None for k in ['pes','traj_px','mask_iou','psnr','ssim','lpips','clip_sim']) or scores.get('fvd') is None:
+    missing_physics = incomplete_physics_cases(evaluated)
+    if missing_physics or any(not finite_number(scores.get('overall',{}).get(k)) for k in ['pes','traj_px','mask_iou','psnr','ssim','lpips','clip_sim']) or not finite_number(scores.get('fvd')):
         atomic_json(output/'prerequisites.json', {
             'phase':'blocked_incomplete_official_metrics', 'missing_physics_cases':missing_physics,
             'scores_computed':False, 'updated_utc':utc_now()})
@@ -147,6 +159,7 @@ def main():
                 'resolution_variants':[list(size) for size in resolutions],
                 'sam2_native_postprocessing':bool(args.sam2_native_dir),
                 'sam2_native_extension_sha256':sha256(args.sam2_native_dir/'_C.so') if args.sam2_native_dir else None,
+                'validated_numeric_physics_cases':len(evaluated),
                 'no_missing_output_imputation':True,'completed_utc':utc_now()})
 
 
