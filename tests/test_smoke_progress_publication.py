@@ -54,3 +54,13 @@ def test_large_trace_receives_leading_slot_every_third_media_batch(tmp_path,monk
     publish(tmp_path,public,{'updated_unix':1,'cases':[]},token)
     for tick in [2,3,4]:publish(tmp_path,public,{'updated_unix':tick,'cases':[]},token)
     assert any(op.path_in_repo.endswith('trace.tar.gz')for op in batches[-1])
+
+
+def test_small_completed_report_is_not_queued_behind_video_backfill(tmp_path,monkeypatch):
+    public,token,batches=setup(tmp_path,monkeypatch)
+    for i in range(20):
+        path=public/'A'/str(i)/'video.mp4';path.parent.mkdir(parents=True);path.write_bytes(b'fixture-video')
+    report=public/'report/paired_cases.csv';report.parent.mkdir();report.write_text('case,score\n')
+    publish(tmp_path,public,{'updated_unix':1,'cases':[]},token)
+    publish(tmp_path,public,{'updated_unix':2,'cases':[]},token)
+    assert batches[1][0].path_in_repo.endswith('report/paired_cases.csv')

@@ -153,11 +153,12 @@ def publish(root, public, summary, token_file):
     for path in sorted(p for p in public.rglob('*')if p.is_file()):
         name=path.relative_to(public).as_posix()
         if done.get(name)==hashlib.sha256(path.read_bytes()).hexdigest():continue
-        buckets.setdefault(path.suffix,[]).append(path)
+        bucket='report'if path.relative_to(public).parts[0]=='report'else path.suffix
+        buckets.setdefault(bucket,[]).append(path)
     buckets['.mp4'].sort(key=lambda p:(p.name!=SMOKE_PREVIEW_NAME,p.relative_to(public).parts[0]=='A',str(p)))
     buckets['.gz'].sort(key=lambda p:(p.relative_to(public).parts[0]=='A',str(p)))
-    order=['.mp4','.png','.json','.gz','.py']
-    if state.get('media_round',0)%3==2:order=['.gz','.mp4','.png','.json','.py']
+    order=['report','.mp4','.png','.json','.gz','.py']
+    if state.get('media_round',0)%3==2:order=['.gz','report','.mp4','.png','.json','.py']
     pending=[]
     # Serve new videos, initialization and full traces fairly. A large trace
     # receives a leading slot periodically; it cannot be displaced forever.
