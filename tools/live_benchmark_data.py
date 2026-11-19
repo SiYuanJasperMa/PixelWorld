@@ -392,6 +392,25 @@ def upstream_wait(folder: Path, running_cases) -> dict:
     return {"waiting": waiting, "oldest_seconds": round(oldest)}
 
 
+def cached_upstream_wait(identity,folder,running_cases,pool,pending,cache):
+    """Keep optional provider-wait diagnostics off the progress writer thread."""
+    cases=tuple(sorted(running_cases or []))
+    if not cases:return {'waiting':0,'oldest_seconds':0,'status':'known'}
+    job=pending.get(identity)
+    if job is not None and job['future'].done():
+        try:value={**job['future'].result(),'status':'known'}
+        except Exception as exc:value={'waiting':None,'oldest_seconds':None,'status':'unknown','error_type':type(exc).__name__}
+        cache[identity]={'value':value,'cases':job['cases'],'updated':time.monotonic()}
+        del pending[identity]
+    previous=cache.get(identity,{})
+    if previous.get('cases')==cases:
+        value={**previous['value'],'stale':time.monotonic()-previous['updated']>120}
+    else:value={'waiting':None,'oldest_seconds':None,'status':'unknown'}
+    if identity not in pending and (previous.get('cases')!=cases or time.monotonic()-previous.get('updated',0)>30):
+        pending[identity]={'future':pool.submit(upstream_wait,folder,cases),'cases':cases}
+    return value
+
+
 def provider_health(run_root=None, log_roots=None) -> dict:
     """Observe configured proxy indexes without scanning raw request files."""
     roots = list(log_roots or [])
@@ -741,7 +760,8 @@ def overlay_current_status(folder,cases,identity,destination,stored):
 
 def async_update(run_root,destination,cache,pool,pending,render_root,
                  history_pool=None,history_pending=None,history_cursor=None,published_assets=None,
-                 usage_pool=None,usage_pending=None,usage_cache=None):
+                 usage_pool=None,usage_pending=None,usage_cache=None,
+                 upstream_pool=None,upstream_pending=None,upstream_cache=None):
     merge_render_jobs(destination,cache,pending,render_root,published_assets)
     if history_pending is not None:
         merge_render_jobs(destination,cache,history_pending,render_root,published_assets)
@@ -787,7 +807,9 @@ def async_update(run_root,destination,cache,pool,pending,render_root,
                 'mean_duration_seconds':group.get('mean_duration_seconds'),
                 'mean_output_tokens_cached':sum(measured)/len(measured) if measured else None,
                 'token_mean_cases':len(measured),
-                'upstream_wait':upstream_wait(source/model/track,group.get('running_cases'))}
+                'upstream_wait':(upstream_wait(source/model/track,group.get('running_cases')) if upstream_pool is None else
+                    cached_upstream_wait(identity,source/model/track,group.get('running_cases'),
+                                         upstream_pool,upstream_pending,upstream_cache))}
             if usage_pool is None:
                 payload.update(delivered_usage_means(source/model/track))
             else:
@@ -850,6 +872,9 @@ def main():
     usage_pool=ThreadPoolExecutor(max_workers=1)
     usage_pending={}
     usage_cache={}
+    upstream_pool=ThreadPoolExecutor(max_workers=2)
+    upstream_pending={}
+    upstream_cache={}
     history_pool=ThreadPoolExecutor(max_workers=1)
     history_pending={}
     history_cursor=[0]
@@ -887,7 +912,8 @@ def main():
                 ['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip())
             async_update(args.run_root.resolve(),destination,cache,pool,pending,render_root,
                          history_pool,history_pending,history_cursor,published_assets,
-                         usage_pool,usage_pending,usage_cache)
+                         usage_pool,usage_pending,usage_cache,
+                         upstream_pool,upstream_pending,upstream_cache)
             if evaluation_future is not None and evaluation_future.done():
                 try:
                     save(destination/'evaluation.json',evaluation_future.result())
@@ -910,6 +936,7 @@ def main():
                     'groups': len(cache), 'status': 'ok', 'mode': 'local-only',
                     'pending_case_reads': len(pending),
                     'pending_history_batches': len(history_pending),
+                    'pending_upstream_reads':len(upstream_pending),
                     'evaluation_reader_error': evaluation_error})
                 if args.once:
                     break

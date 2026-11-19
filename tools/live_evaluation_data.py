@@ -9,6 +9,7 @@ from pixelworld.constants import PHYSICS_IQ_COMMIT, PHYSICS_IQ_DATASET_REVISION
 from pixelworld import pcve
 from pixelworld.smoke_web import clean
 from tools.evaluate_robojudge_shared50 import CODE_REVISION, CHECKPOINT_REVISION, DATASET_REVISION, TASKS_SHA256
+from tools.phygen_protocol import FRAME_SAMPLING_REVISION,MAIN_JUDGE_FOLDER,TEXT_JUDGE_FOLDER
 
 COHORTS = {
     'physics_iq_720p24fps':('Physics-IQ Verified · 720p24fps','physics_720p24fps_full_scheduler',198),
@@ -19,13 +20,13 @@ COHORTS = {
     'physics_iq_512w24fps_gpt_native':('Physics-IQ Verified · 512w24fps','physics_highres_512w24fps_full_scheduler',198),
     'robojudge_main720p24fps':('RoboJudge shared-50 · 720p24fps','robojudge_main720p24fps_scheduler',50),
     'pcve_standard720p24fps':('PCVE-RigidBench · official 720p24fps','pcve_standard720p24fps_scheduler',129),
-    'phygenbench_t2v_main720p24fps':('PhyGenBench T2V · 720p24fps','phygenbench_t2v_main720p24fps_scheduler',160),
+    'phygenbench_t2v_main720p24fps':('PhyGenBench T2V · 720p24fps',MAIN_JUDGE_FOLDER,160),
     'robojudge':('RoboJudge shared-50','robojudge_full_baseline100k',50),
     'robojudge_seed21_native_v2':('RoboJudge shared-50','robojudge_seed21_native_v2_full',50),
     'pcve_smoke':('PCVE-RigidBench','pcve_full_scheduler',129),
     'pcve_text':('PCVE-RigidBench · Text','pcve_text_scheduler',129),
     'robojudge_text':('RoboJudge shared-50 · Text','robojudge_text_scheduler',50),
-    'phygenbench_text':('PhyGenBench · Text','phygenbench_text_gpt55_judge',160),
+    'phygenbench_text':('PhyGenBench · Text',TEXT_JUDGE_FOLDER,160),
     **{key: ('Physics-IQ Verified · '+label, key+'_scheduler',198) for key,label in (
         ('physics_iq_text','Text'), ('physics_iq_res480','480p'), ('physics_iq_res1080','1080p'),
         ('physics_iq_fps12','12 FPS'), ('physics_iq_fps48','48 FPS'),
@@ -129,6 +130,7 @@ def pcve_score(summary, model, track):
 
 
 def phygen_score(summary, model, track):
+    if summary.get('frame_sampling_revision')!=FRAME_SAMPLING_REVISION:return None
     if summary.get('track', 'vision-agent') != track:
         return None
     entry=(summary.get('models') or {}).get(model)
@@ -197,7 +199,7 @@ def collect(run_root: Path):
             elif suite.startswith('pcve'):
                 score=pcve_score(read(cohort/'summary.json'),model,track)
             elif suite.startswith('phygenbench'):
-                judge_folder='phygenbench_text_gpt55_judge' if suite=='phygenbench_text' else 'phygenbench_gpt55_judge'
+                judge_folder=TEXT_JUDGE_FOLDER if suite=='phygenbench_text' else MAIN_JUDGE_FOLDER
                 score=phygen_score(read(run_root/'evaluation'/judge_folder/'summary.json'),model,track)
             else:
                 score=None
@@ -228,7 +230,7 @@ def collect(run_root: Path):
                 elif worker_live and gpu.get('phase')=='waiting_for_free_gpu':
                     row.update(phase='preparing_evaluation',blocker='Waiting for a GPU with sufficient free memory')
             if suite.startswith('phygenbench') and row['accepted']==expected and not row['full_scope_scored']:
-                judge_folder='phygenbench_text_gpt55_judge' if suite=='phygenbench_text' else 'phygenbench_gpt55_judge'
+                judge_folder=TEXT_JUDGE_FOLDER if suite=='phygenbench_text' else MAIN_JUDGE_FOLDER
                 judge=read(run_root/'evaluation'/judge_folder/'scheduler.json')
                 judge_live=any(pid==judge.get('judge_pid') and 'tools.evaluate_phygen_gpt55' in argv
                                for pid,argv in commands)

@@ -36,6 +36,14 @@ judge-image edge 768, physical consistency from 1 to 5. This is not the official
 GPT-4o PhyGenEval. Report per-route delivery and suitability coverage alongside
 paired video scores, rather than silently removing bad initializations.
 
+The current frame-sampling revision is `chronological-rgb-v2`. Read frames by
+their numeric index (`00.png` through `119.png`); filename lexicographic order
+places `100.png` before `11.png` and is invalid. The corrected preview is
+`video_chrono_v2.mp4`, encoded with a numeric FFmpeg sequence. Earlier previews
+and `evaluation/` scores are retained as legacy sampling outputs. Corrected
+smoke scores live in `evaluation_chronological_v2/`; only this revision is used
+for current comparisons. No agent code or generated RGB is changed by this fix.
+
 A reuses its first accepted main delivery. Record its original budget, prompt,
 runtime and permission lineage. Earlier main deliveries may have a 100k budget,
 while new smoke attempts allow 1M output tokens. Reuse therefore provides a

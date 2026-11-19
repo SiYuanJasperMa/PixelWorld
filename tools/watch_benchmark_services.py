@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import time
 
+from tools.manage_matrix import recover_disk_dispatcher
+
 
 def alive_service(service):
     try:
@@ -20,6 +22,29 @@ def alive_service(service):
         return False
 
 
+def recover_stale_output(service,recoveries,starts,now=None):
+    """Opt-in recovery for a disk-blocked service with stale output."""
+    marker=service.get('health_path')
+    if not marker:return False
+    now=time.monotonic() if now is None else now
+    name=service['name'];limit=service.get('max_output_age_seconds',900)
+    pid=int(Path(service['pid_file']).read_text().strip())
+    start=starts.get(name)
+    if start and start['pid']==pid and now-start['time']<60:return False
+    try:
+        if time.time()-Path(marker).stat().st_mtime<limit:
+            recoveries.pop(name,None);return False
+    except OSError:return False
+    previous=recoveries.get(name)
+    same=previous and previous['pid']==pid
+    if same and (previous.get('escalated') or now-previous['time']<60):return True
+    import signal
+    sig=signal.SIGKILL if same else signal.SIGTERM
+    if not recover_disk_dispatcher(pid,Path(marker),tuple(service['identity']),limit,signal_number=sig):return False
+    recoveries[name]={'pid':pid,'time':previous['time'] if same else now,'escalated':bool(same)}
+    return True
+
+
 def run(spec_path):
     spec = json.loads(spec_path.read_text())
     root = Path(spec['state_root'])
@@ -30,6 +55,7 @@ def run(spec_path):
     except BlockingIOError:
         return
     (root/'watchdog.pid').write_text(str(os.getpid())+'\n')
+    recoveries={};starts={}
     while not (root/'STOP').exists():
         reload_error=None
         try:
@@ -48,6 +74,9 @@ def run(spec_path):
             if any(states.get(dep, {}).get('phase') != 'active' for dep in service.get('depends_on', [])):
                 states[name] = {'phase':'waiting_dependency'}
                 continue
+            if alive_service(service) and recover_stale_output(service,recoveries,starts):
+                states[name]={'phase':'recovering_io',**recoveries[name]}
+                continue
             if not alive_service(service):
                 try:
                     environment = os.environ.copy()
@@ -60,6 +89,8 @@ def run(spec_path):
                             stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
                     pid_file=Path(service['pid_file']);pid_file.parent.mkdir(parents=True,exist_ok=True)
                     pid_file.write_text(str(process.pid)+'\n')
+                    starts[name]={'pid':process.pid,'time':time.monotonic()}
+                    recoveries.pop(name,None)
                     states[name] = {'phase':'starting','pid':process.pid,'started_at':time.time()}
                 except (OSError,ValueError) as exc:
                     states[name] = {'phase':'stale','error':f'{type(exc).__name__}: {exc}'}

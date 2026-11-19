@@ -38,6 +38,14 @@ ground truth are used in this test.
 
 ## Remote progress and recovery
 
+An observed dashboard exporter was blocked opening a live analysis event log.
+Provider-wait diagnostics now run in a separate bounded worker pool; incomplete
+reads are shown as unknown or stale instead of blocking global progress.
+The watchdog's stale-output recovery is opt-in for this exporter. It requires
+the recorded process identity, disk sleep and no active children, with startup
+grace and guarded signal escalation. Generation services do not opt into this
+output-health recovery path, so normal provider queueing is preserved.
+
 Local `/proc` is not a liveness check for a remote PID. The initialization analysis
 uses fresh worker-owned matrix status to identify running and terminal cases.
 A stale or missing remote status is infrastructure uncertainty; a running
@@ -87,6 +95,16 @@ traffic, not a measured reduction in end-to-end refresh latency. The shared
 commit schedule and transfer delay still determine public refresh timing.
 
 ## Attempt, resource and storage policy
+
+The PhyGen judge and the A/C/D preview had a temporal indexing bug: string
+sorting moved frame `106.png` into the sample intended for frame 17. Numeric
+sampling/encoding now preserves the 120-frame chronology. The regression tests
+encode index-valued frames and check both sampled JPEGs and decoded MP4 frames.
+Old judge outputs/previews remain in their original locations, but current
+score publication requires `chronological-rgb-v2`. Corrected full-cohort and
+smoke evaluations use separate output directories; no videos are regenerated
+and no quality-driven generation retries are introduced. Official evaluator
+commits, dataset revisions and generation settings remain unchanged.
 
 Real generation failures, including output-budget exhaustion, use the normal
 five-attempt cap; infrastructure failures remain separate. Only user-authorized

@@ -2,7 +2,7 @@ from tools.live_evaluation_data import COHORTS, phygen_score
 
 
 def test_phygen_scores_do_not_cross_text_vision_boundary():
-    summary = {'models': {'m': {'cases': 160, 'mean_0_1': 0.5, 'mean_1_5': 3.0}}}
+    summary = {'frame_sampling_revision': 'chronological-rgb-v2', 'models': {'m': {'cases': 160, 'mean_0_1': 0.5, 'mean_1_5': 3.0}}}
     assert phygen_score(summary, 'm', 'vision-agent')
     assert phygen_score(summary, 'm', 'text') is None
     summary['track'] = 'text'
@@ -24,7 +24,7 @@ def test_model_keyed_phygen_scheduler_does_not_block_all_evaluation_refreshes(tm
     runs=tmp_path/'analysis_generations/phygenbench_text';runs.mkdir(parents=True)
     (runs/'status.json').write_text(json.dumps({'groups':{'m/text':{'counts':{'pending':160}}}}))
     (tmp_path/'live_sources.json').write_text(json.dumps({'sources':[{'key':'phygenbench_text','runs_root':str(runs)}]}))
-    target=tmp_path/'evaluation/phygenbench_text_gpt55_judge';target.mkdir(parents=True)
+    target=tmp_path/'evaluation/phygenbench_text_gpt55_chronological_v2';target.mkdir(parents=True)
     (target/'scheduler.json').write_text(json.dumps({'track':'text','cohorts':{'m':{'phase':'waiting_for_generation'}}}))
     rows=collect(tmp_path)['cohorts']
     assert len(rows)==1 and rows[0]['model_key']=='m' and rows[0]['track']=='text'

@@ -17,6 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from tools.prepare_phygen_acd_smoke import write
+from tools.phygen_protocol import FRAME_SAMPLING_REVISION,SMOKE_JUDGE_FOLDER,SMOKE_PREVIEW_NAME
 
 REMOTE = 'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/live/smoke/phygen_acd10/'
 
@@ -129,11 +130,11 @@ def prepare_input(release, root, route, row, selection):
 def exported_run(run, dest, ffmpeg):
     from tools.prepare_hf_delivery import export_trace_run
     run=Path(run); dest.mkdir(parents=True,exist_ok=True)
-    preview=dest/'video.mp4'
+    preview=dest/SMOKE_PREVIEW_NAME
     if not preview.exists():
         frames=sorted((run/'workspace/frames').glob('*.png'))
         if len(frames)!=120:raise ValueError('Smoke requires 120 accepted RGB frames')
-        subprocess.run([ffmpeg,'-y','-loglevel','error','-framerate','24','-pattern_type','glob','-i',str(run/'workspace/frames/*.png'),
+        subprocess.run([ffmpeg,'-y','-loglevel','error','-framerate','24','-i',str(run/'workspace/frames/%02d.png'),'-frames:v','120',
                         '-c:v','libx264','-crf','20','-pix_fmt','yuv420p','-movflags','+faststart',str(preview)],check=True,timeout=300)
     if not (dest/'trace.tar.gz').exists(): export_trace_run(run,dest/'trace.tar.gz')
     (dest/'generate.py').write_bytes((run/'workspace/generate.py').read_bytes())
@@ -220,7 +221,7 @@ def main():
                 del init_futures[key]
         for key,f in list(futures.items()):
             if f.done():
-                try:write(root/'evaluation'/key[0]/(key[1]+'.json'),f.result())
+                try:write(root/SMOKE_JUDGE_FOLDER/key[0]/(key[1]+'.json'),f.result())
                 except Exception as exc:errors.append({'stage':'video_judge','route':key[0],'case':key[1],'error':str(exc)[:500]})
                 del futures[key]
         if upload is not None and upload.done():
@@ -229,6 +230,7 @@ def main():
             upload=None
         summary={'protocol':manifest['protocol'],'model':manifest['model'],'track':'Vision','width':1280,'height':720,
                  'fps':24,'frames':120,'updated_unix':time.time(),'cases':[],'errors':errors,
+                 'frame_sampling_revision':FRAME_SAMPLING_REVISION,
                  'selection_rule':'first suitable initial frame; no video-score selection; unsuitable seed0 retained and flagged'}
         for row in manifest['cases']:
             entry={'id':row['id'],'caption':row['caption'],'dimension':row['dimension'],'routes':{}}
@@ -265,16 +267,16 @@ def main():
                         if (dest/'agent_pixel_init.png').exists():item['pixel_init']=REMOTE+f"{route}/{row['id']}/agent_pixel_init.png"
                     if status['state']=='complete':
                         exported_run(status['run'],dest,ffmpeg)
-                        item['video']=REMOTE+f"{route}/{row['id']}/video.mp4";item['trace']=REMOTE+f"{route}/{row['id']}/trace.tar.gz"
+                        item['video']=REMOTE+f"{route}/{row['id']}/{SMOKE_PREVIEW_NAME}";item['trace']=REMOTE+f"{route}/{row['id']}/trace.tar.gz"
                         record=read(Path(status['run'])/'run_manifest.json');usage=record.get('token_usage') or record.get('usage') or {}
                         item.update(output_tokens=usage.get('output_tokens'),input_tokens=usage.get('input_tokens'),elapsed_seconds=record.get('duration_seconds'),reused=route=='A')
-                        score_path=root/'evaluation'/route/(row['id']+'.json');score=read(score_path)
+                        score_path=root/SMOKE_JUDGE_FOLDER/route/(row['id']+'.json');score=read(score_path)
                         if score:item['score_1_5']=score['score'];item['judge_reason']=score.get('reason')
                         elif (route,row['id']) not in futures:
                             job={'model':'gpt61-sol','case':row['id'],'run':status['run'],'attempt':status.get('attempt'),
                                  'caption':row['caption'],'physical_law':row['physical_laws'],'main_category':row['main_category'],
                                  'sub_category':row['sub_category'],'track':'vision-agent'}
-                            futures[(route,row['id'])]=pool.submit(score_case,client,release/'state/gpt55.key',job,root/'evaluation'/route,8,768)
+                            futures[(route,row['id'])]=pool.submit(score_case,client,release/'state/gpt55.key',job,root/SMOKE_JUDGE_FOLDER/route,8,768)
                     entry['routes'][route]=item
                 except Exception as exc:
                     entry['routes'][route]={'state':'infra_stale','error':str(exc)[:500]}

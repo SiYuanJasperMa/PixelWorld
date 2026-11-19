@@ -23,6 +23,7 @@ import time
 import numpy as np
 from PIL import Image
 from openai import AzureOpenAI
+from tools.phygen_protocol import FRAME_SAMPLING_REVISION,MAIN_JUDGE_FOLDER
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODELS = ("gpt61-sol", "gpt56-sol", "gpt56-luna", "gpt56-terra")
@@ -83,9 +84,11 @@ def selected_run(folder: Path, case: str, suffix: str = ''):
 
 
 def frame_images(run: Path, count: int, max_edge: int) -> tuple[list[str], list[int]]:
-    frames = sorted((run / "workspace/frames").glob("*.png"))
-    if len(frames) != 120:
-        raise ValueError(f"Expected 120 frames, found {len(frames)} in {run}")
+    frame_dir=run/'workspace/frames'
+    available=list(frame_dir.glob('*.png'))
+    frames=[frame_dir/f'{index:02d}.png' for index in range(120)]
+    if len(available)!=120 or not all(path.is_file() for path in frames):
+        raise ValueError(f"Expected canonical frames 00.png through 119.png: {run}")
     indices = np.linspace(0, len(frames) - 1, count).astype(int).tolist()
     encoded = []
     for index in indices:
@@ -170,6 +173,9 @@ def score_case(client, key_file: Path, job: dict, output: Path, frames: int, max
                 "dimension": CATEGORY_MAP.get(job["main_category"], job["main_category"]),
                 "caption": job["caption"], "physical_law": job["physical_law"],
                 "attempt": job["attempt"], "run": str(run), "frame_indices": indices,
+                "frame_sampling_revision":FRAME_SAMPLING_REVISION,
+                "source_frame_files":([f'{index:02d}.png' for index in indices]
+                                      if job.get('source_type')!='external_video' else None),
                 "judge_model": "gpt-5.5-2026-04-24",
                 "judge_protocol": "PixelWorld PhyGen GPT-5.5 judge; not official GPT-4o-0513 PhyGenEval",
                 "response_id": getattr(response, "id", None),
@@ -192,7 +198,7 @@ def main() -> None:
     parser.add_argument("--prompts", type=Path,
                         default=ROOT / "vendor/phygenbench-official-source/PhyGenBench/prompts.json")
     parser.add_argument("--output", type=Path,
-                        default=ROOT / "runs/final_release_candidate_20261117/evaluation/phygenbench_gpt55_judge")
+                        default=ROOT / "runs/final_release_candidate_20261117/evaluation" / MAIN_JUDGE_FOLDER)
     parser.add_argument("--models", nargs="+", default=list(DEFAULT_MODELS))
     parser.add_argument("--track", choices=("text", "vision-agent"), default="vision-agent")
     parser.add_argument("--video-dir", type=Path, help="External baseline MP4 directory; requires exactly one model label")
@@ -240,7 +246,8 @@ def main() -> None:
         for line in checkpoint.read_text().splitlines():
             try:
                 row = json.loads(line)
-                done.add((row["model"], row["case"]))
+                if row.get('frame_sampling_revision')==FRAME_SAMPLING_REVISION:
+                    done.add((row["model"], row["case"]))
             except (ValueError, KeyError):
                 continue
     pending = [job for job in jobs if (job["model"], job["case"]) not in done]
@@ -272,10 +279,12 @@ def main() -> None:
     if checkpoint.is_file():
         for line in checkpoint.read_text().splitlines():
             try:
-                rows.append(json.loads(line))
+                row=json.loads(line)
+                if row.get('frame_sampling_revision')==FRAME_SAMPLING_REVISION:rows.append(row)
             except ValueError:
                 continue
     summary = {"judge_model": "gpt-5.5-2026-04-24",
+               "frame_sampling_revision":FRAME_SAMPLING_REVISION,
                "judge_protocol": "PixelWorld PhyGen GPT-5.5 judge; not official GPT-4o-0513 PhyGenEval",
                "track": args.track,
                "frames_per_video": args.frames, "models": {}}
