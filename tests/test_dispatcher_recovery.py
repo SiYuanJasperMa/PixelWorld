@@ -66,3 +66,16 @@ def test_recovery_signals_pinned_dispatcher_and_closes_handle(monkeypatch, tmp_p
     monkeypatch.setattr(manager.signal, 'pidfd_send_signal', lambda fd, sig: calls.append(('signal', fd, sig)))
     assert manager.recover_disk_dispatcher(123, tmp_path / 'status.json', ('matrix',), 900)
     assert calls == [('open', 123), ('signal', 10, manager.signal.SIGTERM), ('close', 10)]
+
+
+def test_escalation_uses_the_same_guard_and_never_signals_active_cases(monkeypatch,tmp_path):
+    calls=[]
+    monkeypatch.setattr(manager.os,'pidfd_open',lambda pid:10)
+    monkeypatch.setattr(manager.os,'close',lambda fd:None)
+    monkeypatch.setattr(manager.signal,'pidfd_send_signal',lambda fd,sig:calls.append((fd,sig)))
+    monkeypatch.setattr(manager,'dispatcher_disk_stall',lambda *args:False)
+    assert not manager.recover_disk_dispatcher(123,tmp_path/'status.json',('matrix',),900,signal_number=manager.signal.SIGKILL)
+    assert calls==[]
+    monkeypatch.setattr(manager,'dispatcher_disk_stall',lambda *args:True)
+    assert manager.recover_disk_dispatcher(123,tmp_path/'status.json',('matrix',),900,signal_number=manager.signal.SIGKILL)
+    assert calls==[(10,manager.signal.SIGKILL)]

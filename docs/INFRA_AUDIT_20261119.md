@@ -51,6 +51,13 @@ removed; model, protocol, budget and other configuration changes are not adopted
 through this mechanism. A code reload signals only the dispatcher, preserving
 its independently launched generation processes. The expanded scope is visible
 in the next worker snapshot rather than waiting for all earlier cases to finish.
+An observed C dispatcher was blocked in `openat` while opening the cloud
+scheduling configuration, with a stale snapshot and only a zombie child. The
+recovery controller pins the dispatcher PID, verifies disk sleep and absence
+of active case children, sends SIGTERM, and may escalate after 60 seconds if
+the same guarded condition persists. It never signals model case processes.
+Normal sleeping/queued dispatchers and dispatchers with active case children
+remain excluded from recovery.
 
 Generation, review, evaluation, HF media upload and frontend publication have
 separate services. Candidate selection is frozen before downstream video scores.

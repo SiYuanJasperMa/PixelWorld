@@ -49,14 +49,15 @@ def dispatcher_disk_stall(pid, status_path, required_arguments, stale_seconds=90
         return True
     except (OSError,ValueError,TypeError,IndexError):return False
 
-def recover_disk_dispatcher(pid, status_path, required_arguments, stale_seconds):
+def recover_disk_dispatcher(pid, status_path, required_arguments, stale_seconds,
+                            signal_number=signal.SIGTERM):
     """Pin the process identity before checking and signaling it on Linux."""
     if not hasattr(os,'pidfd_open') or not hasattr(signal,'pidfd_send_signal'):return False
     try:fd=os.pidfd_open(int(pid))
     except (OSError,ValueError,TypeError):return False
     try:
         if not dispatcher_disk_stall(pid,status_path,required_arguments,stale_seconds):return False
-        signal.pidfd_send_signal(fd,signal.SIGTERM)
+        signal.pidfd_send_signal(fd,signal_number)
         return True
     except OSError:return False
     finally:os.close(fd)
@@ -87,7 +88,7 @@ def main():
     cfg=read(a.config);root=Path(cfg['runs_root']);root.mkdir(parents=True,exist_ok=True);a.state.parent.mkdir(parents=True,exist_ok=True)
     stop=root/'STOP';managed_stop=a.state.with_name(a.state.stem+'.STOP')
     if a.resume:stop.unlink(missing_ok=True);managed_stop.unlink(missing_ok=True)
-    child=None;restarts=0;recovery_pid=None;env=os.environ.copy();env['PYTHONPATH']=str(a.code_root.resolve())
+    child=None;restarts=0;recovery_pid=None;recovery_started=None;env=os.environ.copy();env['PYTHONPATH']=str(a.code_root.resolve())
     while not stop.exists() and not managed_stop.exists():
         latest=read(a.config)
         if latest.get('runs_root')==cfg.get('runs_root') and latest.get('models'):
@@ -99,8 +100,15 @@ def main():
         identity=('pixelworld.cli','matrix','run',str(a.config.resolve()))
         recovering=False
         if owner!=recovery_pid and recover_disk_dispatcher(owner,root/'status.json',identity,a.dispatcher_stale_seconds):
-            recovery_pid=owner;recovering=True
+            recovery_pid=owner;recovery_started=time.monotonic();recovering=True
             print(json.dumps({'event':'dispatcher_disk_stall_recovery','supervisor_pid':owner,
+                              'active_case_children':0,'generation_requests_restarted':False}),flush=True)
+        elif (owner==recovery_pid and recovery_started is not None
+              and time.monotonic()-recovery_started>=60
+              and recover_disk_dispatcher(owner,root/'status.json',identity,a.dispatcher_stale_seconds,
+                                          signal_number=signal.SIGKILL)):
+            recovery_started=None;recovering=True
+            print(json.dumps({'event':'dispatcher_disk_stall_escalation','supervisor_pid':owner,
                               'active_case_children':0,'generation_requests_restarted':False}),flush=True)
         active=child is not None and child.poll() is None
         if not active and not alive(owner,identity):
