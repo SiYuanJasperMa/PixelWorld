@@ -137,6 +137,59 @@ class UsageMonitor:
                 'observed_overshoot_tokens': max(0, self.total-self.limit) if self.record_count else None}
 
 
+class ResponseUsageBudget:
+    """After-request budget for a case-scoped Responses transport.
+
+    The transport must serialize requests for this case and check can_dispatch
+    before forwarding each one. An in-flight response can overshoot; charge
+    that response in full rather than treating a requested maximum as a bill.
+    """
+
+    def __init__(self, limit: int, prior_output: int = 0):
+        if type(limit) is not int or limit <= 0 or type(prior_output) is not int or prior_output < 0:
+            raise ValueError('Invalid output-token budget or prior usage')
+        self.limit = limit
+        self.prior_output = prior_output
+        self._outputs: dict[str, int] = {}
+        self.output = 0
+        self.unavailable = False
+        self.crossed_utc = utc_now() if prior_output >= limit else None
+
+    @property
+    def total(self):
+        return self.prior_output + self.output
+
+    @property
+    def can_dispatch(self):
+        return self.crossed_utc is None and not self.unavailable
+
+    def record(self, response: dict):
+        identity = response.get('id')
+        usage = response.get('usage')
+        tokens = usage.get('output_tokens') if isinstance(usage, dict) else None
+        if (not isinstance(identity, str) or not identity or type(tokens) is not int or tokens < 0 or
+                response.get('status') not in ('completed', 'incomplete', 'failed')):
+            self.unavailable = True
+            return
+        if identity in self._outputs:
+            if self._outputs[identity] != tokens:
+                self.unavailable = True
+            return
+        self._outputs[identity] = tokens
+        self.output += tokens
+        if self.total >= self.limit and self.crossed_utc is None:
+            self.crossed_utc = utc_now()
+
+    def report(self):
+        return {'policy': 'api-output-tokens-v1', 'enforcement': 'after_request_usage',
+                'budget_tokens': self.limit, 'prior_output_tokens': self.prior_output,
+                'reported_output_tokens': self.total if self._outputs or self.prior_output else None,
+                'request_usage_records': len(self._outputs), 'source': 'Responses terminal API usage',
+                'exhausted': self.crossed_utc is not None, 'crossed_utc': self.crossed_utc,
+                'observed_overshoot_tokens': max(0, self.total-self.limit) if self._outputs else None,
+                'usage_unavailable': self.unavailable}
+
+
 def stop_agent(agent: subprocess.Popen):
     try:
         group = os.getpgid(agent.pid) == agent.pid

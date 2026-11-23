@@ -11,7 +11,7 @@ import pytest
 from pixelworld.config import load_config
 from pixelworld.runner import _wait, run_case
 from pixelworld.snapshot import candidate_key, freeze
-from pixelworld.token_budget import UsageMonitor, restore_candidate
+from pixelworld.token_budget import ResponseUsageBudget, UsageMonitor, restore_candidate
 from pixelworld.media import DEFAULT_MEDIA
 from test_audit import make_artifacts
 
@@ -29,6 +29,27 @@ def event(output, stamp, response='r', delta=None):
             'payload': {'session_id': 's', 'turn_id': 't', 'response_id': response,
                         'usage': {'output_tokens': output if delta is None else delta},
                         'thread_token_usage': {'output_tokens': output}}}
+
+
+def test_response_budget_charges_full_overshoot_and_blocks_another_request():
+    budget = ResponseUsageBudget(64, prior_output=11)
+    response = {'id': 'r1', 'status': 'completed', 'usage': {'output_tokens': 3447}}
+    assert budget.can_dispatch
+    budget.record(response)
+    budget.record(response)
+    assert not budget.can_dispatch and budget.report()['exhausted']
+    assert budget.report()['reported_output_tokens'] == 3458
+    assert budget.report()['observed_overshoot_tokens'] == 3394
+    assert budget.report()['request_usage_records'] == 1
+
+
+def test_response_budget_fails_closed_on_unknown_usage_or_exhausted_prior_attempt():
+    budget = ResponseUsageBudget(64)
+    budget.record({'id': 'r1', 'status': 'incomplete', 'usage': None})
+    assert not budget.can_dispatch and budget.report()['usage_unavailable']
+    assert budget.report()['reported_output_tokens'] is None
+    prior = ResponseUsageBudget(64, prior_output=64)
+    assert not prior.can_dispatch and prior.report()['exhausted']
 
 
 def test_default_is_1m_and_legacy_is_explicit(tmp_path):

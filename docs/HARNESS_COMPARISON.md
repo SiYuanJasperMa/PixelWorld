@@ -46,8 +46,10 @@ standard four-second editing contract rather than adopting five seconds.
 ## Controlled variables
 
 The user task text, generation rules, input hashes, model endpoint and exact
-model ID, requested high reasoning effort, 1M reported output-token limit per
-real attempt, five-real-attempt policy, and evaluator remain identical.
+model ID, requested high reasoning effort, 1M reported output-token
+budget in the same retry window, five-real-attempt policy, and evaluator
+remain identical. Codex checks the budget after receiving API usage; the
+response already in flight can cross the threshold and is charged in full.
 Infrastructure errors do not spend the model-attempt allowance. Existing
 case-specific rescue authorizations do not automatically extend to these new
 cohorts. Accepted Codex videos are never regenerated for this comparison.
@@ -119,8 +121,11 @@ matched and read back for all 18 requests. The first image hash, exact model
 route, and requested high effort matched. OpenCode emitted only 17 terminal
 step usage events: the last response matched its final text exactly but had
 no native usage event. Use upstream-reported tokens (including that request)
-for cost and budget accounting. Budget cutoff and full official scoring
-remain unverified.
+for cost and budget accounting. On this route an explicit 53-token maximum
+was forwarded but the provider reported 3,447 output tokens. The shared
+post-response ledger replay charges the actual usage, accounts for overshoot,
+and rejects another dispatch once exhausted. This is not evidence of a hard
+provider cap or of a full native matrix integration.
 
 The Claude Code `2.1.304` pinned binary passed text and vision route probes
 with tools disabled, then passed a native case-tool fixture: it read a case
@@ -128,7 +133,11 @@ marker, observed an image returned by the MCP tool, and wrote the correct
 combined proof. The Messages bridge preserves ordinary text, input and
 tool-result images, and paired tool IDs; it does not synthesize native signed
 thinking blocks from the upstream provider. Keep both wire representations,
-and do not treat these bridged runs as unrestricted Claude Code.
+and do not treat these bridged runs as unrestricted Claude Code. The first
+video smoke timed out after saving 120 valid frames; the separate retry with
+a longer wrapper deadline exited normally, verified all 25 request/reply
+pairs and the input image hash, and passed the same RGB validation and
+pinned official per-view evaluator. Neither smoke constitutes a full score.
 
 ## Preparation evidence and historical Pi pilot
 
