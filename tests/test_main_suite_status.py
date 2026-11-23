@@ -1,7 +1,9 @@
+import json
+
 import pytest
 
 from tools.build_main_suite_status import (
-    JUDGE, legacy_score, phygen_score, public_counts, rbench_score,
+    JUDGE, harness_progress, legacy_score, phygen_score, public_counts, rbench_score,
 )
 
 
@@ -38,3 +40,22 @@ def test_pes_requires_full129_and_keeps_negative_or_zero_values():
     assert legacy_score(state, 129, 'PES') == 0.
     with pytest.raises(ValueError):
         public_counts({'counts': {'complete': 129, 'pending': 1}}, 129)
+
+
+def test_harness_progress_exposes_only_registered_counts(tmp_path):
+    model = 'gpt62-sol'
+    config, runs = tmp_path/'opencode.json', tmp_path/'runs'
+    runs.mkdir()
+    config.write_text(json.dumps({'runs_root':str(runs)}))
+    registry = {'models':{model:{'opencode':{'config':str(config),'registered_cases':198,
+                'full_supervisor_started':True}}}}
+    (tmp_path/'dispatch.json').write_text(json.dumps(registry))
+    (runs/'status.json').write_text(json.dumps({'cases':198,'groups':{f'{model}/vision-agent':{
+        'model_key':model,'counts':{'complete':2,'running':1,'pending':195},'private_location':'do not copy'}}}))
+    result = harness_progress(tmp_path)[model]['opencode']
+    assert result['state'] == 'full_released' and result['counts']['complete'] == 2
+    assert set(result) == {'state','counts','expected','full_released'}
+    registry['models'][model]['opencode']['config'] = str(tmp_path.parent/'outside.json')
+    (tmp_path/'dispatch.json').write_text(json.dumps(registry))
+    with pytest.raises(ValueError,match='Unregistered native matrix configuration'):
+        harness_progress(tmp_path)

@@ -83,6 +83,56 @@ def rbench_score(report, model):
     return scored, finite_score(row.get('mean')) if full else None
 
 
+def harness_progress(root):
+    """Project only model labels, case counts, and launch state from private runs."""
+    joined = {}
+    registry = read(root/'dispatch.json').get('models', {})
+    for model in ROSTER:
+        if model not in registry:
+            continue
+        matrix = {}
+        for harness in ('opencode','claude_code'):
+            entry = registry[model].get(harness)
+            if not entry:
+                continue
+            expected = entry['registered_cases']
+            if expected != BENCHMARKS['physics_iq'][1]:
+                raise ValueError('Unexpected local native matrix scope')
+            config_path = Path(entry['config']).resolve()
+            if not config_path.is_relative_to(root.resolve()):
+                raise ValueError('Unregistered native matrix configuration')
+            config = read(config_path)
+            runs = Path(config['runs_root']).resolve()
+            if not runs.is_relative_to(root.resolve()):
+                raise ValueError('Unregistered native matrix output directory')
+            released = entry.get('full_supervisor_started') is True
+            state = 'registered'
+            counts = public_counts({}, expected)['counts']
+            if released:
+                snap = read(runs/'status.json')
+                group = snap.get('groups', {}).get(f'{model}/{TRACK}')
+                if group is not None and snap.get('cases') == expected and group.get('model_key') == model:
+                    counts = public_counts(group, expected)['counts']
+                    state = 'full_complete' if counts['complete'] == expected else 'full_released'
+                else:
+                    state = 'full_released'
+            elif entry.get('acceptance_pid'):
+                case = entry['canary_case']
+                if not isinstance(case, str) or not case.isascii() or not case.isdecimal():
+                    raise ValueError('Invalid native canary case identity')
+                attempt = read(runs/model/TRACK/f'case_{case}_attempt_01/run_manifest.json')
+                try:
+                    cmdline = (Path('/proc')/str(int(entry['acceptance_pid']))/'cmdline').read_bytes()
+                except OSError:
+                    cmdline = b''
+                active = str(config_path).encode() in cmdline.split(b'\0')
+                state = {'failed':'canary_failed','complete':'canary_scoring'}.get(
+                    attempt.get('status'),'canary_running' if active else 'canary_waiting')
+            matrix[harness] = {'state':state,'counts':counts,'expected':expected,'full_released':released}
+        joined[model] = matrix
+    return joined
+
+
 def build(nightly, publication):
     cat = read(publication / 'catalogue.json')
     ev = read(publication / 'evaluation.json')
@@ -146,6 +196,7 @@ def build(nightly, publication):
         references[key] = scores
     return {'protocol': 'pixelworld-main-suite-20261124', 'updated_utc': utc_now(), 'models': rows,
             'references': references,
+            'harness_progress': harness_progress(nightly/'controlled_harness_matrix'),
             'photographic_progress': {key: photo.get(key) for key in ('completed_calls', 'expected_calls')},
             'photographic_judge': JUDGE}
 
@@ -202,6 +253,25 @@ def render(status):
         '<td>—</td>' if cells[k].get('fvd') is None else f'<td>{cells[k]["fvd"]:.2f}</td>'
         for k in ('physics_iq', 'pcve')) + '</tr>' for model, cells in status['models'].items()
         if any(cells[k].get('fvd') is not None for k in ('physics_iq', 'pcve')))
+    def harness_cell(entry):
+        if not entry:
+            return '<td>—</td>'
+        counts = entry['counts']
+        if entry['full_released']:
+            return (f"<td><b>{counts['complete']} / {entry['expected']}</b><br><span class='small muted'>"
+                    f"{counts['running']} 运行 · {counts['pending']} 待生成 · {counts['exhausted']} 终止</span></td>")
+        phase = {'canary_running':'验收生成中','canary_scoring':'验收评分 / 归档','canary_failed':'验收未通过',
+                 'canary_waiting':'验收待核查','registered':'已登记'}[entry['state']]
+        return f'<td>{phase}<br><span class="small muted">未发全量</span></td>'
+
+    harness = status.get('harness_progress', {})
+    harness_rows = ''.join(f"<tr><th>{LABELS[model]}</th><td><b>{status['models'][model]['physics_iq']['counts']['complete']} / 198</b></td>" +
+                 ''.join(harness_cell(entries.get(k)) for k in ('opencode','claude_code'))+'</tr>'
+                 for model,entries in harness.items())
+    harness_section = (f'<details id="harness-progress"><summary>Physics-IQ · Harness 对照进度</summary>'
+        '<p class="small muted">Vision · 同模型与输入 · 720p / 24 FPS。只显示有效交付，验收样本不是全量分数。</p>'
+        '<div class="table"><table><thead><tr><th>模型</th><th>Codex 基准</th><th>OpenCode</th><th>Claude Code</th>'
+        f'</tr></thead><tbody>{harness_rows}</tbody></table></div></details>' if harness_rows else '')
     photo = status['photographic_progress']
     return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="90"><meta name="pixelworld-protocol" content="pixelworld-main-suite-20261124">
@@ -214,6 +284,7 @@ def render(status):
 <div class="table"><table><thead><tr><th>模型</th>{heads}</tr></thead><tbody>{rows}</tbody></table></div>
 <p class="small muted">只有评完全部样本才显示总分。RBench 只生成一个候选，使用 GPT-6.1-Sol 的官方 GPT 分支适配，不是 GPT + Qwen 联合榜分。
 PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混排。PCVE 采用 Full 129；PES 校准与论文参照见详情页。</p>
+{harness_section}
 <h2>视频质量 · 独立于物理分</h2><p>GPT-6.1-Sol 画质判分进度：{photo.get('completed_calls') or 0} / {photo.get('expected_calls') or 0} 次调用。</p>
 <div class="table"><table><thead><tr><th>模型</th><th>Physics-IQ FVD ↓</th><th>PCVE FVD ↓</th></tr></thead><tbody>{fvd_rows}</tbody></table></div>
 <p class="small muted">FVD 使用各 benchmark 对应的参考集，不能跨 benchmark 比较。</p></main>
