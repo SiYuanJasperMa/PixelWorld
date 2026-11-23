@@ -58,7 +58,11 @@ python -m tools.evaluate_rbench_common_gpt61 --official-repo "$REVIDGEN" \
 
 `PIXELWORLD_JUDGE_API_KEY` is needed for RBench and the PhyGen opt-in
 `--judge gpt61-sol --responses-base-url ...`. A one-case acceptance run with
-`--acceptance-only` never claims a complete subset score.
+`--acceptance-only` never claims a complete subset score. For a running RBench
+matrix, `python -m tools.watch_rbench_common_scores --help` documents the
+incremental scorer: it looks up accepted single candidates, reuses a matching
+pilot score, never asks the generator for another attempt, and withholds the
+50-case mean while generation or judge cases are missing.
 
 ## Harness and quality analysis
 

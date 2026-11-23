@@ -189,6 +189,34 @@ _LITERAL_SED_EDIT = re.compile(
 )
 
 
+def _division_positions(body: str, *, embedded: bool = False) -> set[int]:
+    offsets = [0]
+    for line in body.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(body).readline))
+    except (tokenize.TokenError, IndentationError):
+        return set()
+    divisions = set()
+    for token in tokens:
+        start = offsets[token.start[0]-1] + token.start[1]
+        if token.type == tokenize.OP and token.string in ('/', '//'):
+            divisions.update(range(start, start + len(token.string)))
+        elif not embedded and token.type == tokenize.STRING and token.string.startswith(("'''", '"""')) and '\n' in token.string:
+            # Agents sometimes replace a block of generated Python with a
+            # literal code block. Re-lex only an exact, parseable body so
+            # actual path strings within that code remain subject to audit.
+            inner = token.string[3:-3]
+            try:
+                if ast.literal_eval(token.string) != inner:
+                    continue
+                ast.parse(inner)
+            except (SyntaxError, ValueError):
+                continue
+            divisions.update(start + 3 + index for index in _division_positions(inner, embedded=True))
+    return divisions
+
+
 def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] | None = None,
                           working_directory: str | Path | None = None) -> list[str]:
     # Codex logs shell invocations as /bin/bash -lc "<actual script>".
@@ -203,15 +231,7 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
     # Restrict lexical parsing to Python heredoc bodies; shell paths and
     # quoted Python filenames remain subject to the original checks.
     for body_start, body in _python_sections(command, include_written=True):
-        offsets=[0]
-        for line in body.splitlines(keepends=True):offsets.append(offsets[-1]+len(line))
-        try:
-            tokens=list(tokenize.generate_tokens(io.StringIO(body).readline))
-        except (tokenize.TokenError,IndentationError):continue
-        for token in tokens:
-            if token.type == tokenize.OP and token.string in {"/", "//"}:
-                start = body_start + offsets[token.start[0]-1] + token.start[1]
-                divisions.update(range(start, start + len(token.string)))
+        divisions.update(body_start + index for index in _division_positions(body))
     # A literal sed substitution has two operands separated by slash
     # delimiters. Do not join the tail of one operand to the head of the
     # next and call it a path; leave both operands and the target auditable.
