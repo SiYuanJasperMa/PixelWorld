@@ -114,8 +114,13 @@ fixture calls successfully read, viewed, wrote, and checked a case file via
 the bounded MCP server. A standard Physics-IQ case also produced 120 frames
 at 1280×720 and 24 FPS; the common validator verified exact first-frame
 preservation and PNG/tensor identity. The pinned official evaluator completed
-its per-view smoke on that delivery. This does not establish budget
-enforcement, raw API linkage, or the full official score.
+its per-view smoke on that delivery. The original proxy input/output was
+matched and read back for all 18 requests. The first image hash, exact model
+route, and requested high effort matched. OpenCode emitted only 17 terminal
+step usage events: the last response matched its final text exactly but had
+no native usage event. Use upstream-reported tokens (including that request)
+for cost and budget accounting. Budget cutoff and full official scoring
+remain unverified.
 
 The Claude Code `2.1.304` pinned binary passed text and vision route probes
 with tools disabled, then passed a native case-tool fixture: it read a case
