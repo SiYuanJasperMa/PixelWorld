@@ -5,6 +5,7 @@ choices is recorded explicitly. This is not the legacy one-shot1-5 judge.
 """
 import argparse
 import base64
+import fcntl
 from concurrent.futures import ThreadPoolExecutor,as_completed
 import hashlib
 import io
@@ -207,7 +208,12 @@ def main():
     p.add_argument('--models',nargs='+',default=['seedance25-v1','gpt61-sol','gpt56-sol','gpt56-luna','gpt56-terra'])
     p.add_argument('--judge',choices=['gpt55','gpt61-sol'],default='gpt55')
     p.add_argument('--responses-base-url',help='Responses endpoint for gpt61-sol; key from PIXELWORLD_JUDGE_API_KEY')
-    args=p.parse_args();b=args.bundle.resolve();qroot=ROOT/'vendor/phygenbench-official-source/PhyGenBench'
+    args=p.parse_args()
+    if (args.workers < 1 or len(set(args.cases)) != len(args.cases) or not all(1 <= c <= 160 for c in args.cases)
+        or len(set(args.models)) != len(args.models)):
+        p.error('Use distinct official case IDs, distinct models, and at least one worker')
+    args.cases.sort()
+    b=args.bundle.resolve();qroot=ROOT/'vendor/phygenbench-official-source/PhyGenBench'
     sets=[json.loads((qroot/n).read_text())for n in ['single_question.json','multi_question.json','video_question.json']]
     if args.judge == 'gpt61-sol':
         key=os.environ.get('PIXELWORLD_JUDGE_API_KEY')
@@ -227,28 +233,53 @@ def main():
             sources[model]=model_source(b,model,case)
         for model,source in sources.items():jobs.append((case,model,source))
     args.output.mkdir(parents=True,exist_ok=True)
+    def save(phase, reused):
+        model_scores={}
+        for model in args.models:
+            scores=[r['overall']for r in rows if r['model']==model]
+            if scores:
+                model_scores[model]={'cases':len(scores),'mean':statistics.fmean(scores)}
+        status={'phase':phase,'completed_jobs':len(rows),'expected_jobs':len(jobs),
+                'reused_jobs':reused,'failures':failures}
+        atomic_json(args.output/'summary.json',{**status,'version':version,'calibration_only':True,'cases':args.cases,
+            'judge':judge,'expected_cases_per_model':len(args.cases),
+            'full160':set(args.cases)==set(range(1,161)),'models':model_scores})
+        if phase != 'running':
+            status['finished_utc']=utc_now()
+        atomic_json(args.output/'execution.json',status)
+
     def work(job):
         case,model,source=job
-        target=args.output/model/f'{case:03d}.json'
-        if target.exists():
-            row=json.loads(target.read_text())
-            if (row.get('version'),row.get('judge'),row.get('source')) != (version,judge,str(source)):
-                raise ValueError('Existing score uses a different judge, protocol, or source; use a separate output directory')
-            return row
         return evaluate(client,source,[s[case-1]for s in sets],args.output,model,case)
-    with ThreadPoolExecutor(max_workers=args.workers)as pool:
-        futures={pool.submit(work,job):job for job in jobs}
-        for future in as_completed(futures):
-            case,model,_=futures[future]
-            try:row=future.result()
-            except Exception as e:
-                failures.append({'model':model,'case':case,'error':str(e)[-1600:]});print(model,case,'failed',str(e)[-300:],flush=True);continue
-            rows.append(row);print(model,case,row['stage_scores'],row['overall'],flush=True)
-            atomic_json(args.output/'summary.json',{'version':version,'calibration_only':True,'cases':args.cases,
-                'completed_jobs':len(rows),'expected_jobs':len(jobs),'failures':failures,
-                'judge':judge,'expected_cases_per_model':len(args.cases),
-                'full160':len(args.cases)==160,'models':{m:{'cases':sum(r['model']==m for r in rows),'mean':statistics.fmean(r['overall']for r in rows if r['model']==m)}for m in args.models if any(r['model']==m for r in rows)}})
-    atomic_json(args.output/'execution.json',{'phase':'finished'if not failures else'failed','completed_jobs':len(rows),'expected_jobs':len(jobs),'failures':failures,'finished_utc':utc_now()})
+
+    with (args.output/'.judge.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        pending=[]
+        for case,model,source in jobs:
+            target=args.output/model/f'{case:03d}.json'
+            if not target.is_file():
+                pending.append((case,model,source));continue
+            row=json.loads(target.read_text())
+            if (row.get('version'),row.get('judge'),row.get('source'),row.get('model'),row.get('case')) != (
+                version,judge,str(source),model,case
+            ) or len(row.get('stage_scores',[])) != 3:
+                raise ValueError('Existing score uses a different judge, protocol, case, or source; use a separate output directory')
+            rows.append(row)
+        reused=len(rows)
+        save('running',reused)
+        with ThreadPoolExecutor(max_workers=args.workers)as pool:
+            futures={pool.submit(work,job):job for job in pending}
+            for future in as_completed(futures):
+                case,model,_=futures[future]
+                try:
+                    row=future.result()
+                except Exception as e:
+                    failures.append({'model':model,'case':case,'error':str(e)[-1600:]})
+                    print(model,case,'failed',str(e)[-300:],flush=True)
+                else:
+                    rows.append(row);print(model,case,row['stage_scores'],row['overall'],flush=True)
+                save('running',reused)
+        save('failed' if failures else 'finished',reused)
 
 
 if __name__=='__main__':main()
