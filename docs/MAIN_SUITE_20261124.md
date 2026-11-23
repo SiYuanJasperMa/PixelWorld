@@ -75,6 +75,28 @@ a matched reference video pool; select and document a suitable real reference
 set before reporting RBench FVD. Reference-set FVD values are not comparable
 across tasks. The hypothesized T2V/I2V/V2V quality ordering is not a result.
 
+The photographic runner uses the original anchored 1–5 appearance rubric,
+eight video frames, anonymous labels, and both presentation orders. Its
+manifest pairs by benchmark and case ID; missing clips are not imputed. For
+I3D FVD, the Physics-IQ runner checks the official 198-way take-1 file join,
+uses sixteen frames from each submitted/reference video, and withholds results
+for incomplete model cohorts. A `--smoke` result is never a full score. Reuse
+PCVE FVD only from the matching pinned official 129-case metrics; do not rerun
+an identical evaluation simply to copy that score into a quality panel.
+
+```bash
+python -m tools.evaluate_video_photographic_gpt61 --manifest "$QUALITY_INPUT_MANIFEST" \
+  --output "$PHOTO_OUTPUT" --base-url "$JUDGE_RESPONSES_BASE_URL"
+python -m tools.evaluate_physics_iq_fvd --manifest "$QUALITY_INPUT_MANIFEST" \
+  --references "$PHYSIQ_OFFICIAL_24FPS_TESTING_DIR" --i3d "$I3D_CHECKPOINT" \
+  --output "$PHYSIQ_FVD_OUTPUT" --device cuda
+```
+
+Each manifest video needs `benchmark`, `case`, `model`, `source`, `identity`,
+`frames`, and `fps`. The source must identify the accepted run or a matched
+video comparator. Preserve the manifest, score version, and reference scope
+with any published result.
+
 ## Private verified archives
 
 Opt in with `PIXELWORLD_VERIFIED_ARCHIVE_ROOT` pointing at durable private
