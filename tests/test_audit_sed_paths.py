@@ -14,3 +14,8 @@ def test_sed_absolute_target_and_write_flag_still_audited(tmp_path):
 def test_embedded_literal_python_operators_preserve_real_absolute_paths(tmp_path):
     command = "python - <<'PY'\ncontent = '''\nshape = (W//3,H//3)\npath = '/outside/case.py'\n'''\nPY\n"
     assert outside_command_paths(command, tmp_path) == ['/outside/case.py']
+
+
+def test_literal_sed_address_is_not_a_path_but_absolute_target_is(tmp_path):
+    assert outside_command_paths("sed -i '/before=line/d' generate.py", tmp_path) == []
+    assert '/outside/case.py' in outside_command_paths("sed -i '/before=line/d' /outside/case.py", tmp_path)

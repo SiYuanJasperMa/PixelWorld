@@ -183,9 +183,11 @@ def unsafe_parent_references(command: str, workspace: Path, working_directory: s
     except (OSError,ValueError):return True
 
 
-_LITERAL_SED_EDIT = re.compile(
-    r"(?m)^\s*sed\s+-i\s+'s(?P<first>/)(?:\\.|[^/'\\\n])*(?P<middle>/)"
-    r"(?:\\.|[^/'\\\n])*(?P<last>/)[0-9gIp]*'\s+[A-Za-z0-9_.-]+\s*$"
+_LITERAL_SED_EDITS = (
+    re.compile(r"(?m)^[ \t]*sed[ \t]+-i[ \t]+'s(?P<first>/)(?:\\.|[^/'\\\n])*(?P<middle>/)"
+               r"(?:\\.|[^/'\\\n])*(?P<last>/)[0-9gIp]*'[ \t]+[A-Za-z0-9_.-]+[ \t]*$"),
+    re.compile(r"(?m)^[ \t]*sed[ \t]+-i[ \t]+'(?P<first>/)(?:\\.|[^/'\\\n])+(?P<last>/)d'"
+               r"[ \t]+[A-Za-z0-9_.-]+[ \t]*$"),
 )
 
 
@@ -236,9 +238,10 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
     # delimiters. Do not join the tail of one operand to the head of the
     # next and call it a path; leave both operands and the target auditable.
     path_text = list(command)
-    for edit in _LITERAL_SED_EDIT.finditer(command):
-        for delimiter in ('first', 'middle', 'last'):
-            path_text[edit.start(delimiter)] = ' '
+    for pattern in _LITERAL_SED_EDITS:
+        for edit in pattern.finditer(command):
+            for delimiter in pattern.groupindex:
+                path_text[edit.start(delimiter)] = ' '
     for match in ABSOLUTE_PATH_PATTERN.finditer(''.join(path_text)):
         if match.start() in divisions:continue
         value = match.group(1).rstrip(".,:)")
