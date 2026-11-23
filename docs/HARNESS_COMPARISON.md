@@ -123,9 +123,12 @@ step usage events: the last response matched its final text exactly but had
 no native usage event. Use upstream-reported tokens (including that request)
 for cost and budget accounting. On this route an explicit 53-token maximum
 was forwarded but the provider reported 3,447 output tokens. The shared
-post-response ledger replay charges the actual usage, accounts for overshoot,
-and rejects another dispatch once exhausted. This is not evidence of a hard
-provider cap or of a full native matrix integration.
+post-response ledger charges the actual usage and accounts for overshoot.
+A separate live OpenCode probe with a 64-token test threshold recorded 128
+reported output tokens and rejected a subsequent request locally, without an
+additional outbound request. The case-scoped relay preserves the request and
+stream bytes and leaves API 429 responses retryable. This probe did not run a
+video; a shared, budget-enforced full-matrix launcher is still required.
 
 The Claude Code `2.1.304` pinned binary passed text and vision route probes
 with tools disabled, then passed a native case-tool fixture: it read a case
