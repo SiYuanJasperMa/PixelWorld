@@ -142,6 +142,23 @@ a longer wrapper deadline exited normally, verified all 25 request/reply
 pairs and the input image hash, and passed the same RGB validation and
 pinned official per-view evaluator. Neither smoke constitutes a full score.
 
+The shared acceptance entry point runs the two pinned clients against the
+same validated case snapshot and post-response budget gate:
+
+```bash
+python -m pixelworld.controlled_harness --backend opencode \
+  --locks "$NATIVE_EXECUTABLE_LOCKS" --runtime "$PINNED_CASE_RUNTIME" \
+  --source "$ACCEPTED_CODEX_CASE" --output "$NEW_PRIVATE_RUN_DIRECTORY" \
+  --upstream "$LOOPBACK_RESPONSES_ENDPOINT" --model "$EXACT_MODEL" \
+  --effort high --budget 1000000
+```
+
+Repeat with `--backend claude_code` and a separate output directory. Provide
+`PIXELWORLD_API_KEY` privately to the launcher; the case tools do not receive
+it. Raw Responses records, native events, and (for Claude Code) the translated
+Messages wire are kept separately. Do not interpret a one-case receipt as
+permission to dispatch a full matrix.
+
 ## Preparation evidence and historical Pi pilot
 
 Both frozen executables passed their version checks. A no-tool, non-benchmark
