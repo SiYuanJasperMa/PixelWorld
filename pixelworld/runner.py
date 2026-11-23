@@ -791,4 +791,6 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         manifest['recording_bundle'] = {'schema': 'pixelworld-recording-v1', 'status': 'error',
                                         'reason': str(error), 'training_ready': False}
     atomic_json(run / 'run_manifest.json', manifest)
+    from .run_archive import archive_if_configured
+    archive_if_configured(run, benchmark=config.protocol)
     return manifest

@@ -50,3 +50,23 @@ def test_harness_preparation_is_visible_without_inflating_running_queue(tmp_path
     assert result['planned_total'] == 198
     assert result['conditions'][0]['planned']
     assert result['conditions'][0]['counts']['running'] == 0
+
+
+def test_paused_harness_counts_documented_infrastructure_retries_as_pending(tmp_path):
+    bundle = tmp_path / 'bundle'
+    web = tmp_path / 'web'
+    web.mkdir()
+    (bundle / 'configs').mkdir(parents=True)
+    (bundle / 'bundle.json').write_text(json.dumps({'models': [
+        {'key': 'm', 'model': 'model', 'analysis': True}]}))
+    (bundle / 'configs/physics_iq_harness_pi_analysis.json').write_text('{}')
+    root = bundle / 'analysis_generations/physics_iq_harness_pi'
+    root.mkdir(parents=True)
+    (root / 'status.json').write_text(json.dumps({'dispatch_paused': True, 'groups': {
+        'm/vision-agent': {'counts': {'complete': 1, 'exhausted': 3},
+                           'infrastructure_retry_pending': 2}}}))
+    result = build(web, bundle)
+    condition = result['conditions'][0]
+    assert condition['paused'] is True
+    assert condition['counts'] == {'complete': 1, 'running': 0, 'pending': 196, 'exhausted': 1}
+    assert result['totals'] == {'complete': 1, 'running': 0, 'pending': 196, 'exhausted': 1, 'total': 198}

@@ -56,10 +56,12 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
     evaluation = read(web_root / 'evaluation.json')
     evaluation_rows = {(row.get('suite'), row.get('model_key'), row.get('track')): row
                        for row in evaluation.get('cohorts', [])}
+    harness_plan = read(run_root / 'analysis_plans/harness_comparison.json')
+    archived_harness_ids = set(harness_plan.get('archived_condition_ids', []))
     conditions = []
     totals = {"complete": 0, "running": 0, "pending": 0, "exhausted": 0, "total": 0}
     for spec in CONDITIONS:
-        if not (run_root/'configs'/spec['config']).is_file():continue
+        if spec['id'] in archived_harness_ids or not (run_root/'configs'/spec['config']).is_file():continue
         status = read(run_root / "analysis_generations" / spec["runs"] / "status.json")
         config=read(run_root/'configs'/spec['config'])
         first=(config.get('case_ids')or[None])[0]
@@ -76,6 +78,12 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
             group_key = f"{key}/{spec['track']}"
             group = groups.get(group_key, {})
             row_counts = normalized(group.get("counts", {}), spec["cases"])
+            # A closed dispatch window is not a terminal model failure when a
+            # documented infrastructure interruption leaves retries available.
+            infra_pending = group.get("infrastructure_retry_pending", 0)
+            if type(infra_pending) is int and 0 < infra_pending <= row_counts["exhausted"]:
+                row_counts["exhausted"] -= infra_pending
+                row_counts["pending"] += infra_pending
             row_counts["pending"] += max(0, spec["cases"] - sum(row_counts.values()))
             for name in counts:
                 counts[name] += row_counts[name]
@@ -101,7 +109,7 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
         conditions.append({
             **spec, "total": total, "counts": counts,
             "page":page,"output_text":output_text,
-            "paused": spec["config"] in paused,
+            "paused": spec["config"] in paused or status.get("dispatch_paused") is True,
             "updated_utc": status.get("updated_utc"),
             "models": rows,
             "scored_models": sum(row['evaluation']['full_scope_scored'] for row in rows),
@@ -110,9 +118,9 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
         for name in totals:
             totals[name] += counts.get(name, 0)
         totals["total"] += total
-    harness_plans = read(run_root / 'analysis_plans/harness_comparison.json').get('conditions', [])
+    harness_plans = harness_plan.get('conditions', [])
     for spec in [*PLANNED, *harness_plans]:
-        if any(c['id']==spec.get('id') for c in conditions):
+        if spec.get('id') in archived_harness_ids or any(c['id']==spec.get('id') for c in conditions):
             continue
         if not spec.get('planned'):
             continue

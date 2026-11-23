@@ -11,9 +11,16 @@ are configuration, so the same cleanroom can run any model exposed by a Codex
 installation or an OpenAI Responses-compatible gateway. PixelWorld does not
 install, vendor, or replace Codex; it invokes the user's own executable.
 
-## Current main experiment
+## Main-suite protocol update
 
-| Item | Current setting |
+The new study uses **Physics-IQ, RBench Common Manipulation, PhyGenBench,
+and PCVE-RigidBench**. See the [updated protocol and collaborator runbook](docs/MAIN_SUITE_20261124.md)
+for the pinned subset, judge adaptations, and admission gates. Existing
+RoboJudge results remain in the historical freeze below.
+
+## November 17 historical main-experiment freeze
+
+| Item | Frozen setting |
 |---|---|
 | Benchmarks | Physics-IQ Verified (198), RoboJudge shared-50 (50), PCVE-RigidBench (129), PhyGenBench T2V (160) |
 | Main track | `vision-agent` (paper-facing name: **Vision**) |
@@ -46,15 +53,16 @@ public benchmark reference is
 
 ## Start here
 
+- [Current main-suite update and collaborator runbook](docs/MAIN_SUITE_20261124.md)
 - [Documentation index](docs/INDEX.md)
-- [Final experiment protocol](docs/FINAL_EXPERIMENT_PROTOCOL.md)
+- [Historical experiment freeze and analysis settings](docs/FINAL_EXPERIMENT_PROTOCOL.md)
 - [Main benchmark reference](docs/MAIN_EXPERIMENT_PROTOCOL.md)
 - [Automatic scoring and GPU dispatch](docs/AUTOMATIC_EVALUATION.md)
 - [Retained-result provenance and configuration audits](docs/RESULT_PROVENANCE.md)
 - [Add a model](docs/ADD_MODEL_RUNBOOK.md)
 - [Copy-paste collaborator handoff](docs/COLLABORATOR_HANDOFF.md)
 - [Codex integration](docs/CODEX.md)
-- [Codex / Pi / OpenCode harness comparison and readiness](docs/HARNESS_COMPARISON.md)
+- [Codex / OpenCode / Claude Code harness comparison and readiness](docs/HARNESS_COMPARISON.md)
 - [Filesystem isolation](docs/FILESYSTEM_ISOLATION.md)
 - [Agent workspace and task contract](docs/WORKSPACE_AND_TASK.md)
 - [Paper framework](docs/FRAMEWORK_FOR_PAPER.md)

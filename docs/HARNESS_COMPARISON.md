@@ -11,24 +11,22 @@ thinking-level, and PixelWorld-Flash studies.
 | --- | --- | --- | --- |
 | Codex | 0.169.0 | Existing frozen PixelWorld runtime | Reuse the validated main Vision deliveries |
 | OpenCode | 1.19.6 | `f4e363c8295fa90a03dddc451882fffe8fbce357` | Additional agent harness |
-| Pi | 1.6.0 | `faac585884ae2c013a6b1400f3e9e77f10b34bac` | Additional agent harness |
+| Claude Code | Pending admission | Proprietary binary; executable digest required | Additional black-box harness |
 
-OpenCode and Pi are MIT-licensed. OpenCode provides a provider-independent
-agent loop and headless JSON events. Pi provides a smaller agent loop with
-native code/file tools, image input, JSON/RPC operation, and custom providers.
-Pi 1.6.0 is the current `@earendil-works/pi-coding-agent` package; the older
-`@mariozechner/pi-coding-agent` package is not the selected distribution.
-Node 22.21.1 is fixed for Pi. Package versions, source revisions, distribution
-integrity, and an npm dependency lock accompany the experiment.
+The active comparison is Codex, OpenCode, and Claude Code. OpenCode is
+MIT-licensed and exposes headless JSON events. Claude Code is proprietary and
+is evaluated as a black box, not presented as a source-reproducible harness.
+Lock its executable version and checksum before any benchmark dispatch. Pi
+and DeepSeek Harness are outside this comparison; retain the Pi artifacts as
+historical integration evidence.
 
 Sources:
 
 - [OpenCode release source](https://github.com/anomalyco/opencode/tree/v1.19.6)
 - [OpenCode license](https://github.com/anomalyco/opencode/blob/v1.19.6/LICENSE)
-- [Pi release source](https://github.com/earendil-works/pi/tree/v1.6.0)
-- [Pi CLI](https://github.com/earendil-works/pi/blob/v1.6.0/packages/coding-agent/docs/cli.md)
-- [Pi custom providers](https://github.com/earendil-works/pi/blob/v1.6.0/packages/coding-agent/docs/models.md)
-- [Pi license](https://github.com/earendil-works/pi/blob/v1.6.0/LICENSE)
+- [Claude Code license](https://github.com/anthropics/claude-code/blob/main/LICENSE.md)
+- [Claude Code CLI documentation](https://code.claude.com/docs/en/cli-reference)
+- [Historical Pi source](https://github.com/earendil-works/pi/tree/v1.6.0)
 
 ## Experiment scope
 
@@ -91,14 +89,14 @@ filesystem and tool-network boundary; a working API call alone is insufficient.
    RGB delivery validator and the pinned official evaluator before the full
    cohorts. Technical acceptance must not depend on its physics score.
 
-The runnable backends are Codex, TRAE CLI, and Pi. OpenCode remains a
-preparation entry until its adapter passes the same acceptance checks.
-Pi is restricted to version 1.6.0, a Responses provider, the baseline task,
-and case-only Text/Vision tracks. Its full cohort is registered, but new
-dispatch is currently paused after a cloud-storage quota error. That error
-is infrastructure downtime, not evidence of a model delivery failure.
+OpenCode and Claude Code remain preparation entries until their adapters pass
+these acceptance checks. In particular, a successful Claude Code API request
+does not establish equivalent native model routing, image handling, or case
+isolation. Neither may dispatch full cases on the basis of a text probe.
+GPT-6.2-Sol is an additional planned model only after the same exact route is
+verified across all three harnesses; record missing cells explicitly.
 
-## Preparation evidence
+## Preparation evidence and historical Pi pilot
 
 Both frozen executables passed their version checks. A no-tool, non-benchmark
 API probe through each native CLI returned `HARNESS_READY` from GPT-5.6-Luna.

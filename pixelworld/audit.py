@@ -183,6 +183,12 @@ def unsafe_parent_references(command: str, workspace: Path, working_directory: s
     except (OSError,ValueError):return True
 
 
+_LITERAL_SED_EDIT = re.compile(
+    r"(?m)^\s*sed\s+-i\s+'s(?P<first>/)(?:\\.|[^/'\\\n])*(?P<middle>/)"
+    r"(?:\\.|[^/'\\\n])*(?P<last>/)[0-9gIp]*'\s+[A-Za-z0-9_.-]+\s*$"
+)
+
+
 def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] | None = None,
                           working_directory: str | Path | None = None) -> list[str]:
     # Codex logs shell invocations as /bin/bash -lc "<actual script>".
@@ -206,7 +212,14 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
             if token.type == tokenize.OP and token.string in {"/", "//"}:
                 start = body_start + offsets[token.start[0]-1] + token.start[1]
                 divisions.update(range(start, start + len(token.string)))
-    for match in ABSOLUTE_PATH_PATTERN.finditer(command):
+    # A literal sed substitution has two operands separated by slash
+    # delimiters. Do not join the tail of one operand to the head of the
+    # next and call it a path; leave both operands and the target auditable.
+    path_text = list(command)
+    for edit in _LITERAL_SED_EDIT.finditer(command):
+        for delimiter in ('first', 'middle', 'last'):
+            path_text[edit.start(delimiter)] = ' '
+    for match in ABSOLUTE_PATH_PATTERN.finditer(''.join(path_text)):
         if match.start() in divisions:continue
         value = match.group(1).rstrip(".,:)")
         if value == str(workspace.resolve()) or value.startswith(workspace_value):

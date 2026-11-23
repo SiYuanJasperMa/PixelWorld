@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import os
 import re
 import random
 import statistics
@@ -17,21 +18,65 @@ import time
 
 import numpy as np
 from PIL import Image
-from openai import AzureOpenAI,RateLimitError
+from openai import AzureOpenAI, OpenAI, RateLimitError
 
 from pixelworld.util import atomic_json,sha256,utc_now
 
 
 ROOT=Path(__file__).resolve().parents[1]
 VERSION='phygen-gpt55-three-stage-mcq-v1'
+LEGACY_JUDGE = 'gpt-5.5-2026-04-24'
+GPT61_JUDGE = 'traex/GPT-6.1-Sol'
+GPT61_VERSION = 'phygen-gpt61-sol-three-stage-mcq-v1'
+SYSTEM_PROMPT = 'Judge only visible evidence. Return valid JSON only. Do not infer that an event happened merely because it was requested.'
+
+
+class ResponsesJudge:
+    """Change only the VLM transport; retain the task prompts and score rules."""
+
+    model = GPT61_JUDGE
+    version = GPT61_VERSION
+
+    def __init__(self, client):
+        self.client = client
+
+    def complete(self, content):
+        parts = []
+        for item in content:
+            if item['type'] == 'text':
+                parts.append({'type':'input_text', 'text':item['text']})
+            else:
+                parts.append({'type':'input_image', 'image_url':item['image_url']['url']})
+        reply = self.client.responses.create(
+            model=self.model,
+            input=[{'role':'system', 'content':SYSTEM_PROMPT}, {'role':'user','content':parts}],
+            max_output_tokens=8192,
+        )
+        if reply.status != 'completed':
+            raise ValueError(f'Judge response did not finish: {reply.status}')
+        return reply.output_text, reply
+
+
+def judge_identity(client):
+    if isinstance(client, ResponsesJudge):
+        return client.model, client.version
+    return LEGACY_JUDGE, VERSION
 
 
 def model_source(bundle, model, case):
     if model=='minimax-h3-local':
         return bundle/'baselines/minimax_h3_phygen/videos'/f'phygen_{case:03d}.mp4'
     folder='seedance25_phygen_v1_gpt55/seedance25-v1'if model=='seedance25-v1'else'phygenbench_gpt55_chronological_v2/'+model
-    old=json.loads((bundle/'evaluation'/folder/f'{case:03d}.json').read_text())
-    return Path(old['run'])
+    path=bundle/'evaluation'/folder/f'{case:03d}.json'
+    if path.is_file():
+        return Path(json.loads(path.read_text())['run'])
+    # Closed older three-stage rows can be the authoritative adopted sources
+    # for models that were never registered in the chronological-v2 cohort.
+    prior=bundle/'evaluation/phygenbench_gpt55_three_stage_mcq_v1'/model/f'{case:03d}.json'
+    row=json.loads(prior.read_text())
+    if (row.get('version'),row.get('model'),row.get('case')) != (VERSION,model,case):
+        raise ValueError('Previous score does not identify the requested adopted source')
+    return Path(row['source'])
 
 
 class JudgeLog(list):
@@ -62,7 +107,8 @@ def images(source,indices):
 
 def ask(client,prompt,frames,encoded,log):
     image_hashes={str(i):hashlib.sha256(base64.b64decode(encoded[i])).hexdigest()for i in frames}
-    cache_key=hashlib.sha256(json.dumps({'version':VERSION,'model':'gpt-5.5-2026-04-24','prompt':prompt,'frames':frames,'images':image_hashes},sort_keys=True).encode()).hexdigest()
+    model,version=judge_identity(client)
+    cache_key=hashlib.sha256(json.dumps({'version':version,'model':model,'prompt':prompt,'frames':frames,'images':image_hashes},sort_keys=True).encode()).hexdigest()
     cached=log.cache/(cache_key+'.json')
     if cached.exists():
         record=json.loads(cached.read_text());log.append(record);return record['response']
@@ -73,10 +119,14 @@ def ask(client,prompt,frames,encoded,log):
     attempt=0
     while attempt<3:
         try:
-            response=client.chat.completions.create(model='gpt-5.5-2026-04-24',
-                messages=[{'role':'system','content':'Judge only visible evidence. Return valid JSON only. Do not infer that an event happened merely because it was requested.'},
-                          {'role':'user','content':content}],max_completion_tokens=8192)
-            text=response.choices[0].message.content or '';match=re.search(r'\{.*\}',text,re.S)
+            if isinstance(client, ResponsesJudge):
+                text,response=client.complete(content)
+            else:
+                response=client.chat.completions.create(model=model,
+                    messages=[{'role':'system','content':SYSTEM_PROMPT},{'role':'user','content':content}],
+                    max_completion_tokens=8192)
+                text=response.choices[0].message.content or ''
+            match=re.search(r'\{.*\}',text or '',re.S)
             if not match:raise ValueError('Missing JSON')
             value=json.loads(match.group());record={'prompt':prompt,'frames':frames,
                 'frame_image_sha256':image_hashes,'response':value,'response_id':response.id,
@@ -143,8 +193,9 @@ def evaluate(client,source,questions,output,model,case,control=None):
     value=ask(client,prompt,np.linspace(0,119,26).astype(int).tolist(),encoded,log)
     if type(value['choice'])is not int or not 1<=value['choice']<=4:raise ValueError('Invalid naturalness choice')
     stage3=value['choice']-1;overall=round((stage1+stage2+stage3)/3)/3
-    record={'version':VERSION,'model':model,'case':case,'source':str(source),'stage_scores':[stage1,stage2,stage3],
-        'overall':overall,'question_grades':grades,'judge':'gpt-5.5-2026-04-24','caption':video['caption'],
+    judge,version=judge_identity(client)
+    record={'version':version,'model':model,'case':case,'source':str(source),'stage_scores':[stage1,stage2,stage3],
+        'overall':overall,'question_grades':grades,'judge':judge,'caption':video['caption'],
         'finished_utc':utc_now(),'calls':log,'probability_metric_equivalence':False,'calibration_only':True,'control':control}
     atomic_json(output/model/f'{case:03d}.json',record);return record
 
@@ -154,10 +205,21 @@ def main():
     p.add_argument('--cases',type=int,nargs='+',default=list(range(1,161)));p.add_argument('--output',type=Path,required=True)
     p.add_argument('--workers',type=int,default=8)
     p.add_argument('--models',nargs='+',default=['seedance25-v1','gpt61-sol','gpt56-sol','gpt56-luna','gpt56-terra'])
+    p.add_argument('--judge',choices=['gpt55','gpt61-sol'],default='gpt55')
+    p.add_argument('--responses-base-url',help='Responses endpoint for gpt61-sol; key from PIXELWORLD_JUDGE_API_KEY')
     args=p.parse_args();b=args.bundle.resolve();qroot=ROOT/'vendor/phygenbench-official-source/PhyGenBench'
     sets=[json.loads((qroot/n).read_text())for n in ['single_question.json','multi_question.json','video_question.json']]
-    client=AzureOpenAI(api_key=(b/'state/gpt55.key').read_text().strip(),api_version='2023-07-01-preview',
-        azure_endpoint='https://search.bytedance.net/gpt/openapi/online/multimodal/crawl',timeout=180,max_retries=0)
+    if args.judge == 'gpt61-sol':
+        key=os.environ.get('PIXELWORLD_JUDGE_API_KEY')
+        if not args.responses_base_url or not key:
+            p.error('gpt61-sol requires --responses-base-url and PIXELWORLD_JUDGE_API_KEY')
+        client=ResponsesJudge(OpenAI(api_key=key,base_url=args.responses_base_url,timeout=180,max_retries=0))
+    else:
+        if args.responses_base_url:
+            p.error('--responses-base-url is only valid for gpt61-sol')
+        client=AzureOpenAI(api_key=(b/'state/gpt55.key').read_text().strip(),api_version='2023-07-01-preview',
+            azure_endpoint='https://search.bytedance.net/gpt/openapi/online/multimodal/crawl',timeout=180,max_retries=0)
+    judge,version=judge_identity(client)
     rows=[];jobs=[];failures=[]
     for case in args.cases:
         sources={}
@@ -168,7 +230,11 @@ def main():
     def work(job):
         case,model,source=job
         target=args.output/model/f'{case:03d}.json'
-        if target.exists():return json.loads(target.read_text())
+        if target.exists():
+            row=json.loads(target.read_text())
+            if (row.get('version'),row.get('judge'),row.get('source')) != (version,judge,str(source)):
+                raise ValueError('Existing score uses a different judge, protocol, or source; use a separate output directory')
+            return row
         return evaluate(client,source,[s[case-1]for s in sets],args.output,model,case)
     with ThreadPoolExecutor(max_workers=args.workers)as pool:
         futures={pool.submit(work,job):job for job in jobs}
@@ -178,9 +244,9 @@ def main():
             except Exception as e:
                 failures.append({'model':model,'case':case,'error':str(e)[-1600:]});print(model,case,'failed',str(e)[-300:],flush=True);continue
             rows.append(row);print(model,case,row['stage_scores'],row['overall'],flush=True)
-            atomic_json(args.output/'summary.json',{'version':VERSION,'calibration_only':True,'cases':args.cases,
+            atomic_json(args.output/'summary.json',{'version':version,'calibration_only':True,'cases':args.cases,
                 'completed_jobs':len(rows),'expected_jobs':len(jobs),'failures':failures,
-                'judge':'gpt-5.5-2026-04-24','expected_cases_per_model':len(args.cases),
+                'judge':judge,'expected_cases_per_model':len(args.cases),
                 'full160':len(args.cases)==160,'models':{m:{'cases':sum(r['model']==m for r in rows),'mean':statistics.fmean(r['overall']for r in rows if r['model']==m)}for m in args.models if any(r['model']==m for r in rows)}})
     atomic_json(args.output/'execution.json',{'phase':'finished'if not failures else'failed','completed_jobs':len(rows),'expected_jobs':len(jobs),'failures':failures,'finished_utc':utc_now()})
 
