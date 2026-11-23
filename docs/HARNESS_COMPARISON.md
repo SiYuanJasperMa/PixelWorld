@@ -11,7 +11,7 @@ thinking-level, and PixelWorld-Flash studies.
 | --- | --- | --- | --- |
 | Codex | 0.169.0 | Existing frozen PixelWorld runtime | Reuse the validated main Vision deliveries |
 | OpenCode | 1.19.6 | `f4e363c8295fa90a03dddc451882fffe8fbce357` | Additional agent harness |
-| Claude Code | Pending admission | Proprietary binary; executable digest required | Additional black-box harness |
+| Claude Code | 2.1.304 (pending admission) | Proprietary binary; executable SHA256 recorded before probes | Additional black-box harness |
 
 The active comparison is Codex, OpenCode, and Claude Code. OpenCode is
 MIT-licensed and exposes headless JSON events. Claude Code is proprietary and
@@ -32,10 +32,10 @@ Sources:
 
 The initial analysis uses Physics-IQ's full 198-case main Vision cohort and
 the five free analysis models: GPT-6.1-Sol, GPT-5.6-Sol, GPT-5.6-Terra,
-GPT-5.6-Luna, and DeepSeek-V4.1-Flash. There are 990 existing Codex deliveries
-to reuse, and 1,980 additional planned deliveries across the two new harnesses.
-This is the registered analysis scope; any wider benchmark scope is
-recorded explicitly before its cohorts are registered.
+GPT-5.6-Luna, and DeepSeek-V4.1-Flash. The initial design has 990 Codex case
+slots and 1,980 planned case slots across the two additional harnesses. Reuse
+compatible accepted Codex deliveries; distinguish missing cases from accepted
+ones. GPT-6.2-Sol adds 198 case slots per harness after admission.
 
 Every row uses the same official prompt and first frame, the same 720p output
 size with the supplied aspect ratio, 24 FPS, five seconds, and 120 frames.
@@ -95,6 +95,35 @@ does not establish equivalent native model routing, image handling, or case
 isolation. Neither may dispatch full cases on the basis of a text probe.
 GPT-6.2-Sol is an additional planned model only after the same exact route is
 verified across all three harnesses; record missing cells explicitly.
+
+### Controlled tool boundary acceptance
+
+The `pixelworld.case_tool_mcp` stdio server is a reference transport for
+case-local read, write, edit, image return, and Bash. The launcher fixes the
+case and runtime; each operation executes with case-only mounts, empty tool
+credentials, and a separate network namespace. Native clients must deny
+other tools rather than relying on a model prompt to enforce these limits.
+This is a **controlled tool surface**, not a test of unrestricted stock
+harness defaults. Preserve native client prompts and their actual tool IDs in
+the raw record. Treat successful fixture probes as prerequisites, not as
+permission to start the benchmark matrix.
+
+The pinned OpenCode client passed a GPT-6.2-Sol image-attachment probe only
+when image input capability was explicitly registered. Separate native
+fixture calls successfully read, viewed, wrote, and checked a case file via
+the bounded MCP server. A standard Physics-IQ case also produced 120 frames
+at 1280×720 and 24 FPS; the common validator verified exact first-frame
+preservation and PNG/tensor identity. The pinned official evaluator completed
+its per-view smoke on that delivery. This does not establish budget
+enforcement, raw API linkage, or the full official score.
+
+The Claude Code `2.1.304` pinned binary passed text and vision route probes
+with tools disabled, then passed a native case-tool fixture: it read a case
+marker, observed an image returned by the MCP tool, and wrote the correct
+combined proof. The Messages bridge preserves ordinary text, input and
+tool-result images, and paired tool IDs; it does not synthesize native signed
+thinking blocks from the upstream provider. Keep both wire representations,
+and do not treat these bridged runs as unrestricted Claude Code.
 
 ## Preparation evidence and historical Pi pilot
 
