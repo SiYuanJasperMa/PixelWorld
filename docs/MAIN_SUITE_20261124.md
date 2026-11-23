@@ -79,6 +79,20 @@ a matched reference video pool; select and document a suitable real reference
 set before reporting RBench FVD. Reference-set FVD values are not comparable
 across tasks. The hypothesized T2V/I2V/V2V quality ordering is not a result.
 
+**RBench reference check.** The pinned public RBench tree contains zero video
+files; Common Manipulation provides 50 stills and prompts. The same authors'
+CC BY 4.0 [RoVid-X release](https://huggingface.co/datasets/DAGroup-PKU/RoVid-X/tree/32faf783ba532e1107881b29c612be0aec16b888)
+is a candidate reference distribution, not a source of identified ground-truth
+continuations. Its preview has only 36 RGB clips (the other 72 video files
+are depth and optical flow). Do not substitute those previews or an all-arm
+robotics dataset for the 50-case mix: 28 prompts name humanoids, and the
+viewpoints are 31 third-person (including one misspelling) and 19 first-person.
+Before reporting an exploratory RBench FVD, freeze an independent RGB pool
+stratified by robot, viewpoint and action family, exclude duplicate or
+near-duplicate source sequences, and use the same case roster, sampling and
+reference IDs for every model. Leave FVD unavailable until that join or pool
+has been validated; this does not block RBench generation or physical QA.
+
 The photographic runner uses the original anchored 1–5 appearance rubric,
 eight video frames, anonymous labels, and both presentation orders. Its
 manifest pairs by benchmark and case ID; missing clips are not imputed. For
