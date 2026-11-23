@@ -88,8 +88,16 @@ def codex_command(model: Model, track: str, workspace: Path,
     from .permissions import CASE_ONLY_POLICY, WORKSPACE_WRITE_POLICY
     if filesystem_policy not in (CASE_ONLY_POLICY, WORKSPACE_WRITE_POLICY):
         raise ValueError("Unknown filesystem policy")
-    if filesystem_policy == CASE_ONLY_POLICY and (model.cli_backend != "codex" or track == "vision-input"):
+    if filesystem_policy == CASE_ONLY_POLICY and (model.cli_backend not in ("codex", "pi") or track == "vision-input"):
         raise ValueError("case-only-v1 requires native Codex Text/Vision tracks")
+    if model.cli_backend=='pi':
+        native_command=[sys.executable,'-m','pixelworld.native_harness','--workspace',str(workspace),
+                '--state',str(workspace.parent/'empty-codex-home'),'--model',model.model,
+                '--reasoning',model.reasoning_effort,'--base-url',model.provider.base_url,
+                '--env-key',model.provider.env_key,'--track',track]
+        if model.provider.model_catalog_json:
+            native_command+=['--model-catalog',model.provider.model_catalog_json]
+        return native_command
     if model.cli_backend == "trae":
         command = [codex_binary, "exec", "-", "--model", model.model,
                    "--ephemeral", "--ignore-user-config", "--ignore-rules",
@@ -129,6 +137,8 @@ def codex_command(model: Model, track: str, workspace: Path,
         "-c", f"shell_environment_policy.set.PATH={_toml(safe_path)}",
         "-c", 'web_search="disabled"',
     ]
+    if model.auto_compact_token_limit is not None:
+        command += ["-c", f"model_auto_compact_token_limit={model.auto_compact_token_limit}"]
     if filesystem_policy == CASE_ONLY_POLICY:
         from .permissions import case_permissions, permission_args
         index = command.index("--sandbox")
@@ -168,8 +178,8 @@ def codex_command(model: Model, track: str, workspace: Path,
             command += ['-c',f'model_catalog_json={_toml(provider.model_catalog_json)}']
         if provider.stream_idle_timeout_ms is not None:
             command += ['-c',f'model_providers.{provider.id}.stream_idle_timeout_ms={provider.stream_idle_timeout_ms}']
-        command += ['-c',f'model_providers.{provider.id}.request_max_retries=0',
-                    '-c',f'model_providers.{provider.id}.stream_max_retries=0']
+        command += ['-c',f'model_providers.{provider.id}.request_max_retries=6',
+                    '-c',f'model_providers.{provider.id}.stream_max_retries=6']
     elif model.provider.type == "oss":
         command.extend(["--oss"])
 
@@ -548,14 +558,18 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     # history-reuse settings stay unchanged; the stdout projection omits some
     # nested tools and image returns. Preserve legacy launch settings.
     full_trace_enabled = not legacy_contract or token_limit is not None
-    if full_trace_enabled:
+    if full_trace_enabled and model.cli_backend!='pi':
         command.remove('--ephemeral')
-    if spec['task_type']=='v2v' and track!='text':
+    if spec['task_type']=='v2v' and track!='text' and model.cli_backend!='pi':
         command += ['-i' if model.cli_backend=='trae' else '--image',str(workspace/'conditioning_inspection.png')]
-    if spec['task_type']=='video_edit' and track!='text':
+    if spec['task_type']=='video_edit' and track!='text' and model.cli_backend!='pi':
         command += ['-i' if model.cli_backend=='trae' else '--image',str(workspace/'source_inspection.png')]
     try:
-        version = subprocess.check_output([binary, "--version"], text=True).strip()
+        if model.cli_backend=='pi':
+            from .native_harness import version as native_version
+            version=native_version()
+        else:
+            version = subprocess.check_output([binary, "--version"], text=True).strip()
     except Exception:
         version = "unavailable"
     manifest = {
@@ -566,9 +580,11 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         "model_key": model.key,
         "model": model.model,
         "cli_backend": model.cli_backend,
+        "agent_harness_version":version,
         "provider": model.provider.__dict__,
         "model_catalog_snapshot": model_catalog_record,
         "reasoning_effort": model.reasoning_effort,
+        "auto_compact_token_limit": model.auto_compact_token_limit,
         "track": track,
         "initial_image_attached": has_image and track != "text",
         "output_image_tool_enabled": track == "vision-agent",

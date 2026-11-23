@@ -1,0 +1,31 @@
+{
+  "codex": {
+    "version": "0.169.0",
+    "role": "reuse_existing_main"
+  },
+  "opencode": {
+    "version": "1.19.6",
+    "source_repository": "https://github.com/anomalyco/opencode",
+    "source_commit": "f4e363c8295fa90a03dddc451882fffe8fbce357",
+    "source_tag": "v1.19.6",
+    "license": "MIT",
+    "package": "opencode-linux-x64",
+    "npm_distribution_integrity": "sha512-SUQS023u46+2+wMUej1Cm8VSFpHUd2c6cO4m2r7suRaCgrdIjR1iXr7ebl31xb/gHzaYS65xnj1fxRqHpzhU1A==",
+    "published_at": "2026-11-17T07:25:21.976Z"
+  },
+  "pi": {
+    "version": "1.6.0",
+    "source_repository": "https://github.com/earendil-works/pi",
+    "source_commit": "faac585884ae2c013a6b1400f3e9e77f10b34bac",
+    "source_tag": "v1.6.0",
+    "license": "MIT",
+    "package": "@earendil-works/pi-coding-agent",
+    "npm_distribution_integrity": "sha512-zX1BVEsshx7A2MRuQ6jfr3RJGWw4Wn+vLq5ZfmlvS1RskhRmByaSZVXH/zcwRrWHO7qPgs98pNCbPOEti/t0fQ==",
+    "published_at": "2026-11-20T11:09:15.529Z"
+  },
+  "dependencies": {
+    "node": "22.21.1",
+    "npm_lock_sha256": "053a3ea204c9f28eceb044c4790048289b8e3a871e7277cc3bd41936cb58d939",
+    "updates_enabled": false
+  }
+}

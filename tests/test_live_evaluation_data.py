@@ -1,5 +1,6 @@
 import json
 import time
+import pytest
 from tools import live_evaluation_data as live
 
 
@@ -93,3 +94,45 @@ def test_fresh_verified_worker_commands_show_remote_scoring_and_stale_probes_do_
     assert live.collect(tmp_path)['cohorts'][0]['evaluator_active']
     health['checked_unix']-=600;(state/'evaluator_worker_health.json').write_text(json.dumps(health))
     assert not live.collect(tmp_path)['cohorts'][0]['evaluator_active']
+
+
+@pytest.mark.parametrize('valid_cases', [160, 127])
+def test_phygen_text_uses_three_stage_scores_and_requires_full_scope(tmp_path, monkeypatch, valid_cases):
+    monkeypatch.setattr(live, 'COHORTS', {'phygenbench_text': ('PhyGenBench Text', 'legacy', 160)})
+    monkeypatch.setattr(live, 'live_commands', lambda: [])
+    generation = tmp_path / 'generations/phygenbench_text'
+    generation.mkdir(parents=True)
+    (generation / 'status.json').write_text(json.dumps({'groups': {
+        'm/text': {'counts': {'complete': valid_cases, 'exhausted': 160-valid_cases}}}}))
+    folder = tmp_path / 'evaluation/phygenbench_text_gpt55_three_stage_mcq_v1'
+    folder.mkdir(parents=True)
+    (folder / 'summary.json').write_text(json.dumps({
+        'version': live.THREE_STAGE_REVISION, 'full160': True,
+        'models': {'m': {'cases': valid_cases, 'mean': 0.6}}}))
+    row = live.collect(tmp_path)['cohorts'][0]
+    assert row['full_scope_scored'] is (valid_cases == 160)
+    assert row['evaluation_progress'] == {'completed':valid_cases, 'expected':160}
+    if valid_cases == 160:
+        assert row['score']['metrics']['Overall'] == 0.6
+        assert row['score']['judge_protocol'] == live.THREE_STAGE_REVISION
+    else:
+        assert row['score'] is None
+        assert row['phase'] == 'incomplete_generation'
+
+
+@pytest.mark.parametrize('version,scored', [('legacy',127), (live.THREE_STAGE_REVISION,160)])
+def test_partial_phygen_progress_rejects_wrong_protocol_or_excess_scope(tmp_path, monkeypatch, version, scored):
+    monkeypatch.setattr(live, 'COHORTS', {'phygenbench_text': ('PhyGenBench Text', 'legacy', 160)})
+    monkeypatch.setattr(live, 'live_commands', lambda: [])
+    generation = tmp_path / 'generations/phygenbench_text'
+    generation.mkdir(parents=True)
+    (generation / 'status.json').write_text(json.dumps({'groups': {
+        'm/text': {'counts': {'complete':127, 'pending':33}}}}))
+    folder = tmp_path / 'evaluation/phygenbench_text_gpt55_three_stage_mcq_v1'
+    folder.mkdir(parents=True)
+    (folder / 'summary.json').write_text(json.dumps({
+        'version':version, 'full160':True, 'models':{'m':{'cases':scored, 'mean':0.6}}}))
+    row = live.collect(tmp_path)['cohorts'][0]
+    assert not row['full_scope_scored']
+    assert row['score'] is None
+    assert 'evaluation_progress' not in row

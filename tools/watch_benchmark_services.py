@@ -22,6 +22,16 @@ def alive_service(service):
         return False
 
 
+def complete_service(service):
+    path=service.get('completion_path')
+    checks=service.get('completion_checks')
+    if not path or not checks:return False
+    try:
+        result=json.loads(Path(path).read_text())
+        return all(key in result and result[key]==value for key,value in checks.items())
+    except(OSError,ValueError):return False
+
+
 def recover_stale_output(service,recoveries,starts,now=None):
     """Opt-in recovery for a disk-blocked service with stale output."""
     marker=service.get('health_path')
@@ -68,6 +78,9 @@ def run(spec_path):
         states = {}
         for service in spec['services']:
             name = service['name']
+            if complete_service(service):
+                states[name]={'phase':'complete'}
+                continue
             if service.get('stop_marker') and Path(service['stop_marker']).exists():
                 states[name] = {'phase':'paused'}
                 continue

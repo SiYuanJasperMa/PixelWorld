@@ -217,6 +217,10 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
             resolved = Path(value).resolve()
         except OSError:
             resolved = Path(value)
+        # Storage recovery can expose a workspace through another absolute
+        # symlink path. Compare its destination before treating it as outside.
+        if resolved == workspace.resolve() or workspace.resolve() in resolved.parents:
+            continue
         if any(resolved == root or root in resolved.parents for root in tool_roots):
             continue
         # Installed browser binaries/assets are tools, not case conditioning.
@@ -277,7 +281,7 @@ def failed_scratch_path(path: str, item: dict) -> bool:
     """
     if not path.startswith('/tmp/'):
         return False
-    if path.endswith('/'):
+    if path.endswith('/') or not Path(path).suffix:
         # A literal directory prefix can be concatenated with a loop filename.
         # Accept only a failed first literal iteration, not an arbitrary prefix.
         if item.get('exit_code') in (None, 0):
@@ -298,7 +302,52 @@ def failed_scratch_path(path: str, item: dict) -> bool:
                             ('Read-only file system', 'No such file or directory', 'Permission denied'))
                     for line in lines)):
         return True
-    return _failed_python_scratch(path, item) or _denied_python_write(path, item)
+    return (_failed_python_scratch(path, item) or _denied_python_write(path, item)
+            or _denied_ffmpeg_crop(path, item))
+
+
+def _denied_ffmpeg_crop(path: str, item: dict) -> bool:
+    """Recognize one blocked image crop and strictly unexecuted && crops."""
+    if item.get('exit_code') in (None, 0):
+        return False
+    command = _unwrap_shell(str(item.get('command', '')))
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ''
+        tokens = list(lexer)
+    except ValueError:
+        return False
+    chunks = [[]]
+    for token in tokens:
+        if token == '&&':
+            chunks.append([])
+        elif token in (';', '|', '||', '&', '>', '>>', '<', '(', ')'):
+            return False
+        else:
+            chunks[-1].append(token)
+    outputs = []
+    for args in chunks:
+        # Only a single-frame input-image crop/scale is recognized. Unknown
+        # options, inputs, filters and shell expansions retain the hard block.
+        if (len(args) != 9 or Path(args[0]).name != 'ffmpeg'
+                or args[1:6] != ['-y', '-loglevel', 'error', '-i', 'first_frame.png']
+                or args[6] != '-vf'
+                or not re.fullmatch(r'crop=\d+:\d+:\d+:\d+,scale=\d+:\d+', args[7])
+                or not re.fullmatch(r'/tmp/[A-Za-z0-9_.-]+\.png', args[8])):
+            return False
+        outputs.append(args[8])
+    if not outputs or len(set(outputs)) != len(outputs) or path not in outputs:
+        return False
+    first = outputs[0]
+    if Path(first).exists() or Path(path).exists():
+        return False
+    output = str(item.get('aggregated_output', ''))
+    # Failure to open the first output proves it was not created. With a
+    # nonzero exit, subsequent literal commands behind && never execute.
+    return any(re.fullmatch(r'\[image2 @ [^\]]+\] Could not open file\s*:\s*'
+                            + re.escape(first), line.strip())
+               for line in output.splitlines())
 
 
 def _static_string(node, bindings: dict, depth=0):
@@ -313,6 +362,22 @@ def _static_string(node, bindings: dict, depth=0):
         right = _static_string(node.right, bindings, depth+1)
         if left is not None and right is not None:
             return left + right
+    if isinstance(node, ast.JoinedStr):
+        parts=[]
+        for value in node.values:
+            if isinstance(value,ast.Constant) and isinstance(value.value,str):
+                parts.append(value.value)
+            elif isinstance(value,ast.FormattedValue):
+                expression=value.value
+                if isinstance(expression,ast.Name) and len(bindings.get(expression.id,[]))==1:
+                    expression=bindings[expression.id][0]
+                if not isinstance(expression,ast.Constant) or type(expression.value) not in (str,int):return None
+                spec=_static_string(value.format_spec,bindings,depth+1) if value.format_spec else ''
+                if spec is None or value.conversion not in (-1,115):return None
+                try:parts.append(format(expression.value,spec))
+                except ValueError:return None
+            else:return None
+        return ''.join(parts)
     return None
 
 
@@ -327,7 +392,12 @@ def _denied_python_write(path: str, item: dict, prefix: str | None = None) -> bo
                                      ('Permission denied', 'Read-only file system',
                                       'No such file or directory')):
         return False
-    for _, body in _python_sections(_unwrap_shell(str(item.get('command', '')))):
+    command = _unwrap_shell(str(item.get('command', '')))
+    # Builtin executable lookups can precede the heredoc on the same shell
+    # line. Strip only those lookups; arbitrary preceding commands could have
+    # read or written outside data and must remain conservatively blocked.
+    command = re.sub(r'^(?:command[ \t]+-v[ \t]+[A-Za-z0-9_.+-]+[ \t]*;[ \t]*)+', '', command)
+    for _, body in _python_sections(command):
         try:
             tree = ast.parse(body)
         except SyntaxError:

@@ -63,6 +63,41 @@ def test_custom_responses_provider_is_explicit(tmp_path):
     assert "secret" not in joined.lower()
 
 
+def test_auto_compaction_default_does_not_change_command(tmp_path):
+    config = make_config(tmp_path)
+    assert config.model("model-a").auto_compact_token_limit is None
+    command = codex_command(config.model("model-a"), "text", tmp_path / "w")
+    assert not any(value.startswith("model_auto_compact_token_limit=") for value in command)
+
+
+def test_auto_compaction_limit_is_explicit_and_recorded(tmp_path):
+    from PIL import Image
+    from pixelworld.runner import run_case
+    config = make_config(tmp_path)
+    value = json.loads(config.source.read_text())
+    value["models"][0]["auto_compact_token_limit"] = 32768
+    config.source.write_text(json.dumps(value))
+    config = load_config(config.source)
+    source = config.inputs_root / "case_compact"
+    source.mkdir(parents=True)
+    Image.new("RGB", (256, 144), "white").save(source / "first_frame.png")
+    (source / "prompt.txt").write_text("Fixture instruction.")
+    result = run_case(config, "model-a", "text", "case_compact", dry_run=True)
+    assert "model_auto_compact_token_limit=32768" in result["command"]
+    assert result["auto_compact_token_limit"] == 32768
+
+
+def test_invalid_auto_compaction_limit_is_rejected(tmp_path):
+    import pytest
+    config = make_config(tmp_path)
+    value = json.loads(config.source.read_text())
+    for invalid in (0, -1, True, "32768"):
+        value["models"][0]["auto_compact_token_limit"] = invalid
+        config.source.write_text(json.dumps(value))
+        with pytest.raises(ValueError, match="auto_compact_token_limit"):
+            load_config(config.source)
+
+
 def test_relative_paths_are_resolved_from_config(tmp_path):
     config = make_config(tmp_path)
     assert config.inputs_root == tmp_path / "inputs"

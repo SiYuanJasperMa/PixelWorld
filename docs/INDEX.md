@@ -35,6 +35,8 @@
 ## Paper
 
 - [FRAMEWORK_FOR_PAPER.md](FRAMEWORK_FOR_PAPER.md)
+- [HARNESS_COMPARISON.md](HARNESS_COMPARISON.md) — frozen OpenCode/Pi versions
+  and the standard-quality, same-model harness analysis.
 
 ## Archive
 

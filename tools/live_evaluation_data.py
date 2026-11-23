@@ -10,6 +10,7 @@ from pixelworld import pcve
 from pixelworld.smoke_web import clean
 from tools.evaluate_robojudge_shared50 import CODE_REVISION, CHECKPOINT_REVISION, DATASET_REVISION, TASKS_SHA256
 from tools.phygen_protocol import FRAME_SAMPLING_REVISION,MAIN_JUDGE_FOLDER,TEXT_JUDGE_FOLDER
+from tools.phygen_protocol import THREE_STAGE_JUDGE_FOLDER,THREE_STAGE_REVISION
 from tools.pcve_native import native_summary,NATIVE_EVALUATION
 
 COHORTS = {
@@ -28,6 +29,7 @@ COHORTS = {
     'pcve_text':('PCVE-RigidBench · Text','pcve_text_scheduler',129),
     'robojudge_text':('RoboJudge shared-50 · Text','robojudge_text_scheduler',50),
     'phygenbench_text':('PhyGenBench · Text',TEXT_JUDGE_FOLDER,160),
+    'physics_iq_harness_pi':('Physics-IQ Verified · Pi1.6.0','physics_iq_harness_pi_scheduler',198),
     **{key: ('Physics-IQ Verified · '+label, key+'_scheduler',198) for key,label in (
         ('physics_iq_text','Text'), ('physics_iq_res480','480p'), ('physics_iq_res1080','1080p'),
         ('physics_iq_fps12','12 FPS'), ('physics_iq_fps48','48 FPS'),
@@ -74,7 +76,9 @@ def evaluator_active(cohort, commands):
     return False
 
 
-def physics_score(score, model, track):
+def physics_score(score, model, track, require_isolated_cache=False):
+    if require_isolated_cache and score.get('generated_mask_cache_revision') != 'cohort-isolated-v1':
+        return None
     if not (score.get('inputs')==198 and score.get('upstream_commit')==PHYSICS_IQ_COMMIT
             and score.get('dataset_revision')==PHYSICS_IQ_DATASET_REVISION
             and score.get('model_key')==model and score.get('track')==track
@@ -156,6 +160,15 @@ def phygen_score(summary, model, track):
             'official_gpt4o_phygeneval':False}
 
 
+def phygen_three_stage_score(summary,model,track):
+    if summary.get('version')!=THREE_STAGE_REVISION or summary.get('full160')is not True:return None
+    row=summary.get('models',{}).get(model,{})
+    if row.get('cases')!=160 or not finite(row.get('mean')):return None
+    return {'metrics':{'Overall':row['mean']},'scope':160,'units':'0-1 (GPT-5.5 three-stage MCQ)',
+            'judge_model':'gpt-5.5-2026-04-24','judge_protocol':THREE_STAGE_REVISION,
+            'frame_sampling_revision':'chronological-shared-rgb','official_gpt4o_phygeneval':False}
+
+
 def collect(run_root: Path):
     result={'updated_utc':datetime.now(timezone.utc).isoformat(),'cohorts':[]}
     references=read(run_root/'evaluation/pcve_paper_reference_table.json')
@@ -208,7 +221,11 @@ def collect(run_root: Path):
                 row['evaluation_progress']={'completed':execution.get('evaluated_cases',0),'expected':129,
                                             'updated_utc':execution.get('updated_utc')}
             if suite.startswith('physics_iq'):
-                score=physics_score(read(cohort/'scores.json'),model,track)
+                current = suite == 'physics_iq_720p24fps' or suite in {
+                    'physics_iq_text','physics_iq_res480','physics_iq_res1080',
+                    'physics_iq_fps12','physics_iq_fps48','physics_iq_thinking_low','physics_iq_thinking_higher',
+                    'physics_iq_harness_pi'}
+                score=physics_score(read(cohort/'scores.json'),model,track,require_isolated_cache=current)
             elif suite.startswith('robojudge'):
                 score=robo_score(read(cohort/'summary.json'),read(cohort/'plan.json'),execution,model,track)
             elif suite.startswith('pcve'):
@@ -220,7 +237,17 @@ def collect(run_root: Path):
                     row['previous_environment_score']=pcve_score(read(cohort/'summary.json'),model,track)
             elif suite.startswith('phygenbench'):
                 judge_folder=TEXT_JUDGE_FOLDER if suite=='phygenbench_text' else MAIN_JUDGE_FOLDER
-                score=phygen_score(read(run_root/'evaluation'/judge_folder/'summary.json'),model,track)
+                if suite in ('phygenbench_t2v_main720p24fps', 'phygenbench_text'):
+                    judge_folder=('phygenbench_text_gpt55_three_stage_mcq_v1'
+                                  if suite=='phygenbench_text' else THREE_STAGE_JUDGE_FOLDER)
+                    summary=read(run_root/'evaluation'/judge_folder/'summary.json')
+                    score=phygen_three_stage_score(summary,model,track)
+                    done=summary.get('models',{}).get(model,{}).get('cases')
+                    if (summary.get('version')==THREE_STAGE_REVISION
+                            and isinstance(done,int) and not isinstance(done,bool)
+                            and 0<=done<=row['accepted']):
+                        row['evaluation_progress']={'completed':done,'expected':expected}
+                else:score=phygen_score(read(run_root/'evaluation'/judge_folder/'summary.json'),model,track)
             else:
                 score=None
             if score and row['accepted']==expected:
@@ -261,6 +288,17 @@ def collect(run_root: Path):
                 if model in judge.get('current_models',[]) and judge_live:
                     row.update(phase='adapter_evaluation',evaluator_active=True,
                                blocker='PixelWorld GPT-5.5 judge; adapted scoring, not official PhyGenEval')
+                if suite in ('phygenbench_t2v_main720p24fps', 'phygenbench_text'):
+                    folder=run_root/'evaluation'/('phygenbench_text_gpt55_three_stage_mcq_v1'
+                        if suite=='phygenbench_text' else THREE_STAGE_JUDGE_FOLDER)
+                    progress=read(folder/'summary.json');done=progress.get('models',{}).get(model,{}).get('cases',0)
+                    done=max(done,len(list((folder/model).glob('[0-9][0-9][0-9].json'))))
+                    alive=any(('tools.evaluate_phygen_three_stage_gpt55'in a and str(folder)in a)
+                              or any(Path(v).name=='watch_three_stage_scores.py' for v in a)
+                              for _,a in commands)
+                    row.update(phase='adapter_evaluation'if alive else'waiting_for_evaluator',evaluator_active=alive,
+                               evaluation_progress={'completed':done,'expected':160},
+                               blocker='GPT-5.5 three-stage MCQ; prior single-score results are legacy diagnostics')
             if (suite=='physics_iq_720p24fps' and row['accepted']==expected
                     and not row['full_scope_scored'] and not active
                     and recovery.get('phase')=='waiting_for_reference_and_previous_export'):

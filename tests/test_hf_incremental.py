@@ -50,6 +50,31 @@ def test_missing_preview_is_not_published_as_ready(tmp_path):
     assert not called
 
 
+def test_committed_trace_cache_is_removed_but_raw_trace_is_retained(tmp_path,monkeypatch):
+    source,relative=fixture(tmp_path/'bundle/publication')
+    cache=source.parent.parent/'hf_incremental_traces/case.tar.gz';cache.parent.mkdir();cache.write_bytes(b'compressed')
+    raw=source.parent.parent/'original_trace.jsonl';raw.write_text('original')
+    monkeypatch.setattr('tools.publish_hf_incremental.package_case',lambda *args:{
+        'source_sha256':'hash','media':{'live/case.trace.tar.gz':cache},
+        'trace_ready':True,'trace_format_version':3,'detail':b'{}'})
+    state=tmp_path/'state.json'
+    publish_cycle(source,state,SimpleNamespace(create_commit=lambda **kwargs:SimpleNamespace(oid='ok')))
+    assert not cache.exists()
+    assert raw.read_text()=='original'
+    assert json.loads(state.read_text())['ready'][relative]['trace_ready']
+
+
+def test_failed_commit_does_not_remove_trace_cache(tmp_path,monkeypatch):
+    source,relative=fixture(tmp_path/'bundle/publication')
+    cache=source.parent.parent/'hf_incremental_traces/case.tar.gz';cache.parent.mkdir();cache.write_bytes(b'compressed')
+    monkeypatch.setattr('tools.publish_hf_incremental.package_case',lambda *args:{
+        'source_sha256':'hash','media':{'live/case.trace.tar.gz':cache},
+        'trace_ready':True,'trace_format_version':3,'detail':b'{}'})
+    def fail(**kwargs):raise RuntimeError('upload failed')
+    with pytest.raises(RuntimeError):publish_cycle(source,tmp_path/'state.json',SimpleNamespace(create_commit=fail))
+    assert cache.read_bytes()==b'compressed'
+
+
 def test_publication_alternates_accepted_delivery_and_failed_history(tmp_path):
     source,relative=fixture(tmp_path)
     assets=source/'assets/a';assets.mkdir(parents=True)

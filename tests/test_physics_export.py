@@ -261,8 +261,9 @@ def test_missing_precomputed_reference_fails_before_expensive_export(tmp_path):
         watcher.validate_reference_fps(runtime,24)
 
 
-@pytest.mark.parametrize('corrupt',['none','video','source','identity'])
-def test_evaluator_retry_reuses_only_identical_full_export(tmp_path,monkeypatch,corrupt):
+@pytest.mark.parametrize('corrupt',['none','video','source','identity','missing'])
+@pytest.mark.parametrize('evaluation_fps', [None, 24])
+def test_evaluator_retry_reuses_only_identical_full_export(tmp_path,monkeypatch,corrupt,evaluation_fps):
     model=SimpleNamespace(key='model')
     cases=[{'id':f'{i:04d}','generated_video_name':f'{i:04d}_view_scene.mp4',
             'prompt_sha256':'prompt'} for i in range(1,199)]
@@ -286,11 +287,21 @@ def test_evaluator_retry_reuses_only_identical_full_export(tmp_path,monkeypatch,
     (output/'input_manifest.json').write_text(json.dumps(manifest))
     if corrupt=='video':(directory/cases[-1]['generated_video_name']).write_bytes(b'changed')
     if corrupt=='source':(runs[cases[-1]['id']]/'run_manifest.json').write_text('changed')
+    if corrupt=='missing':(directory/cases[-1]['generated_video_name']).unlink()
     monkeypatch.setattr(watcher,'inspect',lambda cfg,m,t,c:{'state':'complete','run':str(runs[c])})
-    monkeypatch.setattr(watcher,'export_videos',lambda *args:pytest.fail('Never regenerate existing export'))
-    if corrupt=='none':assert watcher.exported_videos(None,model,'text',output)==directory
+    if corrupt=='missing':
+        rebuilt=tmp_path/'rebuilt-media'
+        monkeypatch.setattr(watcher,'export_videos',lambda *args,**kwargs:rebuilt)
+        assert watcher.exported_videos(None,model,'text',output,evaluation_fps)==rebuilt
+        archives=list(tmp_path.glob('exports_broken_before_reexport_*'))
+        assert len(archives)==1 and (archives[0]/'input_manifest.json').exists()
+        assert (runs[cases[-1]['id']]/'workspace/pixels.npz').read_bytes()==b'RGB fixture'
+    elif corrupt=='none':
+        monkeypatch.setattr(watcher,'export_videos',lambda *args,**kwargs:pytest.fail('Never regenerate existing export'))
+        assert watcher.exported_videos(None,model,'text',output,evaluation_fps)==directory
     else:
-        with pytest.raises(ValueError):watcher.exported_videos(None,model,'text',output)
+        monkeypatch.setattr(watcher,'export_videos',lambda *args,**kwargs:pytest.fail('Never regenerate existing export'))
+        with pytest.raises(ValueError):watcher.exported_videos(None,model,'text',output,evaluation_fps)
 
 
 @pytest.mark.parametrize('missing_metric',[False,True])

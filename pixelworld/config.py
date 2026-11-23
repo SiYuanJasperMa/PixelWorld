@@ -26,6 +26,8 @@ class Model:
     provider: Provider
     tracks: tuple[str, ...]
     cli_backend: str = "codex"
+    auto_compact_token_limit: int | None = None
+    cli_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -97,20 +99,30 @@ def load_config(path: str | Path) -> Benchmark:
             raise ValueError(f"Responses provider {key} needs id, name, base_url, and env_key")
         tracks = tuple(value.get("tracks", default_tracks))
         cli_backend = value.get("cli_backend", "codex")
-        if cli_backend not in ("codex", "trae"):
+        if cli_backend not in ("codex", "trae", "pi"):
             raise ValueError(f"Unknown CLI backend for {key}: {cli_backend}")
+        cli_version=value.get('cli_version')
+        if cli_backend=='pi' and (cli_version!='1.6.0' or provider.type!='responses'
+                                  or filesystem_policy!='case-only-v1' or harness_variant!='baseline'):
+            raise ValueError('Pi requires frozen1.6.0, Responses provider, case-only isolation and baseline task')
+        compact_limit = value.get("auto_compact_token_limit")
+        if compact_limit is not None and (
+                not isinstance(compact_limit, int) or isinstance(compact_limit, bool)
+                or compact_limit < 1 or cli_backend != "codex"):
+            raise ValueError("auto_compact_token_limit requires native Codex and a positive integer")
         if not tracks or any(track not in TRACKS for track in tracks):
             raise ValueError(f"Invalid tracks for {key}: {tracks}")
         models.append(Model(key=key, model=value["model"],
                             reasoning_effort=value.get("reasoning_effort", "high"),
-                            provider=provider, tracks=tracks, cli_backend=cli_backend))
+                            provider=provider, tracks=tracks, cli_backend=cli_backend,
+                            auto_compact_token_limit=compact_limit,cli_version=cli_version))
     if not models:
         raise ValueError("At least one model is required")
     if harness_variant in ('flash-submit','flash-submit-boundary') and (filesystem_policy != 'case-only-v1'
                                              or any(model.cli_backend != 'codex' or 'vision-input' in model.tracks for model in models)):
         raise ValueError('flash-submit requires native Codex and case-only Text/Vision tracks')
     if filesystem_policy == "case-only-v1" and any(
-            model.cli_backend != "codex" or "vision-input" in model.tracks for model in models):
+            model.cli_backend not in ("codex", "pi") or "vision-input" in model.tracks for model in models):
         raise ValueError("case-only-v1 requires native Codex Text/Vision tracks")
     result = Benchmark(
         source=source,

@@ -78,7 +78,8 @@ class UsageMonitor:
                 return  # The dedicated API records avoid counting the UI projection twice.
             usage = (payload.get('info') or {}).get('total_token_usage') or {}
             cumulative = usage.get('output_tokens')
-            source = 'Codex cumulative token_count'
+            source = ('Pi per-request usage via external projection'
+                      if payload.get('native_backend')=='pi' else 'Codex cumulative token_count')
         else:
             return
         if not isinstance(cumulative, int) or isinstance(cumulative, bool) or cumulative < 0:

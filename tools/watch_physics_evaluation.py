@@ -24,6 +24,35 @@ from pixelworld.physics_iq import export_videos, official_cases, evaluation_fram
 from pixelworld.supervisor import inspect
 from pixelworld.util import atomic_json, sha256, utc_now
 
+MASK_CACHE_REVISION = 'cohort-isolated-v1'
+
+
+def isolated_mask_runtime(runtime: dict, cohort: Path) -> dict:
+    """Share immutable official references while owning generated masks per cohort."""
+    parent = cohort / 'reference_cache_cohort_v1'
+    dataset = parent / 'physics-IQ-benchmark-verified'
+    source = runtime['benchmark_parent'] / 'physics-IQ-benchmark-verified'
+    dataset.mkdir(parents=True, exist_ok=True)
+    for item in source.iterdir():
+        if item.name == 'video-masks':
+            continue
+        target = dataset / item.name
+        if not target.exists() and not target.is_symlink():
+            target.symlink_to(item.resolve(), target_is_directory=item.is_dir())
+    masks = dataset / 'video-masks'
+    masks.mkdir(exist_ok=True)
+    for item in (source / 'video-masks').iterdir():
+        if item.name == 'generated':
+            continue
+        target = masks / item.name
+        if not target.exists() and not target.is_symlink():
+            target.symlink_to(item.resolve(), target_is_directory=item.is_dir())
+    generated = masks / 'generated'
+    if generated.is_symlink():
+        raise ValueError('Generated masks must be private to this evaluation cohort')
+    generated.mkdir(exist_ok=True)
+    return {**runtime, 'benchmark_parent': parent}
+
 
 def validate_runtime(resource: Path | None = None, evaluator_ready: Path | None = None,
                      python_override: Path | None = None) -> dict:
@@ -160,7 +189,13 @@ def exported_videos(config, model, track: str, output: Path, evaluation_fps=None
     if not manifest_path.exists():
         return export_videos(config, model.key, track, output,evaluation_fps=evaluation_fps,source_dir=source_dir)
     record = json.loads(manifest_path.read_text())
-    if record.get('evaluation_fps')!=evaluation_fps:
+    native_24_equivalent = (
+        record.get('evaluation_fps') is None and evaluation_fps == 24
+        and record.get('fps') == 24 and record.get('frames') == 120
+        and all(row.get('media_contract', {}).get('fps') == 24
+                and row.get('media_contract', {}).get('frames') == 120
+                for row in record.get('videos', [])))
+    if record.get('evaluation_fps')!=evaluation_fps and not native_24_equivalent:
         raise ValueError('Existing export uses a different evaluation grid')
     cases = official_cases()
     rows = record.get('videos', [])
@@ -169,6 +204,13 @@ def exported_videos(config, model, track: str, output: Path, evaluation_fps=None
             or {r.get('id') for r in rows} != {c['id'] for c in cases}):
         raise ValueError('Existing export has a different cohort identity or scope')
     directory = output / f'pixelworld-{model.key}-{track}-bpp-run_01'
+    if any(not (directory / row['filename']).is_file() for row in rows):
+        # Storage migration can leave dangling or self-referential export links.
+        # Keep the broken export and rebuild lossless media from saved agent RGB.
+        archive = output.with_name(output.name + '_broken_before_reexport_' + str(time.time_ns()))
+        output.rename(archive)
+        return export_videos(config, model.key, track, output,
+                             evaluation_fps=evaluation_fps, source_dir=source_dir)
     expected = {c['id']: c for c in cases}
     for row in rows:
         case = expected[row['id']]
@@ -187,7 +229,10 @@ def exported_videos(config, model, track: str, output: Path, evaluation_fps=None
                 raise ValueError('Existing export source or video changed; preserving old export')
         source_spec=row['media_contract']
         spec = row.get('evaluation_media_contract',source_spec)
-        if evaluation_fps is not None and row.get('source_frame_indices')!=evaluation_frame_indices(source_spec,evaluation_fps):
+        indices = row.get('source_frame_indices')
+        if indices is None and native_24_equivalent:
+            indices = list(range(source_spec['frames']))
+        if evaluation_fps is not None and indices!=evaluation_frame_indices(source_spec,evaluation_fps):
             raise ValueError('Existing export has a different temporal frame selection')
         if ([spec['width'], spec['height']] != record['resolution']
                 or spec['fps'] != record['fps'] or spec['frames'] != record['frames']
@@ -204,6 +249,10 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
     for model in config.models:
         for track in model.tracks:
             key = f'{model.key}/{track}'
+            if (states.get(key, {}).get('phase') == 'complete'
+                    and states[key].get('score', {}).get('generated_mask_cache_revision') != MASK_CACHE_REVISION):
+                states[key] = {**states[key], 'phase': 'waiting_for_generation',
+                               'previous_score_requires_cache_revalidation': True}
             if states.get(key, {}).get('phase') in ('complete','failed'):
                 continue
             if states.get(key, {}).get('phase') == 'incomplete_official_scope':
@@ -235,6 +284,13 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
                 cohort = output/model.key/track
                 score_path = cohort/'scores.json'
                 if score_path.exists():
+                    previous = json.loads(score_path.read_text())
+                    if previous.get('generated_mask_cache_revision') != MASK_CACHE_REVISION:
+                        backup = cohort / 'scores_before_mask_isolation.json'
+                        if not backup.exists():
+                            atomic_json(backup, previous)
+                        score_path.unlink()
+                if score_path.exists():
                     score = json.loads(score_path.read_text())
                     if (score.get('inputs') != 198 or score.get('upstream_commit') != PHYSICS_IQ_COMMIT
                             or score.get('dataset_revision') != PHYSICS_IQ_DATASET_REVISION):
@@ -243,6 +299,7 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
                     runtime = validate_runtime(resource,evaluator_ready,python_override)
                     if any(runtime[k].is_relative_to(config.runs_root.resolve()) for k in ('source','benchmark_parent')):
                         raise ValueError('Evaluator resources must remain outside generation workspaces')
+                    runtime = isolated_mask_runtime(runtime, cohort)
                     run_spec = json.loads((Path(inventory[0]['run'])/'media_contract.json').read_text())
                     rate=evaluation_fps or run_spec['fps']
                     count=len(evaluation_frame_indices(run_spec,evaluation_fps))
@@ -252,7 +309,7 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
                     atomic_json(output/'scheduler.json',{'updated_utc':utc_now(),'pid':os.getpid(),'cohorts':states})
                     videos = exported_videos(config,model,track,cohort/'generated_videos_5s',evaluation_fps,
                                              runtime['benchmark_parent']/'physics-IQ-benchmark-verified')
-                    result = cohort/'official_results'
+                    result = cohort/'official_results_isolated_masks_v1'
                     command=[str(runtime['python']),'-u','-m','physiq.run_physics_iq',
                              '--input_folders',str(videos),'--output_folder',str(result),
                              '--descriptions_file',str(runtime['descriptions']),
@@ -281,7 +338,8 @@ def step(config, resource: Path | None, output: Path, states: dict, n_process: i
                            'official_metrics_sha256':sha256(metrics_path),'completed_utc':utc_now(),
                            'organizer_published':False,'no_missing_output_imputation':True}
                     score.update(source_fps=run_spec['fps'],source_frames=run_spec['frames'],
-                                 evaluation_transform=submission.get('evaluation_transform','native_rgb'))
+                                 evaluation_transform=submission.get('evaluation_transform','native_rgb'),
+                                 generated_mask_cache_revision=MASK_CACHE_REVISION)
                     if any(not math.isfinite(float(score[k])) for k in ['verified_score','original_formula_score']):
                         raise ValueError('Original evaluator final score is not finite')
                     atomic_json(score_path,score)

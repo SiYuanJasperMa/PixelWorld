@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.6.0",
+    "node-linux-x64": "22.21.1",
+    "opencode-linux-x64": "1.19.6"
+  }
+}

@@ -363,3 +363,42 @@ def test_unknown_dynamic_scratch_name_stays_blocked():
     item = {'command': "python - <<'PY'\nimage.save('/tmp/'+unknown+'.png')\nPY", 'exit_code': 1,
         'aggregated_output': '  File "<stdin>", line 1, in <module>\nFileNotFoundError: [Errno 2] No such file or directory: "/tmp/pixelworld_unknown_613948.png"'}
     assert not failed_scratch_path('/tmp/', item)
+
+
+def test_denied_first_loop_write_after_builtin_lookups_is_a_warning():
+    prefix = '/tmp/pixelworld_missing_lookup_loop_613948/'
+    body = "python - <<'PY'\nfrom PIL import Image\nfor name,box in [('ball',(0,0,4,4)),('block',(1,1,4,4))]:\n    Image.open('first_frame.png').crop(box).save('" + prefix + "'+name+'.png')\nPY"
+    output = '  File "<stdin>", line 3, in <module>\nFileNotFoundError: [Errno 2] No such file or directory: ' + repr(prefix+'ball.png')
+    item = {'command':'command -v ffmpeg; command -v convert; '+body,
+            'exit_code':1,'aggregated_output':output}
+    assert failed_scratch_path(prefix, item)
+    assert not failed_scratch_path(prefix, {**item,'aggregated_output':output.replace('ball.png','block.png')})
+    # Only the lookup preamble is exempt; no arbitrary shell action is removed.
+    assert not failed_scratch_path(prefix, {**item,'command':'cat '+prefix+'secret; '+body})
+    assert not failed_scratch_path(prefix, {**item,'command':'command -v ffmpeg; cat '+prefix+'secret; '+body})
+
+
+def test_denied_ffmpeg_image_crop_and_short_circuited_crop_are_warnings():
+    first='/tmp/pixelworld_denied_ffmpeg_first_613948.png'
+    second='/tmp/pixelworld_denied_ffmpeg_second_613948.png'
+    crop=lambda path:"ffmpeg -y -loglevel error -i first_frame.png -vf 'crop=10:10:0:0,scale=20:20' "+path
+    item={'command':crop(first)+' && '+crop(second),'exit_code':251,
+          'aggregated_output':'[image2 @ 0x123] Could not open file : '+first+'\n'}
+    assert failed_scratch_path(first,item)
+    assert failed_scratch_path(second,item)
+    assert not failed_scratch_path(first,{**item,'exit_code':0})
+    assert not failed_scratch_path(second,{**item,'command':item['command'].replace(' && ','; ')})
+    assert not failed_scratch_path(first,{**item,'command':item['command'].replace('first_frame.png',first)})
+    assert not failed_scratch_path(first,{**item,'aggregated_output':item['aggregated_output'].replace(first,second)})
+    assert not failed_scratch_path(first,{**item,'command':crop(first)+' && cat '+first})
+    assert not failed_scratch_path(first,{**item,'command':item['command'].replace('scale=20:20','movie=/tmp/reference.png')})
+
+
+def test_denied_first_fstring_scratch_crop_is_not_an_access():
+    prefix='/tmp/pixelworld_fstring_missing_crop_83418'
+    command="python - <<'PY'\nfrom PIL import Image\nfor i in [1,12,17]:\n im=Image.open(f'frames/{i:02d}.png')\n im.save(f'"+prefix+"{i}.png')\nPY"
+    item={'command':command,'exit_code':1,'aggregated_output':
+        '  File "<stdin>", line 4, in <module>\nFileNotFoundError: [Errno 2] No such file or directory: '+repr(prefix+'1.png')}
+    assert failed_scratch_path(prefix,item)
+    assert not failed_scratch_path(prefix,{**item,'aggregated_output':item['aggregated_output'].replace('1.png','12.png')})
+    assert not failed_scratch_path(prefix,{**item,'command':command.replace('for i in [1,12,17]:','for i in dynamic_indices:')})

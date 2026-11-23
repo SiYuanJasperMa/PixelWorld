@@ -33,7 +33,9 @@ def chart_evidence(source):
                 'input_tokens_measured_cases','output_tokens_measured_cases',
                 'cached_input_tokens_measured_cases')})
     renderer=Path(__file__).with_name('render_bench_scale_charts.py')
-    payload={'cohorts':cohorts,'usage':usage,'baselines':video_baselines(source.parent.parent),
+    baselines=[{k:v for k,v in row.items()if k not in ('progress','benchmark_progress')}
+        for row in video_baselines(source.parent.parent)]
+    payload={'cohorts':cohorts,'usage':usage,'baselines':baselines,
              'renderer_sha256':hashlib.sha256(renderer.read_bytes()).hexdigest()}
     return hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest()
 

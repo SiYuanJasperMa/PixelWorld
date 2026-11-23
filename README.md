@@ -26,7 +26,7 @@ install, vendor, or replace Codex; it invokes the user's own executable.
 | Output-token budget | **1,000,000** reported output tokens per real attempt |
 | Attempt cap | At most 5 real model attempts per case |
 | Infrastructure failures | Quarantined separately; do not consume model attempts |
-| PhyGenBench scoring | PixelWorld GPT-5.5 adaptation, distinct from hierarchical PhyGenEval |
+| PhyGenBench scoring | GPT-5.5 three-stage MCQ adaptation; VLMs and probability scoring replaced explicitly, not the original PhyGenEval score |
 
 The 1M budget is a 2026-11-17 amendment. Earlier completed deliveries retain
 their recorded 100k budget and are reused without regeneration; analyses must
@@ -54,6 +54,7 @@ public benchmark reference is
 - [Add a model](docs/ADD_MODEL_RUNBOOK.md)
 - [Copy-paste collaborator handoff](docs/COLLABORATOR_HANDOFF.md)
 - [Codex integration](docs/CODEX.md)
+- [Codex / Pi / OpenCode harness comparison and readiness](docs/HARNESS_COMPARISON.md)
 - [Filesystem isolation](docs/FILESYSTEM_ISOLATION.md)
 - [Agent workspace and task contract](docs/WORKSPACE_AND_TASK.md)
 - [Paper framework](docs/FRAMEWORK_FOR_PAPER.md)

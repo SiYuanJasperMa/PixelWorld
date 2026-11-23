@@ -137,6 +137,14 @@ def publish_cycle(source, state_path, api, batch_size=2):
     temporary = state_path.with_suffix('.tmp')
     temporary.write_text(json.dumps(state, indent=2))
     temporary.replace(state_path)
+    # These are reproducible upload packages, not original agent traces.
+    # Drop only after both the HF commit and the local receipt are durable.
+    cache_root=(source.parent.parent/'hf_incremental_traces').resolve()
+    for _,package in selected:
+        for remote,path in package['media'].items():
+            path=Path(path)
+            if remote.endswith('.trace.tar.gz') and path.resolve().is_relative_to(cache_root):
+                path.unlink(missing_ok=True)
     return state
 
 

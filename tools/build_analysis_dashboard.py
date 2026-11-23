@@ -27,6 +27,7 @@ CONDITIONS = [
     {"id": "robojudge_text", "title": "RoboJudge · Text", "question": "Text vs Vision", "track": "text", "cases": 50, "runs": "robojudge_text", "config": "robojudge_text_analysis.json"},
     {"id": "pcve_text", "title": "PCVE · Text", "question": "Text vs Vision", "track": "text", "cases": 129, "runs": "pcve_text", "config": "pcve_text_analysis.json"},
     {"id": "phygenbench_text", "title": "PhyGenBench · Text", "question": "Text vs Vision", "track": "text", "cases": 160, "runs": "phygenbench_text", "config": "phygenbench_text_analysis.json"},
+    {"id": "physics_iq_harness_pi", "title": "Physics-IQ · Pi 1.6.0", "question": "同模型换 agent harness · 720p24fps · 原生工具与内核隔离", "track": "vision-agent", "cases": 198, "runs": "physics_iq_harness_pi", "config": "physics_iq_harness_pi_analysis.json"},
 ]
 PLANNED = []
 
@@ -47,8 +48,14 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
     metadata=read(run_root/'bundle.json')
     model_labels={m['key']:m.get('display_name',m['model'].split('/')[-1]) for m in metadata.get('models',[]) if m.get('analysis')}
     if not metadata:model_labels=MODEL_LABELS
+    order = list(MODEL_LABELS)
+    model_labels = dict(sorted(model_labels.items(), key=lambda row:
+                              order.index(row[0]) if row[0] in order else len(order)))
     limits = read(run_root / "configs/scheduling_limits.json")
     paused = limits.get("paused_models_by_config", {})
+    evaluation = read(web_root / 'evaluation.json')
+    evaluation_rows = {(row.get('suite'), row.get('model_key'), row.get('track')): row
+                       for row in evaluation.get('cohorts', [])}
     conditions = []
     totals = {"complete": 0, "running": 0, "pending": 0, "exhausted": 0, "total": 0}
     for spec in CONDITIONS:
@@ -72,11 +79,23 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
             row_counts["pending"] += max(0, spec["cases"] - sum(row_counts.values()))
             for name in counts:
                 counts[name] += row_counts[name]
+            assessed = evaluation_rows.get((spec['id'], key, spec['track']), {})
+            full_score = bool(assessed.get('full_scope_scored') and row_counts['complete'] == spec['cases'])
+            evaluation_phase = 'complete' if full_score else assessed.get('phase', 'waiting_for_generation')
+            if not full_score and evaluation_phase == 'complete':
+                evaluation_phase = 'blocked_current_generation_mismatch'
             rows.append({
                 "key": key, "label": model_labels[key],
                 **row_counts, "total": spec["cases"],
                 "mean_duration_seconds": group.get("mean_duration_seconds"),
                 "latest_completion": group.get("latest_completion"),
+                "evaluation": {
+                    "phase": evaluation_phase,
+                    "full_scope_scored": full_score,
+                    "metrics": (assessed.get('score') or {}).get('metrics') if full_score else None,
+                    "progress": {k:v for k,v in (assessed.get('evaluation_progress') or {}).items()
+                                 if k in ('completed','expected','updated_utc')},
+                },
             })
         total = spec["cases"] * len(model_labels)
         conditions.append({
@@ -85,12 +104,20 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
             "paused": spec["config"] in paused,
             "updated_utc": status.get("updated_utc"),
             "models": rows,
+            "scored_models": sum(row['evaluation']['full_scope_scored'] for row in rows),
+            "primary_metric": {'physics_iq':'Verified','robojudge':'Mean','pcve':'PES','phygenbench':'Overall'}[bench],
         })
         for name in totals:
             totals[name] += counts.get(name, 0)
         totals["total"] += total
-    for spec in PLANNED:
-        total = spec["cases"] * len(model_labels)
+    harness_plans = read(run_root / 'analysis_plans/harness_comparison.json').get('conditions', [])
+    for spec in [*PLANNED, *harness_plans]:
+        if any(c['id']==spec.get('id') for c in conditions):
+            continue
+        if not spec.get('planned'):
+            continue
+        selected_models = spec.get('model_keys', list(model_labels))
+        total = spec["cases"] * len([key for key in selected_models if key in model_labels])
         conditions.append({**spec, "total": total, "counts": {"complete": 0, "running": 0, "pending": 0, "exhausted": 0},
                            "paused": True, "models": []})
         # Planned conditions are listed separately from registered runnable cases.
@@ -113,14 +140,15 @@ body{background:#f5f7fa}.wrap{max-width:1320px;margin:auto;padding:26px}.head{di
 </style></head><body><div class="wrap">
 <div class="head"><div><p class="small muted">ANALYSIS · LIVE PROGRESS</p><h1>分析实验进度</h1><p class="muted small">5 个模型 · Text / 分辨率 / FPS / Thinking · 主实验 Vision 720p/24fps 复用</p></div><p class="small muted" id="sync">加载中…</p></div>
 <div class="stats" id="stats"></div><div id="content"></div>
-<p><a href="phygen_acd_smoke.html">Legacy · 已搁置的 PhyGen 初始化分析</a> · <a href="index.html">主实验总览</a></p>
+<p><a href="cost_effects.html">成本 / 效果</a> · <a href="phygen_agent_prompt_init.html">PhyGen 首帧扩展进度</a> · <a href="index.html">主实验总览</a> · <a href="phygen_acd_smoke.html">Legacy · 旧初始化实验</a></p>
 <p class="small muted">分析使用 GPT-6.1-Sol / GPT-5.6-Sol / GPT-5.6-Terra / GPT-5.6-Luna / DeepSeek-V4.1-Flash，均为免费模型；进度按各矩阵 status.json 统计，暂停条件显示为 paused。</p>
 </div><script>
 const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=n=>typeof n==='number'?n.toLocaleString():'—',pct=(a,b)=>b?Math.min(100,100*a/b):0;
 function ago(s){if(!s)return'—';const t=new Date(s).getTime();if(!isFinite(t))return'—';const d=Math.max(0,(Date.now()-t)/1000);if(d<90)return Math.round(d)+' 秒前';if(d<5400)return Math.round(d/60)+' 分钟前';return Math.round(d/3600)+' 小时前'}
+function evalStatus(m,c){const e=m.evaluation||{},v=e.metrics?.[c.primary_metric];if(e.full_scope_scored&&typeof v==='number')return esc(c.primary_metric)+' '+v.toFixed(c.primary_metric==='PES'||c.primary_metric==='Overall'?3:2);const names={official_evaluation:'评分中',official_full_evaluation:'评分中',adapter_evaluation:'评分中',preparing_evaluation:'评测准备中',waiting_for_evaluation_retry:'评测待重试',stale_evaluation:'评分待恢复',incomplete_generation:'全量未齐',blocked_score_provenance:'分数待核验',blocked_current_generation_mismatch:'范围待核验'};const label=names[e.phase]||(m.complete===m.total?'待评分':'待生成完成'),p=e.progress||{};return typeof p.completed==='number'&&p.completed>0?'已评 '+fmt(p.completed)+' / '+fmt(p.expected)+' · '+label:label}
 function render(d){$('sync').textContent='更新：'+new Date(d.updated_utc).toLocaleString();const t=d.totals;$('stats').innerHTML=[['有效交付',t.complete],['运行中',t.running],['待生成',t.pending],['失败/终止',t.exhausted],['总 case',t.total]].map(([k,v])=>'<div class="stat"><b>'+fmt(v)+'</b><span class="small muted">'+k+'</span></div>').join('');
-$('content').innerHTML=d.conditions.map(c=>{const p=pct(c.counts.complete,c.total),badge=c.planned?'<span class="badge planned">planned</span>':c.paused?'<span class="badge paused">paused</span>':'<span class="badge active">running</span>';const rows=(c.models||[]).map(m=>'<tr><td><a href="'+esc(c.page)+'?suite='+encodeURIComponent(c.id)+'&track='+encodeURIComponent(c.track)+'&model='+encodeURIComponent(m.key)+'">'+esc(m.label)+'</a></td><td class="num">'+fmt(m.complete)+' / '+fmt(m.total)+'</td><td class="num">'+fmt(m.running)+'</td><td class="num">'+fmt(m.pending)+'</td><td class="num">'+fmt(m.exhausted)+'</td><td class="num">'+(m.mean_duration_seconds?Math.round(m.mean_duration_seconds/60)+' 分钟':'—')+'</td><td class="small muted">'+ago(m.latest_completion?.[0])+'</td></tr>').join('');return '<div class="card"><div class="row"><div><b>'+esc(c.title)+'</b> '+badge+'<div class="small muted">'+esc(c.question)+' · '+esc(c.track)+' · '+fmt(c.cases)+' prompts/model</div></div><div class="small muted">更新：'+ago(c.updated_utc)+'</div></div><div class="bar"><i style="width:'+p+'%"></i></div><div class="row small"><span>完成 <b>'+fmt(c.counts.complete)+'</b> / '+fmt(c.total)+'</span><span>运行 '+fmt(c.counts.running)+' · 待生成 '+fmt(c.counts.pending)+' · 终止 '+fmt(c.counts.exhausted)+'</span></div>'+(rows?'<details><summary class="small">按模型展开</summary><table><thead><tr><th>模型</th><th>完成</th><th>运行</th><th>待生成</th><th>终止</th><th>平均耗时</th><th>最近交付</th></tr></thead><tbody>'+rows+'</tbody></table></details>':'')+'</div>'}).join('')}
+$('content').innerHTML=d.conditions.map(c=>{const p=pct(c.counts.complete,c.total),badge=c.planned?'<span class="badge planned">planned</span>':c.paused?'<span class="badge paused">paused</span>':(c.models||[]).length>0&&c.scored_models===(c.models||[]).length?'<span class="badge active">已评分</span>':c.counts.complete===c.total?'<span class="badge active">生成已齐</span>':!c.counts.pending&&!c.counts.running?'<span class="badge paused">已处理 · 有终止</span>':'<span class="badge active">运行中</span>';const rows=(c.models||[]).map(m=>'<tr><td><a href="'+esc(c.page)+'?suite='+encodeURIComponent(c.id)+'&track='+encodeURIComponent(c.track)+'&model='+encodeURIComponent(m.key)+'">'+esc(m.label)+'</a></td><td class="num">'+fmt(m.complete)+' / '+fmt(m.total)+'</td><td class="num">'+fmt(m.running)+'</td><td class="num">'+fmt(m.pending)+'</td><td class="num">'+fmt(m.exhausted)+'</td><td class="small">'+evalStatus(m,c)+'</td><td class="num">'+(m.mean_duration_seconds?Math.round(m.mean_duration_seconds/60)+' 分钟':'—')+'</td><td class="small muted">'+ago(m.latest_completion?.[0])+'</td></tr>').join('');return '<div class="card"><div class="row"><div><b>'+esc(c.title)+'</b> '+badge+'<div class="small muted">'+esc(c.question)+' · '+esc(c.track)+' · '+fmt(c.cases)+' prompts/model</div></div><div class="small muted">更新：'+ago(c.updated_utc)+'</div></div><div class="bar"><i style="width:'+p+'%"></i></div><div class="row small"><span>完成 <b>'+fmt(c.counts.complete)+'</b> / '+fmt(c.total)+'</span><span>运行 '+fmt(c.counts.running)+' · 待生成 '+fmt(c.counts.pending)+' · 终止 '+fmt(c.counts.exhausted)+'</span></div>'+(rows?'<details><summary class="small">按模型展开</summary><table><thead><tr><th>模型</th><th>完成</th><th>运行</th><th>待生成</th><th>终止</th><th>评测</th><th>平均耗时</th><th>最近交付</th></tr></thead><tbody>'+rows+'</tbody></table></details>':'')+'</div>'}).join('')}
 async function poll(){try{const r=await fetch((document.body.dataset.liveBase||'')+'analysis_progress.json?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);render(await r.json())}catch(e){$('sync').textContent='同步等待：'+e.message}}
 poll();setInterval(poll,30000);
 </script></body></html>"""
