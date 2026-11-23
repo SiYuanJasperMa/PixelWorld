@@ -136,3 +136,14 @@ cleanup. Do not publish private archives or raw requests with the code.
 adds a readback-verified score under its numbered run only when the exact
 source manifest hash and run identity agree. It does not infer a join to
 unidentified judge API calls.
+
+`python -m tools.archive_phygen_scores --scores "$PHYGEN_JUDGE_OUTPUT" \
+"$PHYGEN_DEEPSEEK_JUDGE_OUTPUT" --paper "$PRIVATE_PAPER_RUN_INDEX" --proxy \
+"$PIXELWORLD_PROXY_RECORD_ROOT" --output "$NEW_PRIVATE_EVALUATION_ARCHIVE"`
+archives finalized GPT-6.1-Sol scores and deduplicates original proxy input
+and terminal response bodies by response ID. It checks each request against
+the judged prompt and image hashes, checks the provider decision and usage,
+and verifies the bytes of every shard on readback. Code-agent scores are
+indexed against exact paper run paths; missing or changed generation manifest
+hashes are distinguished from exact current hash matches. External VideoGen
+scores retain their source identity without inventing a coding-agent run link.
