@@ -29,6 +29,8 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["pixelworld*"]
+namespaces = false
+exclude = ["runs*", "vendor*", "data*", "site*", "evaluation_outputs*"]
 
 [tool.setuptools.package-data]
 pixelworld = ["*.mjs", "assets/*.md", "assets/*.html", "assets/*.js", "assets/*.py", "assets/flash/*.py", "assets/legacy_v1/*.md", "assets/harness_comparison/*.json"]
