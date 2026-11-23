@@ -1,4 +1,4 @@
-"""Private, verified closed-run archives; no automatic deletion of source artifacts."""
+"""Private, verified closed-run archives and byte-identical scratch cleanup."""
 from __future__ import annotations
 
 import fcntl
@@ -9,14 +9,15 @@ from pathlib import Path
 import re
 import stat
 import tarfile
+import zipfile
 
-from .util import atomic_json, utc_now
+from .util import atomic_json, sha256, utc_now
 
 SAFE = re.compile(r'[A-Za-z0-9_.-]+$')
 RID = re.compile(r'resp_[a-zA-Z0-9]+$')
 WIRE_ROLES = ('input.json','native.json','events.json','response.json','error.txt')
 RUN_DIRECTORIES = ('input_snapshot', 'logs', 'trace', 'recording')
-RUN_FILES = ('run_manifest.json', 'task_prompt.txt', 'media_contract.json', 'permissions_profile.json')
+RUN_FILES = ('run_manifest.json', 'task_prompt.txt', 'media_contract.json', 'permissions_profile.json', 'model_catalog.json')
 OUTPUT_FILES = ('generate.py', 'pixels.npz', 'inspection.png','transition_check.png','index.html','video.mp4')
 
 
@@ -71,7 +72,58 @@ def _verify_tar(path, expected):
     if seen!=set(expected):raise ValueError('Missing archived members')
 
 
-def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Path|None=None) -> dict:
+def _prune_reproducible(run, manifest, hashes, roles, verified_receipt):
+    """Prune only byte-identical staging copies of the final archived tensor."""
+    rel = 'workspace/pixels.npz'
+    final = run/rel
+    workspace = final.parent
+    if (not verified_receipt.is_file() or workspace.is_symlink() or
+            manifest.get('status') != 'complete' or manifest.get('validation', {}).get('pass') is not True or
+            manifest.get('validation', {}).get('png_tensor_exact') is not True or
+            not roles or not all('input.json' in v and {'events.json', 'response.json'}.intersection(v)
+                                 for v in roles.values()) or
+            rel not in hashes or manifest.get('pixels_sha256') != hashes[rel] or
+            final.is_symlink() or not final.is_file()):
+        return []
+    names = ('pixels.packing.npy', 'pixels.npz.partial')
+    if not any((workspace/name).is_file() and not (workspace/name).is_symlink() for name in names):
+        return []
+    if sha256(final) != hashes[rel]:
+        return []
+    def fingerprint(entry):
+        return entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns
+
+    removed = []
+    for name in names:
+        source = workspace/name
+        try:
+            before = source.lstat()
+            if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+                continue
+            with os.fdopen(os.open(source, os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK), 'rb') as f:
+                if fingerprint(os.fstat(f.fileno())) != fingerprint(before):
+                    continue
+                if name.endswith('.npy'):
+                    with zipfile.ZipFile(final) as z:
+                        member = z.getinfo('pixels.npy')
+                        if before.st_size != member.file_size:
+                            continue
+                        with z.open(member) as saved:
+                            expected = hashlib.file_digest(saved, 'sha256').hexdigest()
+                else:
+                    expected = hashes[rel]
+                same_bytes = hashlib.file_digest(f, 'sha256').hexdigest() == expected
+            if same_bytes and fingerprint(source.lstat()) == fingerprint(before):
+                source.unlink()
+                removed.append({'path': f'workspace/{name}', 'bytes': before.st_size,
+                                'sha256': expected, 'proof': 'byte-identical to verified final tensor'})
+        except (OSError, KeyError, zipfile.BadZipFile):
+            continue  # Only exact, readable duplicates are eligible.
+    return removed
+
+
+def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Path|None=None,
+                           prune_reproducible:bool=False) -> dict:
     """Pin an attempt in a numbered per-model directory, then independently read back payloads."""
     run,root=run.resolve(),root.absolute()
     if root.resolve()!=root or root.is_relative_to(run) or run.is_relative_to(root):
@@ -132,6 +184,15 @@ def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Pat
                 'known_request_roles':roles,'wire_pair_count':sum(bool(set(v)&{'input.json','native.json'}) and bool(set(v)&{'events.json','response.json'}) for v in roles.values()),
                 'wire_scope':'known response IDs from native usage; missing roles are not reconstructed','pruned_source_files':0}
         atomic_json(receipt,result)
+        if prune_reproducible:
+            try:
+                removed = _prune_reproducible(run, m, expected, roles, receipt)
+                if removed:
+                    result.update(pruned_source_files=len(removed), pruning=removed)
+                    atomic_json(receipt, result)
+            except OSError as error:
+                # A cleanup error must not invalidate an already verified archive.
+                result['prune_warning'] = type(error).__name__
         return result
 
 
@@ -144,9 +205,11 @@ def archive_if_configured(run: Path, *, benchmark: str) -> None:
     scope = os.environ.get('PIXELWORLD_ARCHIVE_BENCHMARK', benchmark)
     try:
         receipt = archive_closed_attempt(run, Path(root), benchmark=scope,
-                                         proxy_logs=Path(raw) if raw else None)
+                                         proxy_logs=Path(raw) if raw else None,
+                                         prune_reproducible=os.environ.get('PIXELWORLD_ARCHIVE_PRUNE_REPRODUCIBLE', '1') == '1')
         record = {'status':'verified', 'benchmark':scope, 'run_number':receipt['run_number'],
-                  'wire_pair_count':receipt['wire_pair_count'], 'known_requests':len(receipt['known_request_roles'])}
+                  'wire_pair_count':receipt['wire_pair_count'], 'known_requests':len(receipt['known_request_roles']),
+                  'pruned_source_files':receipt['pruned_source_files']}
     except (OSError, ValueError, KeyError) as error:
         record = {'status':'failed', 'benchmark':scope, 'error':str(error), 'source_preserved':True}
     atomic_json(run/'verified_archive_status.json', record)

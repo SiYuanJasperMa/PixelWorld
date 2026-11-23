@@ -109,7 +109,16 @@ stable benchmark/condition name; `PIXELWORLD_PROXY_RECORD_ROOT` points to the
 explicit authorized request-log directory. Each closed attempt receives a
 numbered `benchmark/model/run_####` folder, original source identity, archive
 with per-member SHA256, and an independent readback receipt. Missing raw wire
-roles are reported, not replaced by token counts. This entry point **does not
-delete source files**; enable pruning only for a separately tested explicitly
-reproducible temporary-artifact policy. Do not publish private archives or raw
-requests with the code.
+roles are reported, not replaced by token counts. After successful readback,
+new verified archives may remove `pixels.packing.npy` or `pixels.npz.partial`
+only if byte-identical to the corresponding archived tensor content, the
+submission validated, and every known request has an exact input body and a
+response/event body. Interrupted drafts, final outputs, traces, and proxy logs
+are not pruned. Set `PIXELWORLD_ARCHIVE_PRUNE_REPRODUCIBLE=0` to disable this
+cleanup. Do not publish private archives or raw requests with the code.
+
+`python -m tools.archive_rbench_scores --scores "$RBENCH_SCORES" --archive
+"$PIXELWORLD_VERIFIED_ARCHIVE_ROOT" --report "$PRIVATE_ATTACHMENT_REPORT"`
+adds a readback-verified score under its numbered run only when the exact
+source manifest hash and run identity agree. It does not infer a join to
+unidentified judge API calls.
