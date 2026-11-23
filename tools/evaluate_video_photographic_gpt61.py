@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 import base64
+import fcntl
 import hashlib
 import io
 import json
@@ -94,13 +95,25 @@ def checked_result(text, labels):
     return value
 
 
+def cached_result(target, benchmark, case, trial, sources):
+    if not target.is_file():
+        return None
+    old=json.loads(target.read_text())
+    fields=('version','judge','rubric_sha256','benchmark','case','trial','source_identities')
+    if tuple(old.get(k) for k in fields) != (VERSION,GPT61_JUDGE,RUBRIC_SHA256,benchmark,case,trial,sources):
+        raise ValueError('Existing result differs in judge, protocol, or source identity')
+    return old
+
+
+def next_raw_index(path):
+    return max((int(p.stem) for p in path.glob('*.json') if p.stem.isdecimal()),default=-1)+1
+
+
 def evaluate(client, benchmark, case, trial, videos, root):
     target=root/'results'/benchmark/f'{case}_{trial}.json'
     sources={x['model']:x['identity'] for x in videos}
-    if target.is_file():
-        old=json.loads(target.read_text())
-        if (old.get('version'),old.get('judge'),old.get('source_identities'))!=(VERSION,GPT61_JUDGE,sources):
-            raise ValueError('Existing result differs in judge, protocol, or source identity')
+    old=cached_result(target,benchmark,case,trial,sources)
+    if old is not None:
         return old
     clips=sorted(videos,key=lambda r:r['model'])
     random.Random(int(hashlib.sha256(f'{VERSION}:{benchmark}:{case}'.encode()).hexdigest(),16)).shuffle(clips)
@@ -115,11 +128,12 @@ def evaluate(client, benchmark, case, trial, videos, root):
             parts.append({'type':'input_image','image_url':'data:image/jpeg;base64,'+b64})
             hexes[label].append({'frame':fr,'sha256':h})
     request={'model':GPT61_JUDGE,'input':[{'role':'system','content':SYSTEM},{'role':'user','content':parts}],'max_output_tokens':8192}
+    raw=root/'api_originals'/benchmark/f'{case}_{trial}'
+    first_index=next_raw_index(raw)
     for attempt in range(5):
         try:
             reply=client.responses.create(**request)
-            raw=root/'api_originals'/benchmark/f'{case}_{trial}'
-            atomic_json(raw/f'{attempt:02d}.json', {'request':request,'response':reply.model_dump()})
+            atomic_json(raw/f'{first_index+attempt:02d}.json', {'request':request,'response':reply.model_dump()})
             if reply.status!='completed':raise ValueError('Incomplete judge response')
             score=checked_result(reply.output_text,mapping)
             out={'version':VERSION,'judge':GPT61_JUDGE,'benchmark':benchmark,'case':case,'trial':trial,
@@ -178,16 +192,36 @@ def main():
     a.output.mkdir(parents=True,exist_ok=True,mode=0o700)
     client=OpenAI(api_key=key,base_url=a.base_url,timeout=240,max_retries=0)
     rows=[];failures=[];status={'judge':GPT61_JUDGE,'version':VERSION,'rubric_sha256':RUBRIC_SHA256,'manifest_sha256':sha256(a.manifest),'planned_cases':dict(counter),'expected_calls':len(selected),'scores_physics':False,'sampling':'Eight frames across each complete submitted clip; 768px max long side; JPEG85; reversed second presentation'}
-    atomic_json(a.output/'execution.json',{**status,'phase':'running','completed_calls':0,'failures':[]})
-    with ThreadPoolExecutor(max_workers=a.workers)as pool:
-        pending={pool.submit(evaluate,client,*job,a.output):job[:3]for job in selected}
-        for f in as_completed(pending):
-            try:rows.append(f.result())
-            except Exception as e:
-                b,c,t=pending[f];failures.append({'benchmark':b,'case':c,'trial':t,'error':str(e)[-500:]})
-            atomic_json(a.output/'execution.json',{**status,'phase':'running','completed_calls':len(rows),'failures':failures})
-    summary={**status,**summarize(rows),'phase':'finished'if not failures else 'incomplete','completed_calls':len(rows),'failures':failures,'finished_utc':utc_now()}
-    atomic_json(a.output/'summary.json',summary);atomic_json(a.output/'execution.json',summary)
+    with (a.output/'.photographic_judge.lock').open('a')as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        execution=a.output/'execution.json'
+        if execution.is_file():
+            old=json.loads(execution.read_text())
+            if any(old.get(k)!=status[k]for k in ('manifest_sha256','version','judge','rubric_sha256','expected_calls')):
+                raise ValueError('Existing evaluation has a different manifest, scope, rubric, or judge')
+            history=a.output/'execution_history'/f'{sha256(execution)}.json'
+            if not history.exists():
+                atomic_json(history,old)
+        todo=[]
+        for b,c,t,clips in selected:
+            target=a.output/'results'/b/f'{c}_{t}.json'
+            old=cached_result(target,b,c,t,{x['model']:x['identity']for x in clips})
+            if old is None:
+                todo.append((b,c,t,clips))
+            else:
+                rows.append(old)
+        status['reused_calls']=len(rows)
+        atomic_json(execution,{**status,'phase':'running','completed_calls':len(rows),'failures':[]})
+        with ThreadPoolExecutor(max_workers=a.workers)as pool:
+            pending={pool.submit(evaluate,client,*job,a.output):job[:3]for job in todo}
+            for f in as_completed(pending):
+                try:rows.append(f.result())
+                except Exception as e:
+                    b,c,t=pending[f];failures.append({'benchmark':b,'case':c,'trial':t,'error':str(e)[-500:]})
+                atomic_json(execution,{**status,'phase':'running','completed_calls':len(rows),'failures':failures})
+        summary={**status,**summarize(rows),'phase':'finished' if not failures else 'incomplete',
+                 'completed_calls':len(rows),'failures':failures,'finished_utc':utc_now()}
+        atomic_json(a.output/'summary.json',summary);atomic_json(execution,summary)
     print(json.dumps(summary,indent=2))
     if failures:raise SystemExit(1)
 
