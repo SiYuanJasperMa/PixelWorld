@@ -11,7 +11,7 @@ import time
 import threading
 
 from .audit import canonicalize_tensor, validate
-from .config import Benchmark, Model
+from .config import Benchmark, Model, CONTROLLED_CLI_VERSIONS
 from .constants import ASSET_ROOT, TRACKS, LEGACY_TRACK_PROTOCOLS
 from .util import atomic_json, sha256, utc_now
 from .usage import collect_usage, preserve_completed_request_bound
@@ -422,6 +422,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
              task_file: Path | None = None, rules_file: Path | None = None,
              extra_inputs: tuple[str,...] = ()) -> dict:
     model = config.model(model_key)
+    controlled = model.cli_backend in CONTROLLED_CLI_VERSIONS
     from .retries import budget_window
     retry_window = budget_window(config, model, track, case_id, attempt)
     token_limit = config.output_token_budget
@@ -432,6 +433,8 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         prior_output, prior_unknown, ignored_prior_usage = 0, False, []
     source = config.inputs_root / case_id
     spec = contract(source)
+    if controlled and (spec['task_type'],spec['width'],spec['height'],spec['fps'],spec['frames']) != ('i2v',1280,720,24,120):
+        raise ValueError('Controlled native clients require the standard Physics-IQ media contract')
     has_image = spec["task_type"] in ("i2v", "v2v", "video_edit")
     if (has_image and not (source / "first_frame.png").is_file()) or not (source / "prompt.txt").is_file():
         raise FileNotFoundError(f"Missing prepared input for case {case_id}: {source}")
@@ -521,14 +524,14 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     binary = codex_binary or (os.environ.get("PIXELWORLD_TRAECLI", "traecli") if model.cli_backend == 'trae'
                               else os.environ.get("PIXELWORLD_CODEX", "codex"))
     model_catalog_record = None
-    if model.cli_backend=='codex' and model.provider.model_catalog_json:
+    if (model.cli_backend=='codex' or controlled) and model.provider.model_catalog_json:
         from dataclasses import replace
         catalog_source=Path(model.provider.model_catalog_json)
         catalog_snapshot=run/'model_catalog.json'
         shutil.copy2(catalog_source,catalog_snapshot)
         model_catalog_record={'file':'model_catalog.json','sha256':sha256(catalog_snapshot)}
         model=replace(model,provider=replace(model.provider,model_catalog_json=str(catalog_snapshot)))
-    command = codex_command(model, track, workspace, binary, has_image,
+    command = [] if controlled else codex_command(model, track, workspace, binary, has_image,
                             filesystem_policy=config.filesystem_policy)
     if config.harness_variant in ('flash-submit','flash-submit-boundary'):
         module_root = Path(__file__).resolve().parents[1]
@@ -558,14 +561,16 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     # history-reuse settings stay unchanged; the stdout projection omits some
     # nested tools and image returns. Preserve legacy launch settings.
     full_trace_enabled = not legacy_contract or token_limit is not None
-    if full_trace_enabled and model.cli_backend!='pi':
+    if full_trace_enabled and model.cli_backend!='pi' and not controlled:
         command.remove('--ephemeral')
     if spec['task_type']=='v2v' and track!='text' and model.cli_backend!='pi':
         command += ['-i' if model.cli_backend=='trae' else '--image',str(workspace/'conditioning_inspection.png')]
     if spec['task_type']=='video_edit' and track!='text' and model.cli_backend!='pi':
         command += ['-i' if model.cli_backend=='trae' else '--image',str(workspace/'source_inspection.png')]
     try:
-        if model.cli_backend=='pi':
+        if controlled:
+            version=CONTROLLED_CLI_VERSIONS[model.cli_backend]
+        elif model.cli_backend=='pi':
             from .native_harness import version as native_version
             version=native_version()
         else:
@@ -652,29 +657,48 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
             environment.pop('CODEX_HOME',None)
             environment['TRAE_HOME'] = str(codex_home)
             environment['TRAECLI_HOME'] = os.environ.get('TRAECLI_HOME', str(Path.home()/'.trae/cli'))
-        if token_limit is not None:
-            from .token_budget import UsageMonitor
-            cli_home = Path(environment['TRAECLI_HOME']) if model.cli_backend == 'trae' else codex_home
-            token_monitor = UsageMonitor(logs/'events.jsonl', cli_home, started, token_limit, prior_output,
-                                         backend=model.cli_backend)
-        with task_snapshot.open("rb") as stdin, (logs / "stderr.log").open("wb") as stderr:
-            agent = subprocess.Popen(command, stdin=stdin, stdout=subprocess.PIPE, stderr=stderr, env=environment,
-                                     start_new_session=token_limit is not None)
-            logger = threading.Thread(target=capture_stream, args=(agent.stdout, logs / "events.raw.jsonl", logs / "events.jsonl"), daemon=True)
-            logger.start()
-            (logs / "agent.pid").write_text(str(agent.pid) + "\n")
-            (logs / "supervisor.pid").write_text(str(os.getpid()) + "\n")
-            exit_status, watchdog = _wait(agent, logs / "events.jsonl", logs, token_monitor=token_monitor)
-            logger.join(timeout=10)
-        stop_file.touch()
+        native_budget = None
+        full_trace = {'status': 'not_recorded', 'reason': 'Legacy ephemeral launch settings preserved'}
         try:
-            watcher.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            watcher.terminate()
-            watcher.wait(timeout=10)
+            if controlled:
+                from .controlled_harness import run_prepared
+                (logs / 'supervisor.pid').write_text(str(os.getpid()) + '\n')
+                exit_status, stop, native_budget, full_trace = run_prepared(model=model,
+                    workspace=workspace, logs=logs, task=task_snapshot.read_text(), environment=environment,
+                    limit=token_limit, prior_output=prior_output)
+                stream_finished = True
+                watchdog = None
+                if stop in ('output_token_budget_exhausted','token_usage_unavailable'):
+                    watchdog = {'kind':'token_budget','reason':stop,'cutoff_utc':native_budget.get('crossed_utc') or utc_now(),
+                                'token_budget':native_budget}
+                    atomic_json(logs/'watchdog.json',watchdog)
+                atomic_json(logs/'token_budget.json',native_budget)
+                atomic_json(logs/'full_trace_status.json',full_trace)
+            else:
+                if token_limit is not None:
+                    from .token_budget import UsageMonitor
+                    cli_home = Path(environment['TRAECLI_HOME']) if model.cli_backend == 'trae' else codex_home
+                    token_monitor = UsageMonitor(logs/'events.jsonl', cli_home, started, token_limit, prior_output,
+                                                 backend=model.cli_backend)
+                with task_snapshot.open('rb') as stdin, (logs/'stderr.log').open('wb') as stderr:
+                    agent = subprocess.Popen(command, stdin=stdin, stdout=subprocess.PIPE, stderr=stderr, env=environment,
+                                             start_new_session=token_limit is not None)
+                    logger = threading.Thread(target=capture_stream, args=(agent.stdout, logs/'events.raw.jsonl', logs/'events.jsonl'), daemon=True)
+                    logger.start()
+                    (logs/'agent.pid').write_text(str(agent.pid)+'\n')
+                    (logs/'supervisor.pid').write_text(str(os.getpid())+'\n')
+                    exit_status, watchdog = _wait(agent, logs/'events.jsonl', logs, token_monitor=token_monitor)
+                    logger.join(timeout=10)
+                    stream_finished = not logger.is_alive()
+        finally:
+            stop_file.touch()
+            try:
+                watcher.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                watcher.terminate()
+                watcher.wait(timeout=10)
 
-    full_trace = {'status': 'not_recorded', 'reason': 'Legacy ephemeral launch settings preserved'}
-    if full_trace_enabled:
+    if full_trace_enabled and not controlled:
         from .full_trace import capture_rollout
         cli_home = Path(environment['TRAECLI_HOME']) if model.cli_backend == 'trae' else codex_home
         try:
@@ -722,8 +746,8 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     })
     atomic_json(logs / "validation.json", validation)
     completed = dt.datetime.now(dt.timezone.utc)
-    token_usage = preserve_completed_request_bound(collect_usage(logs / "events.jsonl"),
-                          token_monitor.report() if token_monitor is not None else None)
+    budget_report = token_monitor.report() if token_monitor is not None else native_budget
+    token_usage = preserve_completed_request_bound(collect_usage(logs / "events.jsonl"), budget_report)
     if boundary_verified:
         from .submission_boundary import completed_usage
         token_usage=completed_usage(run,token_usage)
@@ -764,7 +788,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         "token_usage": token_usage,
         "full_trace": full_trace,
         "recording_coverage": {
-            "stdout_stream_finished": not logger.is_alive(),
+            "stdout_stream_finished": stream_finished,
             "full_rollout_status": full_trace.get('status'),
             "unresolved_blobs": full_trace.get('unresolved_blobs'),
             "interrupted_by_budget": budget_stopped,
@@ -772,7 +796,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
             "scope": 'CLI-exposed messages and artifacts; not unreturned provider internals or unfinished responses',
             "candidate_history": 'Stable saved snapshots observed externally; rapid overwrites and unsaved drafts may be absent',
         },
-        "token_budget": token_monitor.report() if token_monitor is not None else None,
+        "token_budget": budget_report,
         "submission_selection": submission_selection,
         "stop_reason": (watchdog['reason'] if budget_stopped else
                         'verified_submission_boundary' if boundary_verified else provider_infra_failure),

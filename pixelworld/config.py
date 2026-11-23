@@ -6,6 +6,9 @@ from pathlib import Path
 
 from .constants import TRACKS, DEFAULT_TRACKS, DEFAULT_PROTOCOL, LEGACY_TRACK_PROTOCOLS
 
+CONTROLLED_CLI_VERSIONS = {'opencode': '1.19.6', 'claude_code': '2.1.304'}
+CONTROLLED_PHYSICS_PROTOCOL = 'pixelworld-physics_iq_720p24fps-native-source-v1'
+
 
 @dataclass(frozen=True)
 class Provider:
@@ -99,9 +102,15 @@ def load_config(path: str | Path) -> Benchmark:
             raise ValueError(f"Responses provider {key} needs id, name, base_url, and env_key")
         tracks = tuple(value.get("tracks", default_tracks))
         cli_backend = value.get("cli_backend", "codex")
-        if cli_backend not in ("codex", "trae", "pi"):
+        if cli_backend not in ("codex", "trae", "pi", *CONTROLLED_CLI_VERSIONS):
             raise ValueError(f"Unknown CLI backend for {key}: {cli_backend}")
         cli_version=value.get('cli_version')
+        if cli_backend in CONTROLLED_CLI_VERSIONS and (
+            cli_version != CONTROLLED_CLI_VERSIONS[cli_backend] or protocol != CONTROLLED_PHYSICS_PROTOCOL or
+            tracks != ('vision-agent',) or token_budget is None or provider.type != 'responses' or
+            not provider.model_catalog_json or filesystem_policy != 'case-only-v1' or harness_variant != 'baseline'
+        ):
+            raise ValueError('Controlled native clients require the frozen Physics-IQ Vision protocol, Responses, and a budget')
         if cli_backend=='pi' and (cli_version!='1.6.0' or provider.type!='responses'
                                   or filesystem_policy!='case-only-v1' or harness_variant!='baseline'):
             raise ValueError('Pi requires frozen1.6.0, Responses provider, case-only isolation and baseline task')
@@ -122,7 +131,7 @@ def load_config(path: str | Path) -> Benchmark:
                                              or any(model.cli_backend != 'codex' or 'vision-input' in model.tracks for model in models)):
         raise ValueError('flash-submit requires native Codex and case-only Text/Vision tracks')
     if filesystem_policy == "case-only-v1" and any(
-            model.cli_backend not in ("codex", "pi") or "vision-input" in model.tracks for model in models):
+            model.cli_backend not in ("codex", "pi", *CONTROLLED_CLI_VERSIONS) or "vision-input" in model.tracks for model in models):
         raise ValueError("case-only-v1 requires native Codex Text/Vision tracks")
     result = Benchmark(
         source=source,

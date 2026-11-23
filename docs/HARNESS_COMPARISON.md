@@ -159,6 +159,17 @@ it. Raw Responses records, native events, and (for Claude Code) the translated
 Messages wire are kept separately. Do not interpret a one-case receipt as
 permission to dispatch a full matrix.
 
+For enrolled 720p Physics-IQ Vision cohorts, use the standard `pixelworld
+run-case` and `pixelworld matrix run` entry points. Keep the original
+Physics-IQ protocol, inputs and model catalog; set `cli_backend` to `opencode`
+or `claude_code`, pin `cli_version`, and give each harness a separate runs
+root. Provide `PIXELWORLD_CONTROLLED_LOCKS` and `PIXELWORLD_CONTROLLED_RUNTIME`
+privately. The common runner stages the same prompt and input snapshot,
+retains raw transcripts and response bodies under `logs/native`, and exports
+request usage and tool results through the standard recording bundle. Run a
+standard-runner case and verify its archive before releasing the remaining
+cases; the completed case is reused by the same matrix.
+
 ## Preparation evidence and historical Pi pilot
 
 Both frozen executables passed their version checks. A no-tool, non-benchmark

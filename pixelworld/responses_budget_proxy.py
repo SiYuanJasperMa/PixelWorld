@@ -11,7 +11,7 @@ from threading import Lock, Thread
 from urllib.parse import urlsplit
 
 from .token_budget import ResponseUsageBudget
-from .util import atomic_json
+from .util import atomic_json, utc_now
 
 MAX_BODY = 64 * 1024 * 1024
 TERMINALS = {'response.completed', 'response.incomplete', 'response.failed'}
@@ -135,7 +135,8 @@ def responses_relay(*, upstream: str, upstream_key: str, client_key: str, model:
                     forwarding.close()
                     atomic_json(request_dir/'receipt.json', {'upstream_status': status,
                         'response_id': terminal.get('id') if isinstance(terminal, dict) else None,
-                        'budget': budget.report()})
+                        'usage': terminal.get('usage') if isinstance(terminal, dict) else None,
+                        'completed_utc': utc_now(), 'budget': budget.report()})
 
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     server.daemon_threads = False  # Close only after in-flight receipts have been written.

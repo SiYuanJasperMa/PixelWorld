@@ -51,7 +51,7 @@ def clean_environment(out):
 
 
 def open_code(stack, client, out, runtime, workspace, env, endpoint, key, model, effort, context, task):
-    conf = out/'config/opencode.json'
+    conf = Path(env['XDG_CONFIG_HOME'])/'opencode.json'
     command = mcp_command(workspace, runtime)
     atomic_json(conf, {'enabled_providers': ['pixelworld'], 'model': 'pixelworld/'+model,
         'small_model': 'pixelworld/'+model, 'autoupdate': False,
@@ -101,7 +101,7 @@ def claude_code(stack, client, out, runtime, workspace, env, endpoint, key, mode
     address = stack.enter_context(messages_frontend(responses_base=endpoint, responses_key=key,
         client_key=native_key, model=model, effort=effort, wire=out/'messages_wire', allowed_tools=allowed))
     command = mcp_command(workspace, runtime)
-    conf = out/'config/mcp.json'
+    conf = Path(env['XDG_CONFIG_HOME'])/'mcp.json'
     atomic_json(conf, {'mcpServers': {'pixelworld': {'type':'stdio', 'command': command[0],
         'args':command[1:], 'env':{'PYTHONPATH':env['PYTHONPATH'], 'PYTHONDONTWRITEBYTECODE':'1'}}}})
     env.update(ANTHROPIC_BASE_URL=address, ANTHROPIC_API_KEY=native_key,
@@ -117,7 +117,7 @@ def claude_code(stack, client, out, runtime, workspace, env, endpoint, key, mode
     return cmd, (json.dumps(payload)+'\n').encode()
 
 
-def execute(command, data, workspace, out, env, budget, deadline):
+def execute(command, data, workspace, out, env, budget, deadline, pid_file=None):
     reason = None
     with (out/'events.native.jsonl').open('wb') as stdout, (out/'stderr.log').open('wb') as stderr:
         if not budget.can_dispatch:
@@ -125,19 +125,21 @@ def execute(command, data, workspace, out, env, budget, deadline):
         proc = subprocess.Popen(command,cwd=workspace,env=env, stdout=stdout,stderr=stderr,
                     stdin=subprocess.PIPE if data else subprocess.DEVNULL,start_new_session=True)
         try:
+            if pid_file is not None:
+                pid_file.write_text(str(proc.pid)+'\n')
             if data:
                 try:
                     proc.stdin.write(data)
                     proc.stdin.close()
                 except BrokenPipeError:
                     pass
-            end = time.monotonic() + deadline
+            end = time.monotonic() + deadline if deadline is not None else None
             while proc.poll() is None:
                 if not budget.can_dispatch:
                     reason = 'token_usage_unavailable' if budget.unavailable else 'output_token_budget_exhausted'
                     stop_agent(proc)
                     break
-                if time.monotonic() >= end:
+                if end is not None and time.monotonic() >= end:
                     reason = 'smoke_wrapper_deadline'
                     stop_agent(proc)
                     break
@@ -200,6 +202,94 @@ def project(native, backend, workspace, rc):
     if success:
         rows.append({'type':'turn.completed'})
     return rows, success, calls
+
+
+def prepared_rollout(wire, logs, events, budget, terminal):
+    """Project unique Responses usage/tool records while preserving the raw wire."""
+    from .full_trace import extract_tools
+    import uuid
+
+    session = str(uuid.uuid4())
+    seen, tools, totals = set(), set(), {}
+    rollout = logs/'full_rollout.jsonl'
+    with rollout.open('w') as f:
+        def add(kind, item, time):
+            f.write(json.dumps({'type':kind,'timestamp':time,'payload':item})+'\n')
+        add('session_meta',{'id':session,'source':'controlled-native Responses wire'},utc_now())
+        for directory in sorted(wire.glob('[0-9]*')):
+            receipt = json.loads((directory/'receipt.json').read_text())
+            stamp = receipt['completed_utc']
+            request = json.loads((directory/'input.json').read_text())
+            for item in request.get('input', []):
+                if not isinstance(item, dict) or item.get('type') not in ('function_call','function_call_output'):
+                    continue
+                key = item['type'],item.get('call_id')
+                if key in tools:
+                    continue
+                tools.add(key)
+                add('response_item',item,stamp)
+            rid, usage = receipt['response_id'],receipt['usage']
+            if not rid or rid in seen or not isinstance(usage,dict):
+                continue
+            seen.add(rid)
+            fields = {k:usage[k]for k in ('input_tokens','output_tokens','total_tokens') if type(usage.get(k)) is int}
+            for k,pair in {'cached_input_tokens':('input_tokens_details','cached_tokens'),
+                           'reasoning_output_tokens':('output_tokens_details','reasoning_tokens')}.items():
+                count = (usage.get(pair[0]) or {}).get(pair[1])
+                if type(count) is int:
+                    fields[k] = count
+            for k,count in fields.items():
+                totals[k] = totals.get(k,0)+count
+            add('token_usage_record',{'session_id':session,'turn_id':session,'response_id':rid,'usage':fields},stamp)
+    event = {'type':'turn.completed' if terminal else 'turn.failed'}
+    if len(seen) and not budget.unavailable:
+        event['usage'] = totals
+    if events and events[-1]['type'] == 'turn.completed':
+        events[-1] = event
+    else:
+        events.append(event)
+    payload = ''.join(json.dumps(e)+'\n' for e in events)
+    for name in ('events.jsonl','events.raw.jsonl'):
+        (logs/name).write_text(payload)
+    return {**extract_tools(rollout,logs),'source':'native request/response wire and event projection',
+            'requests':len(seen),'thread_id':session}
+
+
+def run_prepared(*, model, workspace, logs, task, environment, limit, prior_output):
+    """Execute a case staged by the standard benchmark runner, not a prior delivery."""
+    runtime = Path(environment['PIXELWORLD_CONTROLLED_RUNTIME']).resolve(strict=True)
+    locks = Path(environment['PIXELWORLD_CONTROLLED_LOCKS'])
+    client,digest = pinned_client(locks,model.cli_backend)
+    upstream = model.provider.base_url.rstrip('/')+'/responses'
+    catalog = json.loads(Path(model.provider.model_catalog_json).read_text())['models']
+    item = next(x for x in catalog if x.get('slug') == model.model)
+    context = item['context_window']
+    if type(context) is not int or context <= 0:
+        raise ValueError('Invalid frozen context window')
+    key = environment[model.provider.env_key]
+    out = logs/'native'
+    out.mkdir(mode=0o700)
+    state = workspace.parent/'empty-codex-home'/'controlled'
+    state.mkdir(mode=0o700)
+    env = clean_environment(state)
+    budget = ResponseUsageBudget(limit,prior_output)
+    relay_key = secrets.token_urlsafe(32)
+    with ExitStack() as stack:
+        endpoint = stack.enter_context(responses_relay(upstream=upstream,upstream_key=key,
+            client_key=relay_key,model=model.model,effort=model.reasoning_effort,wire=out/'responses_wire',budget=budget))
+        base = (stack,client,out,runtime,workspace,env,endpoint,relay_key,model.model,model.reasoning_effort)
+        command,data = (open_code(*base,context,task) if model.cli_backend=='opencode' else claude_code(*base,task))
+        atomic_json(logs/'native_launch.json',{'backend':model.cli_backend,'version':VERSION[model.cli_backend],
+                    'executable_sha256':digest,'model':model.model,'command':command,'context_window':context})
+        rc,stop = execute(command,data,workspace,out,env,budget,None,pid_file=logs/'agent.pid')
+    records = [json.loads(l) for l in (out/'events.native.jsonl').read_text().splitlines() if l.strip()]
+    events,terminal,calls = project(records,model.cli_backend,workspace,rc)
+    if not budget.can_dispatch and stop is None:
+        stop = 'token_usage_unavailable' if budget.unavailable else 'output_token_budget_exhausted'
+    trace = prepared_rollout(out/'responses_wire',logs,events,budget,terminal and stop is None)
+    atomic_json(logs/'native_delivery.json',{'terminal_ok':terminal,'tool_calls':calls,'raw_events':'native/events.native.jsonl',
+                'stop_reason':stop,'budget':budget.report()})
+    return rc,stop,budget.report(),trace
 
 
 def run(args):
