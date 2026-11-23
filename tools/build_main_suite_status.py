@@ -130,7 +130,22 @@ def build(nightly, publication):
                 if detail.get('count') == expected and fvd is not None and detail.get('fvd') == fvd:
                     cells[key]['fvd'] = fvd
         rows[model] = cells
+    plan = read(publication / 'experiment_plan.json')
+    baseline_keys = {'seedance25': 'seedance25-v1', 'minimax-h3': 'minimax-h3-local'}
+    references = {}
+    for row in plan.get('video_baselines', []):
+        key = row.get('key')
+        if key not in baseline_keys:
+            continue
+        scores = {}
+        for benchmark in ('physics_iq', 'pcve'):
+            item = row.get('scores', {}).get(benchmark, {})
+            if item.get('kind') == 'published_reference':
+                scores[benchmark] = finite_score(item.get('value'))
+        _, scores['phygenbench'] = phygen_score(phygen, baseline_keys[key])
+        references[key] = scores
     return {'protocol': 'pixelworld-main-suite-20261124', 'updated_utc': utc_now(), 'models': rows,
+            'references': references,
             'photographic_progress': {key: photo.get(key) for key in ('completed_calls', 'expected_calls')},
             'photographic_judge': JUDGE}
 
@@ -149,6 +164,10 @@ HEADER = {
 
 
 def render(status):
+    def display_score(key, score):
+        digits = {'physics_iq': 2, 'pcve': 3, 'rbench': 3, 'phygenbench': 4}[key]
+        return f'{score:.{digits}f}'
+
     def cell(row, key, model):
         count, total = row['counts'], row['expected']
         _, _, href = HEADER[key]
@@ -158,31 +177,62 @@ def render(status):
         if row['score'] is None:
             evaluation = f"评分 {row['scored']} / {total}"
         else:
-            evaluation = f"<b>{escape(row['metric'])} {row['score']:.3f}</b>"
+            evaluation = f"<b>{escape(row['metric'])} {display_score(key, row['score'])}</b>"
         recent = row.get('last_delivery_utc')
+        last = f'<time datetime="{escape(recent)}">{escape(recent)}</time>' if recent else '尚无交付'
         return (f'<td>{progress}<div class="progress"><i style="width:{100*count["complete"]/total:.1f}%"></i></div>'
                 f'<div class="small muted">{count["running"]} 运行 · {count["pending"]} 待生成 · {count["exhausted"]} 终止</div>'
-                f'<div>{evaluation}</div><div class="small muted">{escape(recent) if recent else "尚无交付"}</div></td>')
+                f'<div>{evaluation}</div><div class="small muted">最近交付：{last}</div></td>')
+
+    def baseline_cell(scores, key):
+        value = scores.get(key)
+        if value is None:
+            return '<td>—</td>'
+        origin = 'GPT-6.1-Sol 重评' if key == 'phygenbench' else '论文 / 榜单参考'
+        return f'<td><b>{display_score(key, value)}</b><br><span class="small muted">{origin}</span></td>'
 
     heads = ''.join(f'<th>{label}<br><span class="small muted">{spec}</span></th>' for label, spec, _ in HEADER.values())
-    rows = ''.join(f'<tr><th>{LABELS[model]}</th>' + ''.join(cell(cells[k], k, model) for k in HEADER) + '</tr>'
-                   for model, cells in status['models'].items())
+    baseline_labels = {'seedance25': 'Seedance 2.5', 'minimax-h3': 'MiniMax H3'}
+    rows = ''.join(f'<tr class="baseline"><th>{baseline_labels[model]}<br><span class="small muted">VideoGen baseline</span></th>' +
+                   ''.join(baseline_cell(scores, k) for k in HEADER) + '</tr>'
+                   for model, scores in status.get('references', {}).items())
+    rows += ''.join(f'<tr><th>{LABELS[model]}</th>' + ''.join(cell(cells[k], k, model) for k in HEADER) + '</tr>'
+                    for model, cells in status['models'].items())
     fvd_rows = ''.join(f'<tr><th>{LABELS[model]}</th>' + ''.join(
         '<td>—</td>' if cells[k].get('fvd') is None else f'<td>{cells[k]["fvd"]:.2f}</td>'
         for k in ('physics_iq', 'pcve')) + '</tr>' for model, cells in status['models'].items()
         if any(cells[k].get('fvd') is not None for k in ('physics_iq', 'pcve')))
     photo = status['photographic_progress']
     return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PixelWorld · 新版主实验</title><link rel="stylesheet" href="formal.css"><body><header><nav><strong>PixelWorld</strong>
-<span><a href="index.html">当前主页</a><a href="analyses.html">分析进度</a><a href="robojudge.html">RoboJudge 历史</a></span></nav></header>
-<main><p class="eyebrow">CODING AGENTS AS PIXEL WORLD MODELS</p><h1>新版主实验</h1>
-<p class="muted">Vision · 720p / 24 FPS · 数据快照 {escape(status['updated_utc'])}</p>
+<meta http-equiv="refresh" content="90"><meta name="pixelworld-protocol" content="pixelworld-main-suite-20261124">
+<title>PixelWorld · 主实验</title><link rel="stylesheet" href="formal.css"><body><header><nav><strong><a href="index.html">PixelWorld</a></strong>
+<span><a href="analyses.html">分析进度</a><a href="cost_effects.html">成本与效果</a><a href="pixelworld-index.html">历史总览</a>
+<a href="robojudge.html">RoboJudge</a><a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld">视频与 Trace</a>
+<a href="https://github.com/SiyuanMaCS/PixelWorld/tree/collaboration/20261123-harness-evaluation-sync">GitHub</a></span></nav></header>
+<main><p class="eyebrow">CODING AGENTS AS PIXEL WORLD MODELS</p><h1>主实验</h1>
+<p class="muted">Vision · 720p / 24 FPS · 数据快照 <time datetime="{escape(status['updated_utc'])}">{escape(status['updated_utc'])}</time></p>
 <div class="table"><table><thead><tr><th>模型</th>{heads}</tr></thead><tbody>{rows}</tbody></table></div>
 <p class="small muted">只有评完全部样本才显示总分。RBench 只生成一个候选，使用 GPT-6.1-Sol 的官方 GPT 分支适配，不是 GPT + Qwen 联合榜分。
 PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混排。PCVE 采用 Full 129；PES 校准与论文参照见详情页。</p>
 <h2>视频质量 · 独立于物理分</h2><p>GPT-6.1-Sol 画质判分进度：{photo.get('completed_calls') or 0} / {photo.get('expected_calls') or 0} 次调用。</p>
 <div class="table"><table><thead><tr><th>模型</th><th>Physics-IQ FVD ↓</th><th>PCVE FVD ↓</th></tr></thead><tbody>{fvd_rows}</tbody></table></div>
-<p class="small muted">FVD 使用各 benchmark 对应的参考集，不能跨 benchmark 比较。</p></main></body></html>'''
+<p class="small muted">FVD 使用各 benchmark 对应的参考集，不能跨 benchmark 比较。</p></main>
+<script>
+const clock = new Intl.RelativeTimeFormat('zh-CN', {{numeric: 'always'}});
+function refreshAges() {{
+  for (const time of document.querySelectorAll('time[datetime]')) {{
+    const ms = Date.parse(time.dateTime);
+    if (!Number.isFinite(ms)) continue;
+    const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+    const [divisor, unit] = sec < 60 ? [1, 'second'] : sec < 3600 ? [60, 'minute'] :
+      sec < 86400 ? [3600, 'hour'] : [86400, 'day'];
+    time.title = time.dateTime;
+    time.textContent = clock.format(-Math.floor(sec / divisor), unit);
+  }}
+}}
+refreshAges();
+setInterval(refreshAges, 15000);
+</script></body></html>'''
 
 
 def main():
