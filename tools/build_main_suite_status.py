@@ -1,0 +1,202 @@
+"""Build a public-safe progress snapshot for the revised four-benchmark suite."""
+from __future__ import annotations
+
+import argparse
+from collections import Counter
+from html import escape
+import json
+import math
+from pathlib import Path
+
+from pixelworld.config import load_config
+from pixelworld.supervisor import inspect
+from pixelworld.util import atomic_json, utc_now
+from tools.watch_rbench_common_scores import configs as rbench_configs
+
+BENCHMARKS = {
+    'physics_iq': ('physics_iq_720p24fps', 198, 'Verified'),
+    'rbench': ('rbench_common_manipulation', 50, 'GPT branch'),
+    'phygenbench': ('phygenbench_t2v_main720p24fps', 160, 'Overall'),
+    'pcve': ('pcve_standard720p24fps', 129, 'PES'),
+}
+ROSTER = ('gpt62-sol', 'gpt61-sol', 'gpt6-astra', 'gpt56-sol', 'gpt56-terra',
+          'gpt56-luna', 'deepseek-v41', 'seed21-pro')
+COUNT_FIELDS = ('complete', 'running', 'pending', 'exhausted')
+JUDGE = 'traex/GPT-6.1-Sol'
+TRACK = 'vision-agent'
+
+
+def read(path):
+    try:
+        return json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+
+
+def finite_score(value):
+    return value if type(value) in (int, float) and math.isfinite(value) else None
+
+
+def count_config(config, model, expected):
+    if len(config.case_ids) != expected or len(set(config.case_ids)) != expected:
+        raise ValueError(f'Configured scope does not contain exactly {expected} unique cases')
+    states = [inspect(config, model, TRACK, case) for case in config.case_ids]
+    counts = Counter(row['state'] for row in states)
+    latest = max((row.get('completed_utc') for row in states if row.get('completed_utc')), default=None)
+    return {'counts': {key: counts[key] for key in COUNT_FIELDS}, 'last_delivery_utc': latest}
+
+
+def public_counts(group, expected):
+    values = {key: group.get('counts', {}).get(key, 0) for key in COUNT_FIELDS}
+    if any(type(value) is not int or value < 0 for value in values.values()) or sum(values.values()) > expected:
+        raise ValueError('Invalid published case counters')
+    recent = group.get('latest_completion') or []
+    return {'counts': values, 'last_delivery_utc': recent[0] if recent else None}
+
+
+def legacy_score(record, expected, metric):
+    score = record.get('score') or {}
+    if record.get('full_scope_scored') is not True or score.get('scope') != expected:
+        return None
+    return finite_score(score.get('metrics', {}).get(metric))
+
+
+def phygen_score(report, model):
+    row = report.get('models', {}).get(model, {})
+    if (report.get('version'), report.get('judge'), report.get('full160')) != (
+        'phygen-gpt61-sol-three-stage-mcq-v1', JUDGE, True,
+    ):
+        return 0, None
+    if report.get('cases') != list(range(1, 161)):
+        return 0, None
+    scored = row.get('cases', 0)
+    return scored, finite_score(row.get('mean')) if scored == 160 else None
+
+
+def rbench_score(report, model):
+    if (report.get('protocol'), report.get('judge')) != ('rbench-common-official-gpt-branch-gpt61-sol-v1', JUDGE):
+        return 0, None
+    row = report.get('models', {}).get(model, {})
+    scored = row.get('scored', 0)
+    full = (row.get('full_common50') is True and scored == row.get('expected') == 50
+            and not any(row.get(field) for field in ('waiting', 'generation_failures', 'judge_errors')))
+    return scored, finite_score(row.get('mean')) if full else None
+
+
+def build(nightly, publication):
+    cat = read(publication / 'catalogue.json')
+    ev = read(publication / 'evaluation.json')
+    cohorts = {(x.get('suite'), x.get('model_key')): x for x in ev.get('cohorts', []) if x.get('track') == TRACK}
+    groups = {(x.get('suite'), x.get('model_key')): x for x in cat.get('groups', []) if x.get('track') == TRACK}
+    evaluation = nightly / 'evaluation'
+    rbench = read(evaluation / 'rbench_common_gpt61_live/execution.json')
+    phygen = read(evaluation / 'phygen_gpt61_sol_three_stage/summary.json')
+    phygen_deepseek = read(evaluation / 'phygen_gpt61_sol_deepseek/summary.json')
+    photo = read(evaluation / 'photographic_gpt61_existing_main/execution.json')
+    fvd_report = read(evaluation / 'physics_iq_fvd_official_take1/summary.json')
+    pcve_fvd = {row['model']: row for row in read(evaluation / 'pcve_reused_official_fvd.json').get('verified_scores', [])}
+    rconfigs = rbench_configs(nightly / 'rbench_full_dispatch')
+    registry = read(nightly / 'gpt62_cohorts/dispatch_registry.json')['configured']
+    gpt62 = {x['name']: load_config(Path(x['config'])) for x in registry if x['name'].endswith('_full')}
+    rows = {}
+    for model in ROSTER:
+        cells = {}
+        for key, (suite, expected, metric) in BENCHMARKS.items():
+            if key == 'rbench':
+                progress = count_config(*rconfigs[model], expected) if model in rconfigs else public_counts({}, expected)
+                scored, score = rbench_score(rbench, model)
+            else:
+                config = gpt62.get(key + '_full') if model == 'gpt62-sol' else None
+                progress = count_config(config, config.model(model), expected) if config else public_counts(groups.get((suite, model), {}), expected)
+                record = cohorts.get((suite, model), {})
+                if key == 'phygenbench':
+                    scored, score = phygen_score(phygen, model)
+                    if model == 'deepseek-v41' and not scored:
+                        scored, score = phygen_score(phygen_deepseek, model)
+                else:
+                    score = legacy_score(record, expected, metric)
+                    scored = expected if score is not None else 0
+            if progress['counts']['complete'] < expected:
+                score = None
+            cells[key] = {**progress, 'expected': expected, 'scored': scored, 'score': score, 'metric': metric}
+            if key == 'physics_iq' and fvd_report.get('full198') is True:
+                detail = fvd_report.get('scores', {}).get(model, {})
+                if detail.get('count') == expected:
+                    cells[key]['fvd'] = finite_score(detail.get('fvd'))
+            elif key == 'pcve' and score is not None:
+                detail = pcve_fvd.get(model, {})
+                reference = cohorts.get((suite, model), {}).get('score') or {}
+                fvd = finite_score(reference.get('metrics', {}).get('FVD'))
+                if detail.get('count') == expected and fvd is not None and detail.get('fvd') == fvd:
+                    cells[key]['fvd'] = fvd
+        rows[model] = cells
+    return {'protocol': 'pixelworld-main-suite-20261124', 'updated_utc': utc_now(), 'models': rows,
+            'photographic_progress': {key: photo.get(key) for key in ('completed_calls', 'expected_calls')},
+            'photographic_judge': JUDGE}
+
+
+LABELS = {
+    'gpt62-sol': 'GPT-6.2-Sol', 'gpt61-sol': 'GPT-6.1-Sol', 'gpt6-astra': 'GPT-6-Astra',
+    'gpt56-sol': 'GPT-5.6-Sol', 'gpt56-terra': 'GPT-5.6-Terra', 'gpt56-luna': 'GPT-5.6-Luna',
+    'deepseek-v41': 'DeepSeek-V4.1-Flash', 'seed21-pro': 'Seed-2.1-Pro-0915',
+}
+HEADER = {
+    'physics_iq': ('Physics-IQ Verified', 'I2V · 198 cases', 'physics_iq_baseline.html'),
+    'rbench': ('RBench Common Manipulation', 'I2V · 50 cases', ''),
+    'phygenbench': ('PhyGenBench', 'T2V · 160 cases', 'phygen_pixelspace.html'),
+    'pcve': ('PCVE-RigidBench', 'V2V editing · 129 cases', 'pcve_rigid.html'),
+}
+
+
+def render(status):
+    def cell(row, key, model):
+        count, total = row['counts'], row['expected']
+        _, _, href = HEADER[key]
+        progress = f"<b>{count['complete']} / {total}</b>"
+        if href and model != 'gpt62-sol':
+            progress = f'<a href="{href}?model={model}">{progress}</a>'
+        if row['score'] is None:
+            evaluation = f"评分 {row['scored']} / {total}"
+        else:
+            evaluation = f"<b>{escape(row['metric'])} {row['score']:.3f}</b>"
+        recent = row.get('last_delivery_utc')
+        return (f'<td>{progress}<div class="progress"><i style="width:{100*count["complete"]/total:.1f}%"></i></div>'
+                f'<div class="small muted">{count["running"]} 运行 · {count["pending"]} 待生成 · {count["exhausted"]} 终止</div>'
+                f'<div>{evaluation}</div><div class="small muted">{escape(recent) if recent else "尚无交付"}</div></td>')
+
+    heads = ''.join(f'<th>{label}<br><span class="small muted">{spec}</span></th>' for label, spec, _ in HEADER.values())
+    rows = ''.join(f'<tr><th>{LABELS[model]}</th>' + ''.join(cell(cells[k], k, model) for k in HEADER) + '</tr>'
+                   for model, cells in status['models'].items())
+    fvd_rows = ''.join(f'<tr><th>{LABELS[model]}</th>' + ''.join(
+        '<td>—</td>' if cells[k].get('fvd') is None else f'<td>{cells[k]["fvd"]:.2f}</td>'
+        for k in ('physics_iq', 'pcve')) + '</tr>' for model, cells in status['models'].items()
+        if any(cells[k].get('fvd') is not None for k in ('physics_iq', 'pcve')))
+    photo = status['photographic_progress']
+    return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PixelWorld · 新版主实验</title><link rel="stylesheet" href="formal.css"><body><header><nav><strong>PixelWorld</strong>
+<span><a href="index.html">当前主页</a><a href="analyses.html">分析进度</a><a href="robojudge.html">RoboJudge 历史</a></span></nav></header>
+<main><p class="eyebrow">CODING AGENTS AS PIXEL WORLD MODELS</p><h1>新版主实验</h1>
+<p class="muted">Vision · 720p / 24 FPS · 数据快照 {escape(status['updated_utc'])}</p>
+<div class="table"><table><thead><tr><th>模型</th>{heads}</tr></thead><tbody>{rows}</tbody></table></div>
+<p class="small muted">只有评完全部样本才显示总分。RBench 只生成一个候选，使用 GPT-6.1-Sol 的官方 GPT 分支适配，不是 GPT + Qwen 联合榜分。
+PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混排。PCVE 采用 Full 129；PES 校准与论文参照见详情页。</p>
+<h2>视频质量 · 独立于物理分</h2><p>GPT-6.1-Sol 画质判分进度：{photo.get('completed_calls') or 0} / {photo.get('expected_calls') or 0} 次调用。</p>
+<div class="table"><table><thead><tr><th>模型</th><th>Physics-IQ FVD ↓</th><th>PCVE FVD ↓</th></tr></thead><tbody>{fvd_rows}</tbody></table></div>
+<p class="small muted">FVD 使用各 benchmark 对应的参考集，不能跨 benchmark 比较。</p></main></body></html>'''
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--nightly', type=Path, required=True)
+    p.add_argument('--publication', type=Path, required=True)
+    p.add_argument('--output', type=Path, required=True)
+    p.add_argument('--html', type=Path, help='Optional standalone preview next to formal.css')
+    a = p.parse_args()
+    status = build(a.nightly, a.publication)
+    atomic_json(a.output, status)
+    if a.html:
+        a.html.write_text(render(status), encoding='utf-8')
+
+
+if __name__ == '__main__':
+    main()
