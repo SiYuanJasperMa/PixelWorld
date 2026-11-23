@@ -135,7 +135,12 @@ cleanup. Do not publish private archives or raw requests with the code.
 "$PIXELWORLD_VERIFIED_ARCHIVE_ROOT" --report "$PRIVATE_ATTACHMENT_REPORT"`
 adds a readback-verified score under its numbered run only when the exact
 source manifest hash and run identity agree. It does not infer a join to
-unidentified judge API calls.
+unidentified judge API calls. Use `tools.archive_rbench_judge_wire` with the
+same pinned upstream repo and prompts to attach judge originals. It rebuilds
+the official request from the checked video and saved six-frame grid, accepts
+only a unique exact request-and-decision match, and verifies the raw proxy
+input/response and score binding before writing the separate judge-wire receipt.
+It never calls the judge again to recover provenance.
 
 `python -m tools.archive_phygen_scores --scores "$PHYGEN_JUDGE_OUTPUT" \
 "$PHYGEN_DEEPSEEK_JUDGE_OUTPUT" --paper "$PRIVATE_PAPER_RUN_INDEX" --proxy \
