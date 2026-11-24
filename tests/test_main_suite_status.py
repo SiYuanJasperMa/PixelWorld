@@ -3,8 +3,25 @@ import json
 import pytest
 
 from tools.build_main_suite_status import (
-    JUDGE, harness_progress, legacy_score, phygen_score, public_counts, rbench_score,
+    JUDGE, appearance_scores, harness_progress, legacy_score, phygen_score, public_counts, rbench_score,
 )
+
+
+def test_appearance_requires_both_orders_on_the_full_benchmark():
+    from tools.evaluate_video_photographic_gpt61 import RUBRIC_SHA256, VERSION
+
+    report = {'phase':'finished','judge':JUDGE,'version':VERSION,'rubric_sha256':RUBRIC_SHA256,
+              'completed_calls':976,'expected_calls':976,'failures':[], 'cohorts':[
+        {'benchmark':'rbench_common_manipulation','model':'gpt61-sol','cases':1,'ratings':2,'no_evidence':0,'mean':4.0},
+        {'benchmark':'physics_iq_720p24fps','model':'gpt61-sol','cases':198,'ratings':396,'no_evidence':0,'mean':4.42},
+        {'benchmark':'phygenbench_t2v_main720p24fps','model':'deepseek-v41','cases':160,'ratings':319,'no_evidence':1,'mean':2.18},
+    ]}
+    scores = appearance_scores(report)
+    assert scores['gpt61-sol']['rbench']['score'] is None
+    assert scores['gpt61-sol']['physics_iq']['score'] == 4.42
+    assert scores['deepseek-v41']['phygenbench']['score'] is None
+    report['phase'] = 'running'
+    assert appearance_scores(report) == {}
 
 
 def test_rbench_never_displays_a_partial_or_failed_cohort_mean():

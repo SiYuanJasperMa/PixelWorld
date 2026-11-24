@@ -83,6 +83,35 @@ def rbench_score(report, model):
     return scored, finite_score(row.get('mean')) if full else None
 
 
+def appearance_scores(report):
+    from tools.evaluate_video_photographic_gpt61 import RUBRIC_SHA256, VERSION
+
+    if (report.get('phase'),report.get('judge'),report.get('version'),report.get('rubric_sha256')) != (
+            'finished',JUDGE,VERSION,RUBRIC_SHA256) or report.get('failures'):
+        return {}
+    if report.get('completed_calls') != report.get('expected_calls'):
+        return {}
+    scope = {value[0]:(key,value[1]) for key,value in BENCHMARKS.items()}
+    models = set(ROSTER) | {'seedance25-v1','minimax-h3-local'}
+    results = {}
+    for row in report.get('cohorts',[]):
+        if row['benchmark'] not in scope or row['model'] not in models:
+            continue
+        key, expected = scope[row['benchmark']]
+        cases, ratings, unavailable = (row[k] for k in ('cases','ratings','no_evidence'))
+        assert type(cases) is int and 1 <= cases <= expected and ratings+unavailable == 2*cases
+        complete = cases == expected and ratings == 2*expected
+        score = finite_score(row.get('mean')) if complete else None
+        if score is not None and not 1 <= score <= 5:
+            raise ValueError('Appearance mean is outside the frozen scale')
+        entry = results.setdefault(row['model'],{})
+        if key in entry:
+            raise ValueError('Duplicate appearance cohort')
+        entry[key] = {'score':score,'cases':cases,'expected':expected,'ratings':ratings,
+                      'no_evidence':unavailable,'complete':complete}
+    return results
+
+
 def harness_progress(root):
     """Project only model labels, case counts, and launch state from private runs."""
     joined = {}
@@ -198,6 +227,7 @@ def build(nightly, publication):
             'references': references,
             'harness_progress': harness_progress(nightly/'controlled_harness_matrix'),
             'photographic_progress': {key: photo.get(key) for key in ('completed_calls', 'expected_calls')},
+            'photographic_scores': appearance_scores(photo),
             'photographic_judge': JUDGE}
 
 
@@ -272,6 +302,25 @@ def render(status):
         '<p class="small muted">Vision · 同模型与输入 · 720p / 24 FPS。只显示有效交付，验收样本不是全量分数。</p>'
         '<div class="table"><table><thead><tr><th>模型</th><th>Codex 基准</th><th>OpenCode</th><th>Claude Code</th>'
         f'</tr></thead><tbody>{harness_rows}</tbody></table></div></details>' if harness_rows else '')
+    def photo_cell(row):
+        if row is None:
+            return '<td>—</td>'
+        score = row['score']
+        value = '—' if score is None else f'<b>{score:.2f}</b>'
+        label = f"{row['cases']} / {row['expected']} 题"
+        if row['no_evidence']:
+            label += f" · {row['no_evidence']} 次无法评分"
+        return f'<td>{value}<br><span class="small muted">{label}</span></td>'
+
+    labels = {**LABELS,'seedance25-v1':'Seedance 2.5','minimax-h3-local':'MiniMax H3 · 本地'}
+    photos = status.get('photographic_scores', {})
+    photo_rows = ''.join(f'<tr><th>{labels[model]}</th>' + ''.join(photo_cell(cells.get(k)) for k in HEADER) + '</tr>'
+                         for model,cells in photos.items())
+    photo_table = ('<h3>主观画质（1–5，越高越好）</h3><div class="table"><table><thead><tr><th>模型</th>' + heads +
+                   f'</tr></thead><tbody>{photo_rows}</tbody></table></div>'
+                   '<p class="small muted">仅在整个 benchmark 的每题两种播放顺序均可评分时显示均值。'
+                   'RBench 当前只有 1 题验收；各 benchmark 内容和条件不同，不据此推断输入条件的因果效应。</p>'
+                   if photo_rows else '')
     photo = status['photographic_progress']
     return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="90"><meta name="pixelworld-protocol" content="pixelworld-main-suite-20261124">
@@ -286,6 +335,8 @@ def render(status):
 PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混排。PCVE 采用 Full 129；PES 校准与论文参照见详情页。</p>
 {harness_section}
 <h2>视频质量 · 独立于物理分</h2><p>GPT-6.1-Sol 画质判分进度：{photo.get('completed_calls') or 0} / {photo.get('expected_calls') or 0} 次调用。</p>
+{photo_table}
+<h3>FVD（越低越好）</h3>
 <div class="table"><table><thead><tr><th>模型</th><th>Physics-IQ FVD ↓</th><th>PCVE FVD ↓</th></tr></thead><tbody>{fvd_rows}</tbody></table></div>
 <p class="small muted">FVD 使用各 benchmark 对应的参考集，不能跨 benchmark 比较。</p></main>
 <script>
