@@ -5,6 +5,7 @@ import pytest
 from tools.build_main_suite_status import (
     BENCHMARKS, JUDGE, appearance_scores, harness_progress, legacy_score, native_main_smoke,
     native_smoke_additional_samples, native_smoke_cumulative_quota, native_smoke_weekly_deltas,
+    native_quota_study, native_sample_totals,
     phygen_score, public_counts, rbench_score, render,
 )
 
@@ -303,3 +304,68 @@ def test_extra_physics_smoke_is_separate_from_two_rounds_and_only_cumulative_quo
     (root/'extra_samples.json').write_text(json.dumps({'samples': [
         {'benchmark': 'physics_iq', 'case': '0003', 'root': str(outside)}]}))
     assert native_smoke_additional_samples(source_path) == []
+
+
+def test_quota_study_refreshes_closed_manifest_and_keeps_original_nine_in_totals(tmp_path):
+    primary = tmp_path/'primary'
+    quota, extra = primary/'quota5', primary/'extra_physics_0003'
+    quota.mkdir(parents=True)
+    extra.mkdir()
+    source_path = tmp_path/'source.json'
+    source_path.write_text(json.dumps({'root': str(primary), 'quota5_root': str(quota)}))
+    (primary/'extra_samples.json').write_text(json.dumps({'samples': [
+        {'benchmark': 'physics_iq', 'case': '0003', 'root': str(extra)}]}))
+    (extra/'progress.json').write_text(json.dumps({'samples': [
+        {'benchmark': 'physics_iq', 'case': '0003', 'state': 'complete',
+         'token_usage': {'input_tokens': 200, 'cached_input_tokens': 100, 'output_tokens': 20}}]}))
+    run = quota/'runs/physics_iq/0004'
+    run.mkdir(parents=True)
+    (run/'run_manifest.json').write_text(json.dumps({'status': 'complete', 'duration_seconds': 10,
+        'token_usage': {'input_tokens': 500, 'cached_input_tokens': 400, 'output_tokens': 50,
+                        'private': 'PRIVATE_WIRE_DATA'}, 'auth': 'PRIVATE_AUTH'}))
+    (quota/'progress.json').write_text(json.dumps({'status': 'draining', 'model': 'gpt-6.2-astra',
+        'codex_version': '0.172.0', 'reasoning_effort': 'high', 'service_tier': 'default', 'execution_mode': 'parallel',
+        'quota_study': {'baseline_remaining_percent': 31, 'target_remaining_percent': 26,
+            'current_remaining_percent': 30, 'consumed_percentage_points': 1, 'max_concurrency': 16,
+            'active': 1, 'completed': 0, 'failed': 0, 'baseline_samples': 9,
+            'stop_reason': 'reserve_for_inflight', 'balance': 'PRIVATE_BALANCE', 'account': 'PRIVATE_ACCOUNT'},
+        'samples': [{'benchmark': 'physics_iq', 'case': '0004', 'state': 'running', 'run': str(run),
+                     'config': 'PRIVATE_CONFIG', 'pid': 123, 'credits_consumed': 99},
+                    {'benchmark': 'phygenbench', 'case': '0003', 'state': 'running', 'token_usage': None}]}))
+    sidecar = tmp_path/'smoke.json'
+    sidecar.write_text(json.dumps({'model': 'gpt-6.2-astra', 'expected_rounds': 2,
+        'samples': [{'round': round_no, 'benchmark': key, 'case': f'000{round_no}', 'state': 'complete',
+                    'token_usage': {'input_tokens': 100, 'cached_input_tokens': 80, 'output_tokens': 10}}
+                   for round_no in (1, 2) for key in BENCHMARKS]}))
+    smoke = native_main_smoke(sidecar, source_path)
+    assert len(smoke['samples']) == 8 and len(smoke['additional_samples']) == 1
+    study = smoke['quota_study']
+    assert study['study_completed'] == 1 and study['current_active'] == 1 and study['baseline_samples'] == 9
+    first = study['samples'][0]
+    assert first['state'] == 'complete' and first['token_usage']['output_tokens'] == 50
+    assert first['duration_seconds'] == 10 and first['credits_consumed'] is first['quota_weekly_consumed'] is None
+    totals = smoke['cumulative_totals']
+    assert totals['completed'] == 10 and totals['registered_samples'] == 11
+    assert totals['samples_with_usage'] == 10 and totals['samples_without_usage'] == 1
+    assert totals['token_usage']['input_tokens'] == 1500
+    assert totals['token_usage']['cached_input_tokens'] == 1140 and totals['token_usage']['output_tokens'] == 150
+    encoded = json.dumps(smoke)
+    assert 'PRIVATE' not in encoded and str(primary) not in encoded and 'balance' not in encoded
+    html = render(dashboard_status(native_main_smoke=smoke))
+    panel = html.split('<section id="native-quota-study">')[1].split('</section>')[0]
+    assert '周剩余目标 31% → 26%' in panel and '并发上限 16' in panel
+    assert '累计完成 <b>10</b> / 已登记 11' in panel and '含前期 9 条' in panel
+    assert 'Input 1,500' in panel and 'Cached input 1,140' in panel and 'Output 150' in panel
+    assert '为运行中样本预留额度' in panel and '0.172.0' in panel
+    assert 'physics_iq_native_astra62_quota5%2Fgpt62-astra-native%2Fvision-agent%2Findex.json' in panel
+    assert 'phygenbench_native_astra62_quota5%2Fgpt62-astra-native%2Fvision-agent%2Findex.json' in panel
+    outside = tmp_path/'outside'
+    outside.mkdir()
+    source_path.write_text(json.dumps({'root': str(primary), 'quota5_root': str(outside)}))
+    assert native_quota_study(source_path) == {}
+
+
+def test_native_token_totals_leave_unreported_usage_unknown():
+    totals = native_sample_totals([{'case': '0001', 'state': 'running', 'token_usage': None}])
+    assert totals['registered_samples'] == 1 and totals['samples_without_usage'] == 1
+    assert all(value is None for value in totals['token_usage'].values())

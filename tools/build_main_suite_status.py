@@ -39,6 +39,79 @@ def native_smoke_tokens(usage):
             if isinstance(usage, dict) else None)
 
 
+def native_quota_study(source_path):
+    """Project the registered quota sampler without exposing routes or account data."""
+    source = read(source_path)
+    if not isinstance(source.get('root'), str) or not isinstance(source.get('quota5_root'), str):
+        return {}
+    primary, root = Path(source['root']).resolve(), Path(source['quota5_root']).resolve()
+    if root == primary or not root.is_relative_to(primary):
+        return {}
+    progress = read(root/'progress.json')
+    if not progress:
+        return {}
+    def choice(value, values):
+        return value if value in values else None
+    version = progress.get('codex_version')
+    version = version if isinstance(version, str) and re.fullmatch(r'(?:codex-cli )?\d+\.\d+\.\d+', version) else None
+    study = progress.get('quota_study') or {}
+    result = {'model': choice(progress.get('model'), ('gpt-6.2-astra',)), 'cli_version': version,
+        'reasoning_effort': choice(progress.get('reasoning_effort'), ('low', 'medium', 'high', 'xhigh')),
+        'service_tier': choice(progress.get('service_tier'), ('default', 'fast', 'flex', 'priority')),
+        'execution_mode': choice(progress.get('execution_mode'), ('parallel',)),
+        'status': choice(progress.get('status'), (*SMOKE_STATES, 'draining', 'stopping', 'stopped', 'paused', 'target_reached')),
+        'stop_reason': choice(study.get('stop_reason'), ('target_reached', 'reserve_for_inflight',
+            'quota_unavailable', 'quota_window_changed', 'memory_pressure', 'all_cases_processed', 'interrupted')),
+        'samples': []}
+    for field in ('baseline_remaining_percent', 'target_remaining_percent', 'current_remaining_percent', 'consumed_percentage_points'):
+        value = finite_score(study.get(field))
+        result[field] = value if value is not None and 0 <= value <= 100 else None
+    for field in ('max_concurrency', 'active', 'completed', 'failed', 'baseline_samples'):
+        value = study.get(field)
+        result[field] = value if type(value) is int and value >= 0 and (field != 'max_concurrency' or value <= 16) else None
+    identities = set()
+    for row in progress.get('samples', []):
+        benchmark, case = row.get('benchmark'), row.get('case')
+        if (benchmark not in BENCHMARKS or not isinstance(case, str)
+            or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', case) or case.startswith(('hf_', 'ghp_'))):
+            continue
+        if (benchmark, case) in identities:
+            raise ValueError('Duplicate quota study case')
+        identities.add((benchmark, case))
+        current = dict(row)
+        name = row.get('run')
+        if isinstance(name, str):
+            run = Path(name).resolve()
+            if run.is_relative_to(root):
+                manifest = read(run/'run_manifest.json')
+                if manifest.get('status') in ('complete', 'failed'):
+                    current.update(state=manifest['status'], token_usage=manifest.get('token_usage'),
+                                   duration_seconds=manifest.get('duration_seconds'))
+        result['samples'].append({'benchmark': benchmark, 'case': case,
+            'state': choice(current.get('state'), SMOKE_STATES),
+            'token_usage': native_smoke_tokens(current.get('token_usage')),
+            'duration_seconds': finite_score(current.get('duration_seconds')),
+            'quota_attribution': 'shared_parallel_window', 'quota_weekly_consumed': None, 'credits_consumed': None})
+    totals = native_sample_totals(result['samples'])
+    result.update(study_completed=totals['completed'], current_active=totals['active'],
+                  token_totals=totals['token_usage'], samples_with_usage=totals['samples_with_usage'])
+    return result
+
+
+def native_sample_totals(samples):
+    records = [row for row in samples if row.get('case')]
+    known = [row.get('token_usage') for row in records if row.get('token_usage')]
+    totals = {}
+    for field in SMOKE_TOKEN_FIELDS:
+        values = [usage[field] for usage in known if field in usage]
+        totals[field] = sum(values) if values else None
+    return {'registered_samples': len(records),
+        'completed': sum(row.get('state') in ('complete', 'finished') for row in records),
+        'failed': sum(row.get('state') == 'failed' for row in records),
+        'active': sum(row.get('state') in ('running', 'generating', 'validating') for row in records),
+        'samples_with_usage': len(known), 'samples_without_usage': len(records)-len(known), 'token_usage': totals}
+
+
 def native_smoke_additional_samples(source_path):
     source = read(source_path)
     if not isinstance(source.get('root'), str):
@@ -159,7 +232,8 @@ def native_main_smoke(path, source_path=None):
               'status': choice(source.get('status'), ('pending', 'running', 'complete', 'finished', 'failed', 'blocked')),
               'samples': [], 'round_summaries': [],
               'additional_samples': native_smoke_additional_samples(source_path) if source_path else [],
-              'cumulative_quota': native_smoke_cumulative_quota(source_path) if source_path else {}}
+              'cumulative_quota': native_smoke_cumulative_quota(source_path) if source_path else {},
+              'quota_study': native_quota_study(source_path) if source_path else {}}
     summaries = {}
     for row in source.get('round_summaries', []):
         round_no = row.get('round', 1)
@@ -203,6 +277,8 @@ def native_main_smoke(path, source_path=None):
         elif sample['quota_weekly_consumed'] is None:
             sample['quota_weekly_consumed'] = deltas.get((round_no, key, case))
         result['samples'].append(sample)
+    result['cumulative_totals'] = native_sample_totals(result['samples'] + result['additional_samples']
+                                                     + result['quota_study'].get('samples', []))
     return result
 
 
@@ -612,6 +688,47 @@ def render(status):
         f'{additional_section}'
         '<p class="small muted">Tokens 来自实际运行记录；周额度为同一重置窗口内的使用率变化，实测 Credits 为余额变化，估算值单独列示。'
         '周额度显示整数百分比，0 变化不代表零计算消耗；接口未返回估算值时不按零计。Cached input 已包含在 Input 中。</p></section>' if smoke else '')
+    study = smoke.get('quota_study', {})
+    study_rows = ''
+    for row in study.get('samples', []):
+        key, case = row['benchmark'], row['case']
+        usage = row.get('token_usage') or {}
+        suite = key + '_native_astra62_quota5'
+        viewer = 'videos.html?index=' + quote(f'{suite}/gpt62-astra-native/{TRACK}/index.json', safe='')
+        study_rows += (f'<tr><th>{HEADER[key][0]} · {escape(case)}<br>'
+            f'<a class="small" href="{viewer}">运行 / 视频 / Trace →</a></th>'
+            f'<td>{smoke_states.get(row.get("state"), "待运行")}</td>'
+            + ''.join(f'<td>{smoke_number(usage.get(field))}</td>' for field in ('input_tokens', 'cached_input_tokens', 'output_tokens'))
+            + f'<td>{smoke_number(row.get("duration_seconds"), 1)}{" 秒" if row.get("duration_seconds") is not None else ""}</td></tr>')
+    totals = smoke.get('cumulative_totals', {})
+    tokens = totals.get('token_usage') or {}
+    baseline, target = study.get('baseline_remaining_percent'), study.get('target_remaining_percent')
+    target_delta = baseline-target if baseline is not None and target is not None else None
+    study_statuses = {**smoke_states, 'draining': '等待运行中样本结束', 'stopping': '停止发新样本',
+                      'stopped': '已停止', 'paused': '暂停', 'target_reached': '目标已达'}
+    stop_labels = {'target_reached': '目标已达', 'reserve_for_inflight': '为运行中样本预留额度',
+                   'quota_unavailable': '额度暂不可读', 'quota_window_changed': '额度窗口已变化',
+                   'memory_pressure': '内存不足，等待释放', 'all_cases_processed': '样本已处理完', 'interrupted': '已中断'}
+    study_section = ('<section id="native-quota-study"><h2>GPT-6.2-Astra · 5 个百分点额度研究</h2>'
+        f'<p class="muted">{escape(study.get("cli_version") or "CLI 版本待记录")} · reasoning {escape(study.get("reasoning_effort") or "待记录")} · '
+        f'service tier {escape(study.get("service_tier") or "待记录")} · 并行</p>'
+        f'<p><b>周剩余目标 {smoke_number(baseline)}% → {smoke_number(target)}%</b>'
+        f' · 当前 {smoke_number(study.get("current_remaining_percent"))}%'
+        f' · 已观测 {smoke_number(study.get("consumed_percentage_points"), 2)} / {smoke_number(target_delta, 2)} 百分点</p>'
+        f'<p>状态：{study_statuses.get(study.get("status"), "待记录")} · 并发上限 {smoke_number(study.get("max_concurrency"))}'
+        f' · 当前运行 {smoke_number(study.get("current_active"))} · 本阶段完成 {smoke_number(study.get("study_completed"))}'
+        f' · 失败 {smoke_number(study.get("failed"))}</p>'
+        f'<p>累计完成 <b>{smoke_number(totals.get("completed"))}</b> / 已登记 {smoke_number(totals.get("registered_samples"))}'
+        f'（含前期 {smoke_number(study.get("baseline_samples"))} 条）</p>'
+        f'<p>累计已记录 Tokens：Input {smoke_number(tokens.get("input_tokens"))}'
+        f' · Cached input {smoke_number(tokens.get("cached_input_tokens"))} · Output {smoke_number(tokens.get("output_tokens"))}'
+        f' · 用量记录 {smoke_number(totals.get("samples_with_usage"))} / {smoke_number(totals.get("registered_samples"))}</p>'
+        + (f'<p>停止 / 等待原因：{stop_labels[study["stop_reason"]]}</p>' if study.get('stop_reason') in stop_labels else '') +
+        '<div class="table"><table><thead><tr><th>Benchmark / Case</th><th>状态</th><th>Input tokens</th>'
+        f'<th>Cached input</th><th>Output tokens</th><th>耗时</th></tr></thead><tbody>{study_rows}</tbody></table></div>'
+        '<p class="small muted">目标从原始周剩余额度累计计算，包含前期九条。Tokens 合计仅包含已记录用量，缺失值不按零计；'
+        'Cached input 已包含在 Input 中。并行样本共享额度窗口，不向单条分配额度变化；与主表全量结果分开。</p></section>'
+        if study else '')
     return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="pixelworld-updated" content="{status['updated_utc']}"><meta name="pixelworld-protocol" content="pixelworld-main-suite-20261124">
 <title>PixelWorld · 主实验</title><link rel="stylesheet" href="formal.css"><body><header><nav><strong><a href="index.html">PixelWorld</a></strong>
@@ -627,6 +744,7 @@ PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混�
 {baseline_section}
 {upload_section}
 {smoke_section}
+{study_section}
 <h2>视频质量 · 独立于物理分</h2><p>GPT-6.1-Sol 画质判分进度：{photo.get('completed_calls') or 0} / {photo.get('expected_calls') or 0} 次调用。</p>
 {photo_table}
 <h3>FVD（越低越好）</h3>
