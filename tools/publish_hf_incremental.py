@@ -46,10 +46,15 @@ def package_case(source, relative):
             candidate[field] = DATA_BASE + name
     for candidate in data.get('candidates', []):
         name = candidate.get('code')
-        if name and isinstance(name, str) and not name.startswith(('http:', 'https:')):
-            code_path = (source/name).resolve()
-            if code_path.is_relative_to(source.resolve()) and code_path.suffix == '.py' and code_path.is_file():
-                candidate['code_text'] = sanitize(code_path.read_text())
+        if isinstance(name, str) and name and not name.startswith(('http:', 'https:')):
+            # Exported candidates may contain the Python source itself.
+            # Never resolve inline code as a filename (ENAMETOOLONG).
+            if '\n' in name or not name.endswith('.py'):
+                candidate['code_text'] = sanitize(name)
+            elif len(name) <= 512:
+                code_path = (source/name).resolve()
+                if code_path.is_relative_to(source.resolve()) and code_path.is_file():
+                    candidate['code_text'] = sanitize(code_path.read_text())
     data['publication'] = {'backend': 'huggingface', 'media_ready': True}
     bundle=source.parent.parent
     registry=read(bundle/'live_sources.json')

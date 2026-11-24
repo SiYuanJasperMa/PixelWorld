@@ -138,7 +138,7 @@ def test_native_smoke_exports_only_actual_consumption_and_safe_metadata(tmp_path
     assert 'Input tokens' in html and '12,345' in html and '10,000' in html and '678' in html
     assert '123.4 秒' in html and '<td>0.0000</td>' in html and '<td>2.5000</td>' in html
     assert '周额度 · 实测消耗（百分点）' in html and '<td>1.00</td>' in html
-    assert 'Credits · 实测额度变化' in html and 'Credits · 估算' in html and 'USD · 估算' in html
+    assert 'Credits · 余额差' in html and 'Credits · 估算' in html and 'USD · 估算' in html
     assert '生成中' in html and '待记录' in html and 'PRIVATE' not in html
     assert html.split('<section id="native-main-smoke">')[1].split('</section>')[0].count('<tr>') == 5
 

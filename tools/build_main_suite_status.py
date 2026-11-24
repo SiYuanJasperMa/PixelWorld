@@ -467,7 +467,10 @@ def render(status):
         label = HEADER[key][0]
         row = smoke_samples.get((round_no, key), {})
         usage = row.get('token_usage') or {}
-        smoke_rows += (f'<tr><th>第 {round_no} 轮 · {label}<br><span class="small muted">{escape(row.get("case") or "待记录")}</span></th>'
+        suite = key + '_native_astra62_smoke' + ('_round2' if round_no == 2 else '')
+        viewer = 'videos.html?index=' + quote(f'{suite}/gpt62-astra-native/{TRACK}/index.json', safe='')
+        link = f'<br><a class="small" href="{viewer}">运行 / 视频 / Trace →</a>' if row.get('case') else ''
+        smoke_rows += (f'<tr><th>第 {round_no} 轮 · {label}<br><span class="small muted">{escape(row.get("case") or "待记录")}</span>{link}</th>'
             f'<td>{smoke_states.get(row.get("state"), "待运行")}</td>'
             + ''.join(f'<td>{smoke_number(usage.get(field))}</td>' for field in ('input_tokens', 'cached_input_tokens', 'output_tokens'))
             + f'<td>{smoke_number(row.get("duration_seconds"), 1)}{" 秒" if row.get("duration_seconds") is not None else ""}</td>'

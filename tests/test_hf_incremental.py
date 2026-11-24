@@ -111,3 +111,17 @@ def test_old_trace_format_is_refreshed_without_changing_source_detail(tmp_path,m
     assert json.loads(state.read_text())['ready'][relative]['trace_format_version']==3
     publish_cycle(source,state,api)
     assert len(calls)==1
+
+
+def test_inline_generator_source_is_not_resolved_as_a_filename(tmp_path):
+    source,relative=fixture(tmp_path)
+    assets=source/'assets/a';assets.mkdir(parents=True)
+    (assets/'preview.mp4').write_bytes(b'video');(assets/'poster.png').write_bytes(b'poster')
+    data=json.loads((source/relative).read_text())
+    inline='import numpy as np\n'+('# pixel generation\n'*900)
+    data['candidates'][0]['code']=inline
+    (source/relative).write_text(json.dumps(data))
+    package=package_case(source,relative)
+    public=json.loads(package['detail'])
+    assert public['candidates'][0]['code_text']==inline
+    assert public['candidates'][0]['code']==inline
