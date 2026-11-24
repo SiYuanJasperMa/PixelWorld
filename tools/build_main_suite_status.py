@@ -323,7 +323,7 @@ def render(status):
                    if photo_rows else '')
     photo = status['photographic_progress']
     return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="90"><meta name="pixelworld-protocol" content="pixelworld-main-suite-20261124">
+<meta name="pixelworld-updated" content="{status['updated_utc']}"><meta name="pixelworld-protocol" content="pixelworld-main-suite-20261124">
 <title>PixelWorld · 主实验</title><link rel="stylesheet" href="formal.css"><body><header><nav><strong><a href="index.html">PixelWorld</a></strong>
 <span><a href="analyses.html">分析进度</a><a href="cost_effects.html">成本与效果</a><a href="pixelworld-index.html">历史总览</a>
 <a href="robojudge.html">RoboJudge</a><a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld">视频与 Trace</a>
@@ -354,6 +354,22 @@ function refreshAges() {{
 }}
 refreshAges();
 setInterval(refreshAges, 15000);
+const published = document.querySelector('meta[name="pixelworld-updated"]').content;
+let reloading = false;
+async function checkSnapshot() {{
+  if (reloading) return;
+  try {{
+    const reply = await fetch('main_suite_status_v2.json?_=' + Date.now(), {{cache: 'no-store'}});
+    if (!reply.ok) return;
+    const data = await reply.json();
+    if (data.updated_utc && data.updated_utc !== published) {{
+      reloading = true;
+      location.replace(location.pathname + '?v=' + encodeURIComponent(data.updated_utc));
+    }}
+  }} catch (error) {{}}
+}}
+checkSnapshot();
+setInterval(checkSnapshot, 60000);
 </script></body></html>'''
 
 

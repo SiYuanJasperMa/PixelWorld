@@ -76,3 +76,15 @@ def test_harness_progress_exposes_only_registered_counts(tmp_path):
     (tmp_path/'dispatch.json').write_text(json.dumps(registry))
     with pytest.raises(ValueError,match='Unregistered native matrix configuration'):
         harness_progress(tmp_path)
+
+
+def test_dashboard_polls_the_published_snapshot_instead_of_blind_reloads():
+    from tools.build_main_suite_status import render
+
+    html = render({'protocol': 'pixelworld-main-suite-20261124',
+                   'updated_utc': '2026-11-24T00:00:00+00:00', 'models': {}, 'references': {},
+                   'photographic_progress': {}, 'photographic_scores': {},
+                   'photographic_judge': JUDGE, 'harness_progress': {}})
+    assert 'name="pixelworld-updated" content="2026-11-24T00:00:00+00:00"' in html
+    assert 'checkSnapshot' in html
+    assert 'http-equiv="refresh"' not in html

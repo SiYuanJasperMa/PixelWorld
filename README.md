@@ -104,6 +104,9 @@ their manifest and trace but have no fabricated video.
 
 ## Publishing to Hugging Face and dashboard refresh
 
+Full workflow, repository layout and troubleshooting:
+[docs/HF_PUBLISHING.md](docs/HF_PUBLISHING.md).
+
 Two independent destinations, both authenticated with a Hugging Face token
 (`HF_TOKEN`, `~/.cache/huggingface/token`, or `--token-file`). Never commit the
 token or a private endpoint.
