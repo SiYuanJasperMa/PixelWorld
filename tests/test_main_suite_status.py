@@ -483,6 +483,20 @@ def test_migrated_harness_does_not_read_retired_master_counters(tmp_path):
     assert harness_progress(tmp_path)['gpt62-sol']['opencode']['counts'] == current
 
 
+def test_native_partial_physical_coverage_does_not_claim_full_score():
+    from tools.build_main_suite_status import native_experiment_cells
+    smoke = {'samples':[{'benchmark':'physics_iq','case':'0001','state':'complete'}]}
+    progress = {'groups':[
+        {'model_key':'gpt62-astra-native','benchmark':'physics_iq_720p24fps',
+         'candidate_type':'accepted','expected_samples':198,'available_videos':1,
+         'unique_video_hashes':1,'physical_bindings':1},
+        {'model_key':'gpt62-astra-native','benchmark':'physics_iq_720p24fps',
+         'candidate_type':'intermediate','expected_samples':198,'physical_bindings':40}]}
+    cell = native_experiment_cells(smoke, progress)['physics_iq']
+    assert cell['scored'] == 1
+    assert cell['score'] is None and cell['expected'] == 198
+
+
 def test_all_video_progress_keeps_record_hash_and_binding_units_separate():
     from tools.build_main_suite_status import project_all_video_evaluation_progress
     report = {'schema_version':1,'updated_utc':'2026-11-25T02:00:00Z','collection_complete':False,

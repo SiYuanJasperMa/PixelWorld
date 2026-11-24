@@ -132,7 +132,7 @@ def native_sample_totals(samples):
         'samples_with_usage': len(known), 'samples_without_usage': len(records)-len(known), 'token_usage': totals}
 
 
-def native_experiment_cells(smoke):
+def native_experiment_cells(smoke, evaluation_progress=None):
     """Count unique official case identities across native batches, keeping scores unavailable."""
     rows = smoke.get('samples', []) + smoke.get('additional_samples', []) + smoke.get('quota_study', {}).get('samples', [])
     cells = {}
@@ -157,6 +157,18 @@ def native_experiment_cells(smoke):
                                 'pending': expected-counts[0]-counts[1]-counts[3]},
                       'expected': expected, 'scored': 0, 'score': None, 'metric': metric,
                       'last_delivery_utc': max(deliveries, default=None)}
+        matching = [row for row in (evaluation_progress or {}).get('groups', [])
+                    if row.get('model_key') == 'gpt62-astra-native'
+                    and row.get('benchmark') == BENCHMARKS[key][0]
+                    and row.get('candidate_type') == 'accepted'
+                    and row.get('expected_samples') == expected]
+        if len(matching) == 1:
+            group = matching[0]
+            available, bound = group.get('available_videos'), group.get('physical_bindings')
+            if (type(available) is int and type(bound) is int and
+                    available == group.get('unique_video_hashes') == counts[0] and
+                    0 <= bound <= available):
+                cells[key]['scored'] = bound
     return cells
 
 
@@ -661,8 +673,9 @@ def build(nightly, publication):
     baseline_rechecks = [{k: row.get(k) for k in ('cohort','model','status','partial_done','expected','source_count','selected_count','failed','missing_ids','official_full_score')}
                          for row in baseline_report.get('cohorts', [])]
     native = native_main_smoke(evaluation/'astra62_native_main_smoke.json', evaluation/'astra62_native_smoke_source.json')
+    video_progress = project_all_video_evaluation_progress(read(evaluation/'maintenance_20261125/progress_summary.json'))
     if native:
-        rows['gpt62-astra-native'] = native_experiment_cells(native)
+        rows['gpt62-astra-native'] = native_experiment_cells(native, video_progress)
     return {'protocol': 'pixelworld-main-suite-20261124', 'updated_utc': utc_now(), 'models': rows,
             'references': references,
             'harness_progress': harness_progress(nightly/'controlled_harness_matrix'),
@@ -671,8 +684,7 @@ def build(nightly, publication):
             'photographic_judge': JUDGE, 'publication_coverage': upload_coverage,
             'baseline_rechecks': baseline_rechecks,
             'native_main_smoke': native,
-            'all_video_evaluation_progress': project_all_video_evaluation_progress(
-                read(evaluation/'maintenance_20261125/progress_summary.json'))}
+            'all_video_evaluation_progress': video_progress}
 
 
 LABELS = {
