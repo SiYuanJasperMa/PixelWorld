@@ -102,6 +102,48 @@ Each published case keeps its playable candidate, poster, `run_manifest.json`,
 token accounting, tool events and runnable `generate.py`. Failed attempts keep
 their manifest and trace but have no fabricated video.
 
+## Publishing to Hugging Face and dashboard refresh
+
+Two independent destinations, both authenticated with a Hugging Face token
+(`HF_TOKEN`, `~/.cache/huggingface/token`, or `--token-file`). Never commit the
+token or a private endpoint.
+
+**Dashboard (Space `HuggingFriends/PixelWorld-dashboard`).** The publisher
+rebuilds the main-suite snapshot from the nightly root and the sanitized
+publication bundle, then commits `index.html` and
+`main_suite_status_v2.json` only when the content digest changes:
+
+```bash
+python -m tools.publish_main_suite_hf \
+  --nightly "$NIGHTLY_ROOT" \
+  --publication "$PUBLICATION_BUNDLE" \
+  --state "$NIGHTLY_ROOT/main_suite_hf_publisher.json" \
+  --watch-seconds 300
+```
+
+`--watch-seconds` must be at least 300; the publisher is a long-running watcher,
+so start it detached. The snapshot's `updated_utc` field is the authoritative
+data timestamp. An already-open browser tab keeps its rendered table; it updates
+in place only for relative-time labels (every 15 s). Reload the tab to see a
+newly published snapshot. Set `--dry-run` to build and validate the payload
+without uploading.
+
+**Dataset (`HuggingFriends/PixelWorld`).** Media and traces are frozen first,
+then uploaded separately so progress publishing keeps its API budget:
+
+```bash
+python -m tools.prepare_hf_delivery --bundle "$BUNDLE" --destination "$HF_SNAPSHOT" \
+  [--upload --token-file "$HF_TOKEN_FILE"]
+python -m tools.upload_hf_results --folder "$HF_SNAPSHOT" \
+  --token-file "$HF_TOKEN_FILE" --workers 8
+```
+
+`prepare_hf_delivery` writes only sanitized previews, complete traces, per-case
+JSON and runnable code; it never includes credentials, local absolute paths,
+reference videos/masks or evaluator ground truth. Uploads are resumable and
+rate-limited independently of inference. A dataset upload does not change the
+dashboard: the dashboard reads the nightly snapshot, not the dataset.
+
 ## Repository layout
 
 ```text
