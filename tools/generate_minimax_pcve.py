@@ -45,6 +45,8 @@ def main():
     p.add_argument('--num-gpus',type=int,default=4)
     p.add_argument('--limit',type=int)
     p.add_argument('--subset',type=Path)
+    p.add_argument('--state-path',type=Path,help='Separate status file for a bounded backfill worker')
+    p.add_argument('--all-subset',action='store_true',help='Process the supplied bounded subset without modulo partitioning')
     args=p.parse_args()
     if not 0<=args.shard_index<args.num_shards:p.error('Invalid shard')
     code=Path(__file__).resolve().parents[1];bundle=args.bundle.resolve();output=bundle/'baselines/minimax_h3_local'
@@ -53,9 +55,9 @@ def main():
     rows=json.loads(manifest.read_text())['edits']
     indices=json.loads(args.subset.read_text())['indices']if args.subset else list(range(len(rows)))
     if len(indices)!=len(set(indices))or any(not isinstance(i,int)or not 0<=i<len(rows)for i in indices):raise ValueError('Invalid subset indices')
-    selected=[(i,rows[i])for slot,i in enumerate(indices)if slot%args.num_shards==args.shard_index]
+    selected=[(i,rows[i])for slot,i in enumerate(indices)if args.all_subset or slot%args.num_shards==args.shard_index]
     if args.limit:selected=selected[:args.limit]
-    state_path=output/f'shard_{args.shard_index}.json';output.mkdir(parents=True,exist_ok=True)
+    state_path=args.state_path or output/f'shard_{args.shard_index}.json';output.mkdir(parents=True,exist_ok=True)
     state={'shard':args.shard_index,'num_shards':args.num_shards,'pid':os.getpid(),'phase':'loading_model',
            'model':'MiniMaxAI/MiniMax-H3','model_revision':'42ed227ee7df40d41602854ae760620d6eb651fe',
            'started_utc':utc_now(),'case_count':len(selected),'completed':0}

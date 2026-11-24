@@ -119,7 +119,7 @@ def render(name: str, spec: dict, output: Path, costs: dict | None = None, seeda
              + spec["pending"] + ("; different-judge baselines omitted" if spec.get('excluded_baselines') else "") + ".",
              fontsize=6.5, color=MUTED)
     fig.text(0.02, 0.036,
-             "* Reference score; diamond: matched re-evaluation. Video prices are 5-second tariff references. Token reference: $10/$1/$50 per 1M input/cache/output.",
+             spec.get("price_note", "* Reference score; diamond: matched re-evaluation. Video prices are 5-second tariff references. Token reference: $10/$1/$50 per 1M input/cache/output."),
              fontsize=6.2, color=MUTED)
     fig.tight_layout(rect=(0, 0.085, 1, 1))
     output.parent.mkdir(parents=True, exist_ok=True)

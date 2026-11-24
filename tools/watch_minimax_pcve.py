@@ -18,6 +18,14 @@ def read(path):
     except (OSError,ValueError):return {}
 
 
+def evaluation_scope(base, full129=False):
+    """Keep the ten-case calibration intact when expanding to official full129."""
+    subset = None if full129 else base/'subset.json'
+    total = 129 if full129 else read(subset).get('case_count',129)
+    folder = 'evaluation_subset' if subset is not None and subset.exists() else 'evaluation'
+    return subset, total, folder
+
+
 def remote_jobs(worker,bundle):
     script='''import json,sys
 from pathlib import Path
@@ -49,13 +57,14 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--bundle',type=Path,required=True)
     p.add_argument('--worker',action='append',required=True);p.add_argument('--interval',type=float,default=60)
     p.add_argument('--parallel-smoke',action='store_true')
+    p.add_argument('--full129',action='store_true',help='Score all official129 cases while preserving the calibration subset')
     p.add_argument('--generation-subset',type=Path)
     p.add_argument('--gpu-counts',default='')
     args=p.parse_args();code=Path(__file__).resolve().parents[1];bundle=args.bundle.resolve();base=bundle/'baselines/minimax_h3_local'
     runtime=code/'vendor/minimax-h3-runtime-pinned';h3py=code.parent/'fastvideo_h3_official_clean_20260926/.venv/bin/python'
     evalpy=code/'vendor/robojudge-eval-night/detached-runtime/bin/python';ffmpeg=bundle.parent/'bench_codex_20261109/runtime_main_worker_20261116/bin/ffmpeg'
     weights=code.parent/'models/MiniMax-H3-official-fastvideo-clean';state=read(base/'dispatch.json')
-    subset=base/'subset.json';total=read(subset).get('case_count',129)
+    subset,total,evalfolder=evaluation_scope(base,args.full129)
     generation_subset=args.generation_subset or subset
     gpu_counts=[int(x)for x in args.gpu_counts.split(',')]if args.gpu_counts else[4]*len(args.worker)
     if len(gpu_counts)!=len(args.worker):raise ValueError('One GPU count per worker required')
@@ -109,12 +118,11 @@ def main():
                         str(h3py),'-u','-m','tools.generate_minimax_pcve','--bundle',str(bundle),'--runtime',str(runtime),
                         '--model-path',str(weights),'--ffmpeg',str(ffmpeg),'--shard-index',str(i),
                         '--num-shards',str(len(args.worker)),'--num-gpus',str(gpu_counts[i])]
-                    if generation_subset.exists():command+=['--subset',str(generation_subset)]
+                    if generation_subset is not None and generation_subset.exists():command+=['--subset',str(generation_subset)]
                     result=launch(worker,command,runtime,{**env,'TMPDIR':str(tmp)},base/f'logs/shard_{i}.log')
                     state[str(i)]={'worker':worker,**result,'launches':previous.get('launches',0)+1,'retry_after':time.time()+600}
                     atomic_json(base/'dispatch.json',state)
             if len(complete)==total:
-                evalfolder='evaluation_subset'if subset.exists()else'evaluation'
                 progress['phase']='evaluating';summary=read(base/evalfolder/'summary.json')
                 if summary.get('case_count')==total and summary.get('scores'):
                     progress.update(phase='finished',scores=summary['scores']);atomic_json(base/'progress.json',progress);return
@@ -124,7 +132,7 @@ def main():
                     command=[str(evalpy),'-u','-m','tools.run_gpu_evaluation','--state-root',str(bundle/'state/gpu_claims'),
                         '--status',str(base/evalfolder/'gpu_state.json'),'--min-free-gib','32','--',str(evalpy),'-u',
                         '-m','tools.evaluate_minimax_pcve','--bundle',str(bundle)]
-                    if subset.exists():command+=['--subset',str(subset)]
+                    if subset is not None and subset.exists():command+=['--subset',str(subset)]
                     result=launch(args.worker[0],command,code,{**env,'TMPDIR':str(tmp)},base/'logs/evaluation.log');state['evaluation']=result;atomic_json(base/'dispatch.json',state)
         atomic_json(base/'progress.json',progress)
         time.sleep(args.interval)

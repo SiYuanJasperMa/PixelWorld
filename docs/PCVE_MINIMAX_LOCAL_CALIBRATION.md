@@ -1,5 +1,23 @@
 # Local MiniMax-H3 evaluator calibration
 
+On 2026-11-19 the user authorized expansion to all129 official cases. The
+completed ten-case calibration remains in `evaluation_subset/`; its videos are
+reused. Generate the remaining119 with the same settings and use
+`tools.watch_minimax_pcve --full129` to score all129 into `evaluation/`.
+`subset.json` remains the original ten-case definition. Full129 includes the
+official30 DELETE cases; no separate Table2 removal analysis is requested.
+The full result is a local reproduction, with commercial API equivalence still
+unverified. GPU group sizes may be four or eight without changing sampling.
+
+To reuse the faster A800 worker after its original shard, the scoped
+`tools.watch_minimax_pcve_backfill` waits for that shard and GPU launcher to
+finish, then selects at most12 pending slow-shard cases from the tail. Active
+and completed cases are excluded. A conservative time-separation check keeps
+the main worker away from this bounded batch. Existing per-case locks and
+completed-video hashes remain enforced. Separate backfill status preserves the
+original shard record. This changes scheduling only; no prompts, model weights,
+sampling settings or evaluation parameters are changed.
+
 This run checks PCVE scoring on a video-generation baseline. It is a fixed
 ten-case calibration subset, not a new full129 result. The subset is selected
 before generation with seed42: seven SET, one ADD and two DELETE cases, covering
