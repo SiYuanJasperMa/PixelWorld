@@ -114,6 +114,9 @@ Repeat with each of the four frozen configs. Keep the accepted smoke under the
 same configuration/run root so the matrix reuses it, especially for RBench.
 The current launch workflow is in [Add a model](docs/ADD_MODEL_RUNBOOK.md) and
 the [copy-paste handoff](docs/COLLABORATOR_HANDOFF.md).
+The two collaborator assignments are [Claude main experiments](docs/RUN_CLAUDE_MAIN.md)
+and [Kimi + Qwen main experiments](docs/RUN_KIMI_QWEN_MAIN.md): both cover only
+the four full Vision main benchmarks, not the analysis matrix.
 `tools/final_experiments.py` retains the older RoboJudge suite mapping and must
 not be used to launch this four-benchmark suite.
 

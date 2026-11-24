@@ -9,6 +9,10 @@
   routing, supplied frozen configs, smoke reuse and per-benchmark matrix CLI.
 - [COLLABORATOR_HANDOFF.md](COLLABORATOR_HANDOFF.md) — copy-paste assignment
   for one exact model version under the current suite.
+- [RUN_CLAUDE_MAIN.md](RUN_CLAUDE_MAIN.md) — Claude collaborator: four full
+  Vision main benchmarks, 537 official samples.
+- [RUN_KIMI_QWEN_MAIN.md](RUN_KIMI_QWEN_MAIN.md) — Kimi/Qwen collaborator: four
+  full Vision main benchmarks per model, 1,074 model-by-sample tasks in total.
 - [HARNESS_COMPARISON.md](HARNESS_COMPARISON.md) — separate Codex 0.169.0 /
   OpenCode 1.19.6 / Claude Code 2.1.304 analysis and admission evidence; Pi legacy.
 
