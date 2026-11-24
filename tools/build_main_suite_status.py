@@ -40,7 +40,12 @@ def native_smoke_weekly_deltas(source_path):
     for root_round, name in enumerate(roots, 1):
         root = Path(name).resolve()
         telemetry = (root/'telemetry').resolve()
-        for sample in read(root/'progress.json').get('samples', []):
+        progress = read(root/'progress.json')
+        if progress.get('execution_mode') == 'parallel':
+            continue
+        for sample in progress.get('samples', []):
+            if sample.get('quota_attribution') == 'shared_parallel_window':
+                continue
             round_no = sample.get('round', root_round)
             if sample.get('benchmark') not in BENCHMARKS or type(round_no) is not int or round_no != root_round:
                 continue
@@ -84,7 +89,20 @@ def native_main_smoke(path, source_path=None):
               'reasoning_effort': choice(source.get('reasoning_effort'), ('low', 'medium', 'high', 'xhigh')),
               'service_tier': choice(source.get('service_tier'), ('default', 'fast', 'flex', 'priority')),
               'status': choice(source.get('status'), ('pending', 'running', 'complete', 'finished', 'failed', 'blocked')),
-              'samples': []}
+              'samples': [], 'round_summaries': []}
+    summaries = {}
+    for row in source.get('round_summaries', []):
+        round_no = row.get('round', 1)
+        if type(round_no) is not int or round_no not in (1, 2):
+            raise ValueError('Native smoke permits at most two rounds')
+        if round_no in summaries:
+            raise ValueError('Duplicate native smoke round summary')
+        summaries[round_no] = {'round': round_no,
+            'execution_mode': choice(row.get('execution_mode'), ('serial', 'parallel')),
+            'weekly_change': finite_score(row.get('weekly_change')),
+            'credits_change': finite_score(row.get('credits_change'))}
+        expected_rounds = max(expected_rounds, round_no)
+    result['round_summaries'] = [summaries[key] for key in sorted(summaries)]
     samples = {}
     deltas = native_smoke_weekly_deltas(source_path) if source_path else {}
     for row in source.get('samples', []):
@@ -111,8 +129,12 @@ def native_main_smoke(path, source_path=None):
             'state': choice(row.get('state'), ('pending', 'waiting', 'generating', 'running', 'validating',
                                               'complete', 'finished', 'failed', 'blocked', 'skipped')),
             'duration_seconds': finite_score(row.get('duration_seconds')), 'token_usage': usage,
+            'quota_attribution': choice(row.get('quota_attribution'), ('shared_parallel_window', 'individual_serial_window')),
             **{field: finite_score(row.get(field)) for field in ('quota_weekly_consumed', 'credits_consumed', 'credits_estimated', 'usd_estimated')}}
-        if sample['quota_weekly_consumed'] is None:
+        if (sample['quota_attribution'] == 'shared_parallel_window' or
+            summaries.get(round_no, {}).get('execution_mode') == 'parallel'):
+            sample.update(quota_attribution='shared_parallel_window', quota_weekly_consumed=None, credits_consumed=None)
+        elif sample['quota_weekly_consumed'] is None:
             sample['quota_weekly_consumed'] = deltas.get((round_no, key, case))
         result['samples'].append(sample)
     return result
@@ -467,6 +489,7 @@ def render(status):
         label = HEADER[key][0]
         row = smoke_samples.get((round_no, key), {})
         usage = row.get('token_usage') or {}
+        shared_quota = row.get('quota_attribution') == 'shared_parallel_window'
         suite = key + '_native_astra62_smoke' + ('_round2' if round_no == 2 else '')
         viewer = 'videos.html?index=' + quote(f'{suite}/gpt62-astra-native/{TRACK}/index.json', safe='')
         link = f'<br><a class="small" href="{viewer}">运行 / 视频 / Trace →</a>' if row.get('case') else ''
@@ -474,14 +497,23 @@ def render(status):
             f'<td>{smoke_states.get(row.get("state"), "待运行")}</td>'
             + ''.join(f'<td>{smoke_number(usage.get(field))}</td>' for field in ('input_tokens', 'cached_input_tokens', 'output_tokens'))
             + f'<td>{smoke_number(row.get("duration_seconds"), 1)}{" 秒" if row.get("duration_seconds") is not None else ""}</td>'
-            + f'<td>{smoke_number(row.get("quota_weekly_consumed"), 2)}</td>'
-            + ''.join(f'<td>{"接口未提供" if field != "credits_consumed" and row.get("state") in ("complete","failed") and row.get(field) is None else smoke_number(row.get(field), 4)}</td>' for field in ('credits_consumed', 'credits_estimated', 'usd_estimated'))
+            + f'<td>{"整轮看汇总" if shared_quota else smoke_number(row.get("quota_weekly_consumed"), 2)}</td>'
+            + ''.join(f'<td>{"整轮看汇总" if shared_quota and field == "credits_consumed" else "接口未提供" if field != "credits_consumed" and row.get("state") in ("complete","failed") and row.get(field) is None else smoke_number(row.get(field), 4)}</td>' for field in ('credits_consumed', 'credits_estimated', 'usd_estimated'))
             + '</tr>')
+    round_summary = ''.join(
+        f'<p><b>第 {row["round"]} 轮 · { {"serial": "串行", "parallel": "并行"}.get(row.get("execution_mode"), "执行方式待记录")}</b>'
+        f' · 整轮周额度变化 {smoke_number(row.get("weekly_change"), 2)} 百分点'
+        f' · Credits 余额差 {smoke_number(row.get("credits_change"), 4)}</p>'
+        for row in smoke.get('round_summaries', []))
+    round_summary = (f'<div id="native-smoke-round-summaries">{round_summary}'
+        '<p class="small muted">并行样本共享整轮额度窗口，额度变化不分摊到单个样本；各自 Tokens 与耗时分别记录。</p></div>'
+        if round_summary else '')
     smoke_section = ('<section id="native-main-smoke"><h2>GPT-6.2-Astra · 主实验配置 smoke</h2>'
         f'<p class="muted">{escape(smoke.get("cli_version") or "CLI 版本待记录")} · reasoning {escape(smoke.get("reasoning_effort") or "待记录")} · '
         f'service tier {escape(smoke.get("service_tier") or "待记录")}</p>'
         f'<p class="small muted">已安排 {smoke_rounds} 轮，每轮每个 benchmark 一个标准样本，最多两轮八个样本。'
         '原生 Codex 0.172.0，独立于主表冻结的 0.169.0 队列，不代表全量结果。</p>'
+        f'{round_summary}'
         '<div class="table"><table><thead><tr><th>轮次 / Benchmark / Case</th><th>状态</th><th>Input tokens</th>'
         '<th>Cached input</th><th>Output tokens</th><th>耗时</th><th>周额度 · 实测消耗（百分点）</th><th>Credits · 余额差</th>'
         '<th>Credits · 估算</th><th>USD · 估算</th></tr></thead>'

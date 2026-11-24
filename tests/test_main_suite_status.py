@@ -218,3 +218,40 @@ def test_native_weekly_delta_reads_each_rounds_own_telemetry(tmp_path):
         (root/'progress.json').write_text(json.dumps({'samples': [{'benchmark': 'physics_iq',
             'case': '0001', 'quota_before': str(before), 'quota_after': str(after)}]}))
     assert native_smoke_weekly_deltas(source) == {(1, 'physics_iq', '0001'): 0, (2, 'physics_iq', '0001'): 1}
+    progress_path = roots[1]/'progress.json'
+    progress = json.loads(progress_path.read_text())
+    progress['execution_mode'] = 'parallel'
+    progress_path.write_text(json.dumps(progress))
+    assert native_smoke_weekly_deltas(source) == {(1, 'physics_iq', '0001'): 0}
+    progress.pop('execution_mode')
+    progress['samples'][0]['quota_attribution'] = 'shared_parallel_window'
+    progress_path.write_text(json.dumps(progress))
+    assert native_smoke_weekly_deltas(source) == {(1, 'physics_iq', '0001'): 0}
+
+
+def test_native_parallel_round_uses_shared_summary_without_individual_quota(tmp_path):
+    sidecar = tmp_path/'smoke.json'
+    source = {'model': 'gpt-6.2-astra', 'expected_rounds': 2, 'samples': [
+        {'round': 2, 'benchmark': key, 'case': '0002', 'state': 'complete',
+         'duration_seconds': 123, 'token_usage': {'input_tokens': 2345, 'output_tokens': 123},
+         'quota_weekly_consumed': 9, 'credits_consumed': 999}
+        for key in BENCHMARKS], 'round_summaries': [
+            {'round': 1, 'execution_mode': 'serial', 'weekly_change': 0, 'credits_change': 0,
+             'balance': 'PRIVATE_BALANCE'},
+            {'round': 2, 'execution_mode': 'parallel', 'weekly_change': 1, 'credits_change': None,
+             'account': 'PRIVATE_ACCOUNT'}]}
+    sidecar.write_text(json.dumps(source))
+    smoke = native_main_smoke(sidecar)
+    assert smoke['round_summaries'] == [
+        {'round': 1, 'execution_mode': 'serial', 'weekly_change': 0, 'credits_change': 0},
+        {'round': 2, 'execution_mode': 'parallel', 'weekly_change': 1, 'credits_change': None}]
+    assert all(s['quota_weekly_consumed'] is None and s['credits_consumed'] is None
+               and s['quota_attribution'] == 'shared_parallel_window' for s in smoke['samples'][4:])
+    assert all(s['token_usage']['input_tokens'] == 2345 and s['duration_seconds'] == 123 for s in smoke['samples'][4:])
+    assert 'PRIVATE' not in json.dumps(smoke)
+    panel = render(dashboard_status(native_main_smoke=smoke)).split('<section id="native-main-smoke">')[1].split('</section>')[0]
+    assert '第 1 轮 · 串行' in panel and '第 2 轮 · 并行' in panel
+    assert '整轮周额度变化 1.00 百分点' in panel and 'Credits 余额差 待记录' in panel
+    assert panel.count('整轮看汇总') == 8
+    assert '2,345' in panel and '123.0 秒' in panel
+    assert '999' not in panel and 'PRIVATE' not in panel
