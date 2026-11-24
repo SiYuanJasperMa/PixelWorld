@@ -1,9 +1,10 @@
 'use strict';
 (() => {
   const base = 'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/';
-  const path = new URLSearchParams(location.search).get('index') || '';
+  const query = new URLSearchParams(location.search);
+  const path = query.get('index') || '';
   const safePath = value => typeof value === 'string' && /^[A-Za-z0-9_./-]+\.json$/.test(value) && !value.startsWith('/') && !value.split('/').includes('..');
-  if (!safePath(path)) { document.getElementById('sync').textContent = '请从主表打开对应模型。'; return; }
+  if (path && !safePath(path)) { document.getElementById('sync').textContent = '请从主表打开对应模型。'; return; }
   const byId = id => document.getElementById(id);
   const elem = (tag, text) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; return node; };
   let rows = [], page = 0, busy = false, active = null, activePending = false;
@@ -52,6 +53,23 @@
   async function poll() {
     if (busy) return;busy=true;
     try {
+      if (!path) {
+        const catalogue = await loadJSON('catalogue.json');
+        const benchmark = query.get('benchmark');
+        const groups = (catalogue.groups || []).filter(group => !benchmark || group.suite === benchmark || group.suite?.startsWith(benchmark + '_'));
+        byId('title').textContent = '选择实验 · 视频与 Trace';
+        byId('sync').textContent = `HF 数据更新：${catalogue.updated_utc || '未知'} · 包含运行中与失败记录`;
+        document.querySelector('.controls').hidden = true;
+        byId('cases').replaceChildren();
+        for (const group of groups) {
+          if (!safePath(group.path)) continue;
+          const link = elem('a', `${group.model_key} · ${group.suite} · ${group.track}`);
+          link.href = 'videos.html?index=' + encodeURIComponent(group.path);
+          byId('cases').append(link);
+        }
+        if (!groups.length) byId('cases').append(elem('p', '实验记录正在同步；稍后自动更新。'));
+        return;
+      }
       const index=await loadJSON(path);rows=[];
       for (const [id,history] of Object.entries(index.cases || {})) for(const row of history) rows.push({...row,case:id});
       rows.sort((a,b)=>a.case.localeCompare(b.case)||a.attempt-b.attempt);

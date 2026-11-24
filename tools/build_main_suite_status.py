@@ -7,6 +7,7 @@ from html import escape
 import json
 import math
 from pathlib import Path
+import re
 from urllib.parse import quote
 
 from pixelworld.config import load_config
@@ -25,6 +26,96 @@ ROSTER = ('gpt62-sol', 'gpt61-sol', 'gpt6-astra', 'gpt56-sol', 'gpt56-terra',
 COUNT_FIELDS = ('complete', 'running', 'pending', 'exhausted')
 JUDGE = 'traex/GPT-6.1-Sol'
 TRACK = 'vision-agent'
+SMOKE_TOKEN_FIELDS = ('input_tokens', 'cached_input_tokens', 'cache_write_input_tokens',
+                      'output_tokens', 'reasoning_output_tokens', 'total_tokens')
+
+
+def native_smoke_weekly_deltas(source_path):
+    """Read private receipts locally; return only matched weekly usage changes."""
+    source = read(source_path)
+    roots = source.get('roots') or [source.get('root')]
+    if not isinstance(roots, list) or len(roots) > 2 or any(not isinstance(root, str) for root in roots):
+        return {}
+    result = {}
+    for root_round, name in enumerate(roots, 1):
+        root = Path(name).resolve()
+        telemetry = (root/'telemetry').resolve()
+        for sample in read(root/'progress.json').get('samples', []):
+            round_no = sample.get('round', root_round)
+            if sample.get('benchmark') not in BENCHMARKS or type(round_no) is not int or round_no != root_round:
+                continue
+            windows = []
+            for key in ('quota_before', 'quota_after'):
+                name = sample.get(key)
+                if not isinstance(name, str):
+                    break
+                path = Path(name)
+                path = (path if path.is_absolute() else root/path).resolve()
+                if not path.is_relative_to(telemetry):
+                    break
+                snapshot = read(path).get('rate_limits') or {}
+                windows.append((snapshot.get('rateLimits') or {}).get('primary') or {})
+            if len(windows) != 2:
+                continue
+            before, after = windows
+            if (before.get('windowDurationMins') != 10080 or
+                (before.get('windowDurationMins'), before.get('resetsAt')) !=
+                (after.get('windowDurationMins'), after.get('resetsAt')) or before.get('resetsAt') is None):
+                continue
+            start, end = finite_score(before.get('usedPercent')), finite_score(after.get('usedPercent'))
+            if start is not None and end is not None and 0 <= start <= end <= 100:
+                result[(round_no, sample.get('benchmark'), sample.get('case'))] = end - start
+    return result
+
+
+def native_main_smoke(path, source_path=None):
+    """Publish only the native smoke's experiment metadata and consumption deltas."""
+    source = read(path)
+    if not source:
+        return {}
+    expected_rounds = source.get('expected_rounds', 1)
+    if type(expected_rounds) is not int or expected_rounds not in (1, 2):
+        raise ValueError('Native smoke permits at most two rounds')
+    def choice(value, allowed):
+        return value if value in allowed else None
+    version = source.get('cli_version')
+    version = version if isinstance(version, str) and re.fullmatch(r'(?:codex-cli )?\d+\.\d+\.\d+', version) else None
+    result = {'model': choice(source.get('model'), ('gpt-6.2-astra',)), 'cli_version': version,
+              'reasoning_effort': choice(source.get('reasoning_effort'), ('low', 'medium', 'high', 'xhigh')),
+              'service_tier': choice(source.get('service_tier'), ('default', 'fast', 'flex', 'priority')),
+              'status': choice(source.get('status'), ('pending', 'running', 'complete', 'finished', 'failed', 'blocked')),
+              'samples': []}
+    samples = {}
+    deltas = native_smoke_weekly_deltas(source_path) if source_path else {}
+    for row in source.get('samples', []):
+        key = row.get('benchmark')
+        if key not in BENCHMARKS:
+            continue
+        round_no = row.get('round', 1)
+        if type(round_no) is not int or round_no not in (1, 2):
+            raise ValueError('Native smoke permits at most two rounds')
+        if (round_no, key) in samples:
+            raise ValueError('Duplicate native smoke round and benchmark')
+        samples[(round_no, key)] = row
+        expected_rounds = max(expected_rounds, round_no)
+    result['expected_rounds'] = expected_rounds
+    for round_no, key in ((round_no, key) for round_no in range(1, expected_rounds+1) for key in BENCHMARKS):
+        row = samples.get((round_no, key), {})
+        case = row.get('case')
+        case = case if isinstance(case, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,64}', case) and not case.startswith(('hf_', 'ghp_')) else None
+        usage = row.get('token_usage')
+        usage = ({field: value for field in SMOKE_TOKEN_FIELDS
+                  if (value := finite_score(usage.get(field))) is not None and value >= 0}
+                 if isinstance(usage, dict) else None)
+        sample = {'round': round_no, 'benchmark': key, 'case': case,
+            'state': choice(row.get('state'), ('pending', 'waiting', 'generating', 'running', 'validating',
+                                              'complete', 'finished', 'failed', 'blocked', 'skipped')),
+            'duration_seconds': finite_score(row.get('duration_seconds')), 'token_usage': usage,
+            **{field: finite_score(row.get(field)) for field in ('quota_weekly_consumed', 'credits_consumed', 'credits_estimated', 'usd_estimated')}}
+        if sample['quota_weekly_consumed'] is None:
+            sample['quota_weekly_consumed'] = deltas.get((round_no, key, case))
+        result['samples'].append(sample)
+    return result
 
 
 def read(path):
@@ -236,7 +327,9 @@ def build(nightly, publication):
             'photographic_progress': {key: photo.get(key) for key in ('completed_calls', 'expected_calls')},
             'photographic_scores': appearance_scores(photo),
             'photographic_judge': JUDGE, 'publication_coverage': upload_coverage,
-            'baseline_rechecks': baseline_rechecks}
+            'baseline_rechecks': baseline_rechecks,
+            'native_main_smoke': native_main_smoke(evaluation/'astra62_native_main_smoke.json',
+                                                  evaluation/'astra62_native_smoke_source.json')}
 
 
 LABELS = {
@@ -257,15 +350,20 @@ def render(status):
         digits = {'physics_iq': 2, 'pcve': 3, 'rbench': 3, 'phygenbench': 4}[key]
         return f'{score:.{digits}f}'
 
-    def cell(row, key, model):
-        count, total = row['counts'], row['expected']
-        _, _, href = HEADER[key]
-        progress = f"<b>{count['complete']} / {total}</b>"
+    def viewer_href(key, model):
         suite = BENCHMARKS[key][0]
         if key == 'rbench': suite += '_' + model
         elif model == 'gpt62-sol': suite += '_gpt62'
         index = quote(f'{suite}/{model}/{TRACK}/index.json', safe='')
-        progress = f'<a href="videos.html?index={index}">{progress}</a>'
+        return f'videos.html?index={index}'
+
+    def cell(row, key, model):
+        count, total = row['counts'], row['expected']
+        _, _, href = HEADER[key]
+        progress = f"<b>{count['complete']} / {total}</b>"
+        viewer = viewer_href(key, model)
+        detail = f'{href}?model={quote(model)}' if href and model != 'gpt62-sol' else viewer
+        progress = f'<a href="{detail}">{progress}</a>'
         if row['score'] is None:
             evaluation = f"评分 {row['scored']} / {total}"
         else:
@@ -274,7 +372,8 @@ def render(status):
         last = f'<time datetime="{escape(recent)}">{escape(recent)}</time>' if recent else '尚无交付'
         return (f'<td>{progress}<div class="progress"><i style="width:{100*count["complete"]/total:.1f}%"></i></div>'
                 f'<div class="small muted">{count["running"]} 运行 · {count["pending"]} 待生成 · {count["exhausted"]} 终止</div>'
-                f'<div>{evaluation}</div><div class="small muted">最近交付：{last}</div></td>')
+                f'<div>{evaluation}</div><div class="small muted">最近交付：{last}</div>'
+                f'<a class="small" href="{viewer}">视频与 Trace →</a></td>')
 
     def baseline_cell(scores, key):
         value = scores.get(key)
@@ -283,7 +382,8 @@ def render(status):
         origin = 'GPT-6.1-Sol 重评' if key == 'phygenbench' else '论文 / 榜单参考'
         return f'<td><b>{display_score(key, value)}</b><br><span class="small muted">{origin}</span></td>'
 
-    heads = ''.join(f'<th>{label}<br><span class="small muted">{spec}</span></th>' for label, spec, _ in HEADER.values())
+    heads = ''.join(f'<th><a href="{href or "videos.html?benchmark=" + key}">{label}</a><br>'
+                    f'<span class="small muted">{spec}</span></th>' for key, (label, spec, href) in HEADER.items())
     baseline_labels = {'seedance25': 'Seedance 2.5', 'minimax-h3': 'MiniMax H3'}
     rows = ''.join(f'<tr class="baseline"><th>{baseline_labels[model]}<br><span class="small muted">VideoGen baseline</span></th>' +
                    ''.join(baseline_cell(scores, k) for k in HEADER) + '</tr>'
@@ -348,6 +448,43 @@ def render(status):
                       '<p class="small muted">包括失败与 infra 记录；统计匹配当前详情哈希的上传回执。生成完成和上传完成分别记录。</p>'
                       '<a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/metadata/publication_coverage.json">各模型覆盖记录 →</a></details>'
                       if upload else '')
+    smoke = status.get('native_main_smoke', {})
+    def smoke_number(value, digits=None):
+        value = finite_score(value)
+        if value is None:
+            return '待记录'
+        return f'{value:,.0f}' if digits is None else f'{value:,.{digits}f}'
+
+    smoke_states = {'pending': '待运行', 'waiting': '等待', 'generating': '生成中', 'running': '运行中',
+                    'validating': '验证中', 'complete': '完成', 'finished': '完成', 'failed': '失败',
+                    'blocked': '待恢复', 'skipped': '未运行'}
+    smoke_samples = {(row.get('round', 1), row['benchmark']): row for row in smoke.get('samples', [])}
+    smoke_rounds = smoke.get('expected_rounds', 1)
+    if type(smoke_rounds) is not int or smoke_rounds not in (1, 2):
+        raise ValueError('Native smoke permits at most two rounds')
+    smoke_rows = ''
+    for round_no, key in ((round_no, key) for round_no in range(1, smoke_rounds+1) for key in HEADER):
+        label = HEADER[key][0]
+        row = smoke_samples.get((round_no, key), {})
+        usage = row.get('token_usage') or {}
+        smoke_rows += (f'<tr><th>第 {round_no} 轮 · {label}<br><span class="small muted">{escape(row.get("case") or "待记录")}</span></th>'
+            f'<td>{smoke_states.get(row.get("state"), "待运行")}</td>'
+            + ''.join(f'<td>{smoke_number(usage.get(field))}</td>' for field in ('input_tokens', 'cached_input_tokens', 'output_tokens'))
+            + f'<td>{smoke_number(row.get("duration_seconds"), 1)}{" 秒" if row.get("duration_seconds") is not None else ""}</td>'
+            + f'<td>{smoke_number(row.get("quota_weekly_consumed"), 2)}</td>'
+            + ''.join(f'<td>{"接口未提供" if field != "credits_consumed" and row.get("state") in ("complete","failed") and row.get(field) is None else smoke_number(row.get(field), 4)}</td>' for field in ('credits_consumed', 'credits_estimated', 'usd_estimated'))
+            + '</tr>')
+    smoke_section = ('<section id="native-main-smoke"><h2>GPT-6.2-Astra · 主实验配置 smoke</h2>'
+        f'<p class="muted">{escape(smoke.get("cli_version") or "CLI 版本待记录")} · reasoning {escape(smoke.get("reasoning_effort") or "待记录")} · '
+        f'service tier {escape(smoke.get("service_tier") or "待记录")}</p>'
+        f'<p class="small muted">已安排 {smoke_rounds} 轮，每轮每个 benchmark 一个标准样本，最多两轮八个样本。'
+        '原生 Codex 0.172.0，独立于主表冻结的 0.169.0 队列，不代表全量结果。</p>'
+        '<div class="table"><table><thead><tr><th>轮次 / Benchmark / Case</th><th>状态</th><th>Input tokens</th>'
+        '<th>Cached input</th><th>Output tokens</th><th>耗时</th><th>周额度 · 实测消耗（百分点）</th><th>Credits · 余额差</th>'
+        '<th>Credits · 估算</th><th>USD · 估算</th></tr></thead>'
+        f'<tbody>{smoke_rows}</tbody></table></div>'
+        '<p class="small muted">Tokens 来自实际运行记录；周额度为同一重置窗口内的使用率变化，实测 Credits 为余额变化，估算值单独列示。'
+        '周额度显示整数百分比，0 变化不代表零计算消耗；接口未返回估算值时不按零计。Cached input 已包含在 Input 中。</p></section>' if smoke else '')
     return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="pixelworld-updated" content="{status['updated_utc']}"><meta name="pixelworld-protocol" content="pixelworld-main-suite-20261124">
 <title>PixelWorld · 主实验</title><link rel="stylesheet" href="formal.css"><body><header><nav><strong><a href="index.html">PixelWorld</a></strong>
@@ -362,6 +499,7 @@ PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混�
 {harness_section}
 {baseline_section}
 {upload_section}
+{smoke_section}
 <h2>视频质量 · 独立于物理分</h2><p>GPT-6.1-Sol 画质判分进度：{photo.get('completed_calls') or 0} / {photo.get('expected_calls') or 0} 次调用。</p>
 {photo_table}
 <h3>FVD（越低越好）</h3>
