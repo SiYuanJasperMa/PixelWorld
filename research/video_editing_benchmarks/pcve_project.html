@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="VideoPhysEdit: Physical Counterfactual Video Editing via Rigid-Body Physical Scene Reconstruction. A training-free pipeline that makes physical reasoning explicit.">
+  <meta name="theme-color" content="#fcfdfe">
+  <meta property="og:title" content="VideoPhysEdit">
+  <meta property="og:description" content="Physical Counterfactual Video Editing via Rigid-Body Physical Scene Reconstruction">
+  <meta property="og:type" content="website">
+  <title>VideoPhysEdit: Physical Counterfactual Video Editing</title>
+  <link rel="icon" href="assets/favicon-32.png?v=vpe-1" type="image/png" sizes="32x32">
+  <link rel="icon" href="assets/favicon.svg?v=vpe-1" type="image/svg+xml" sizes="any">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=vpe-1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&family=Inter:wght@400;500;600;700&family=PT+Serif:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css?v=slate-buttons-115">
+  <link rel="stylesheet" href="assets/css/comparisons.css?v=comic-instructions-112">
+  <link rel="stylesheet" href="assets/css/interactive-demo.css?v=cleanup2-20260930">
+  <script src="assets/js/content.js?v=arxiv-83" defer></script>
+  <script src="assets/js/demo-layout.js?v=demo-center-72" defer></script>
+  <script src="assets/js/site.js?v=cleanup-107" defer></script>
+  <script src="assets/js/comparisons.mjs?v=removal-order-116" type="module"></script>
+  <script src="assets/js/method-figure.js?v=method-viewport-2" type="module"></script>
+  <script src="assets/js/interactive-demo.mjs?v=cleanup2-20260930" type="module"></script>
+  <script data-goatcounter="https://videophysedit.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
+</head>
+<body class="has-interactive-demo">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header" id="site-header">
+    <a class="wordmark" href="#top" aria-label="VideoPhysEdit, back to top">VideoPhysEdit</a>
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu <span aria-hidden="true">☰</span></button>
+    <nav class="site-nav" id="site-nav" aria-label="Main navigation">
+      <a href="#teaser">Overview</a>
+      <a href="#abstract">Abstract</a>
+      <a href="#task">Task</a>
+      <a href="#method">Method</a>
+      <details class="nav-dropdown">
+        <summary>Results <span aria-hidden="true">⌄</span></summary>
+        <div class="dropdown-menu">
+          <a href="#benchmark">PCVE-RigidBench</a>
+          <a href="#synthetic-comparison">Synthetic videos</a>
+          <a href="#real-comparison">Real videos</a>
+          <a href="#removal-comparison">Object removal</a>
+        </div>
+      </details>
+      <a href="#citation">Citation</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="publication-header" id="top" aria-labelledby="paper-title">
+      <div class="container">
+        <div class="cover-title-group">
+        <h1 id="paper-title"><span class="title-brand">VideoPhysEdit</span> <span class="title-description">Physical Counterfactual Video Editing<br class="desktop-break"> via <span class="title-phrase">Rigid-Body</span> Physical Scene Reconstruction</span></h1>
+        <p class="cover-lead"><em>Change not only how a scene looks, but also <strong>what happens after a physical edit.</strong></em></p>
+        </div>
+        <div class="cover-identity-group">
+        <div class="publication-authors" id="authors" hidden></div>
+        <div class="publication-affiliations" id="affiliations" hidden></div>
+        <div class="institution-logos" aria-label="Affiliated institutions">
+          <span class="fudan-mark"><img src="assets/images/identity/fudan-emblem.png" alt="Fudan University emblem" width="2267" height="1661"></span>
+          <span class="teai-mark"><img src="assets/images/identity/teai-blue.svg" alt="Institute of Trustworthy Embodied AI, Fudan University" width="368" height="48"></span>
+        </div>
+        </div>
+        <div class="publication-links" aria-label="Project resources">
+          <a class="resource-link" data-resource="paper" href="https://arxiv.org/pdf/2609.35134" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h6"/></svg> Paper</a>
+          <a class="resource-link" data-resource="arxiv" href="https://arxiv.org/abs/2609.35134" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-7M14 3h7v7M21 3 11 13"/></svg> arXiv</a>
+          <a class="resource-link" data-resource="code" href="https://github.com/Hammour-steak/VideoPhysEdit" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg> Code</a>
+          <a class="resource-link" data-resource="benchmark" href="https://github.com/Hammour-steak/PCVE-RigidBench" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></svg> Benchmark</a>
+        </div>
+      </div>
+      <a class="cover-next" href="#teaser">Choose an edit, click an object, and watch how the scene changes. <span aria-hidden="true">↓</span></a>
+    </section>
+
+    <section class="teaser-section interactive-teaser" id="teaser" aria-label="Interactive VideoPhysEdit overview">
+      <div class="container wide-container">
+        <div class="demo-shell" id="interactive-demo" data-config="assets/data/interactive-demo.json?v=ball-label-20260930" aria-busy="true">
+          <p class="demo-loading">Loading the interactive preview…</p>
+        </div>
+        <noscript><p>The interactive preview requires JavaScript.</p></noscript>
+      </div>
+    </section>
+
+    <section class="section section-tinted" id="abstract" aria-labelledby="abstract-title">
+      <div class="container text-container">
+        <h2 class="section-title" id="abstract-title">Abstract</h2>
+        <div class="abstract-copy">
+          <p>Video editing has advanced substantially in recent years, with methods increasingly accounting for the visual consequences of edits, such as changes to shadows and occlusions. However, the physical consequences of edits, including changes to subsequent motion and interactions, remain less explored. We formulate this problem as <em>physical counterfactual video editing</em> (PCVE), which aims to generate a counterfactual video depicting the resulting motion and interactions given a source video, a physical edit, and its execution frame.
+          PCVE is challenging because it requires understanding scene physics and inferring the downstream motion and interactions induced by a physical intervention, while paired factual and counterfactual data and dedicated evaluation metrics are lacking. We introduce <strong>VideoPhysEdit</strong>, a new training-free pipeline for PCVE in rigid-body scenes. It makes physical reasoning explicit through a novel physical scene reconstruction method that recovers a scene reproducing the observed motion and interactions under simulation, enabling the pipeline to apply physical edits as interventions and use the resulting trajectories to guide counterfactual video generation.
+          We further construct <strong>PCVE-RigidBench</strong>, a synthetic benchmark with paired source and counterfactual target videos and physical ground truth, and introduce the Physical Edit Score. VideoPhysEdit achieves substantially higher physical edit accuracy than open-source methods and commercial models while maintaining competitive visual fidelity. Its Physical Edit Score is 0.376, the only positive score among the compared methods. Qualitative comparisons on real videos further show that VideoPhysEdit applies to real-world scenes and better depicts the downstream motion and interactions induced by the edits than the compared methods.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section task-section" id="task" aria-labelledby="task-title">
+      <div class="container">
+        <p class="section-eyebrow">A new task</p>
+        <h2 class="section-title" id="task-title">Physical Counterfactual Video Editing</h2>
+        <p class="task-intro">We formulate physical counterfactual video editing (PCVE) as a new, unified task for physical interventions and their downstream consequences. Given a source video, a physical edit, and its execution frame, the goal is to generate a counterfactual video that preserves the factual history before the intervention and depicts the resulting motion and interactions afterward.</p>
+        <div class="task-equation" aria-label="PCVE formulation">
+          <math display="block" aria-label="V superscript cf equals F of V superscript src, e, and t subscript e.">
+            <msup><mrow><mi>V</mi><mspace width="0.07em"/></mrow><mtext>cf</mtext></msup><mo>=</mo>
+            <mrow><mi>𝓕</mi><mspace width="0.18em"/><mo stretchy="false">(</mo><msup><mrow><mi>V</mi><mspace width="0.07em"/></mrow><mtext>src</mtext></msup><mo>,</mo><mi>e</mi><mo>,</mo><msub><mi>t</mi><mi>e</mi></msub><mo stretchy="false">)</mo></mrow>
+          </math>
+          <dl class="task-symbols">
+            <div><dt><math><msup><mrow><mi>V</mi><mspace width="0.07em"/></mrow><mtext>src</mtext></msup></math></dt><dd>Source video</dd></div>
+            <div><dt><math><msup><mrow><mi>V</mi><mspace width="0.07em"/></mrow><mtext>cf</mtext></msup></math></dt><dd>Counterfactual video</dd></div>
+            <div><dt><math><mi>e</mi></math></dt><dd>Physical edit</dd></div>
+            <div><dt><math><msub><mi>t</mi><mi>e</mi></msub></math></dt><dd>Execution frame</dd></div>
+          </dl>
+        </div>
+        <figure class="task-figure">
+          <div class="task-figure-image">
+            <img src="assets/images/task-examples.webp" width="2600" height="1803" loading="lazy" decoding="async" alt="PCVE-RigidBench domino examples: the source sequence and counterfactual sequences after increasing the second domino’s mass, removing the second domino, or removing the first domino at frame 24.">
+          </div>
+          <figcaption>Examples from PCVE-RigidBench show how physical interventions change subsequent motion and interactions.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section section-tinted" id="method" aria-labelledby="method-title">
+      <div class="container wide-container">
+        <p class="section-eyebrow section-eyebrow-method">A new method</p>
+        <h2 class="section-title" id="method-title">Explicit Physical Reasoning Guides Visual Generation</h2>
+        <p class="section-intro">A training-free pipeline for physical counterfactual video editing in rigid-body scenes.</p>
+        <figure class="method-figure" id="method-overview">
+          <a class="method-figure-link" data-pdf-figure href="assets/images/method-overview.pdf" target="_blank" rel="noopener noreferrer" aria-label="Open the original VideoPhysEdit method overview PDF">
+            <img src="assets/images/method-overview.webp" width="3200" height="1700" loading="lazy" decoding="async" alt="Figure 2. The seven stages of VideoPhysEdit, from object identification and tracking through physical scene reconstruction, physical intervention, and counterfactual video generation.">
+            <canvas hidden></canvas>
+          </a>
+          <figcaption><strong>Overview of VideoPhysEdit.</strong> We reconstruct an executable physical scene from the source video, apply the physical intervention, and use the simulated counterfactual trajectories and an edited reference image to guide counterfactual video generation.
+            <a class="figure-expand" href="assets/images/method-overview.pdf" target="_blank" rel="noopener noreferrer">Open original PDF <span aria-hidden="true">↗</span></a>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="benchmark" aria-labelledby="benchmark-title">
+      <div class="container">
+        <p class="section-eyebrow section-eyebrow-benchmark">A new benchmark</p>
+        <h2 class="section-title" id="benchmark-title">PCVE-RigidBench</h2>
+        <p class="section-intro">20 synthetic rigid-body scenes and 129 editing tasks, with paired source and counterfactual target videos and physical ground truth.</p>
+        <div class="result-highlights">
+          <div><strong>0.376</strong><span>Physical Edit Score</span><small>The only positive PES among the compared methods.</small></div>
+          <div><strong>54.0% <span aria-hidden="true">↓</span></strong><span>Trajectory Error</span><small>Relative to the strongest competing method.</small></div>
+        </div>
+        <div class="table-scroll" role="region" aria-label="PCVE-RigidBench quantitative results" tabindex="0">
+          <table class="results-table">
+            <caption>Comparison on PCVE-RigidBench. <strong>Bold</strong> marks the best result among methods.</caption>
+            <thead>
+              <tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="3">Physical Edit Accuracy</th><th scope="colgroup" colspan="5">Visual Fidelity</th></tr>
+              <tr><th scope="col">PES ↑</th><th scope="col">TE ↓</th><th scope="col">Mask IoU ↑</th><th scope="col">PSNR ↑</th><th scope="col">SSIM ↑</th><th scope="col">LPIPS ↓</th><th scope="col">CLIP ↑</th><th scope="col">FVD ↓</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">VACE</th><td>−0.042</td><td>146.26</td><td>0.273</td><td>14.06</td><td>0.728</td><td>0.447</td><td>0.795</td><td>1184.37</td></tr>
+              <tr><th scope="row">Ditto</th><td>−0.120</td><td>149.94</td><td>0.264</td><td>22.07</td><td>0.812</td><td>0.206</td><td>0.850</td><td>551.14</td></tr>
+              <tr><th scope="row">MiniMax H3</th><td>−0.096</td><td>152.00</td><td>0.250</td><td>24.87</td><td>0.870</td><td>0.127</td><td>0.906</td><td>246.45</td></tr>
+              <tr><th scope="row">Seedance 2.5</th><td>−0.087</td><td>144.99</td><td>0.231</td><td><strong>28.85</strong></td><td><strong>0.928</strong></td><td><strong>0.080</strong></td><td><strong>0.932</strong></td><td>246.67</td></tr>
+              <tr class="no-edit"><th scope="row">No edit</th><td>0.000</td><td>143.13</td><td>0.289</td><td>31.23</td><td>0.974</td><td>0.036</td><td>0.957</td><td>249.68</td></tr>
+              <tr class="ours"><th scope="row">VideoPhysEdit</th><td><strong>0.376</strong></td><td><strong>66.70</strong></td><td><strong>0.421</strong></td><td>27.51</td><td>0.925</td><td>0.104</td><td>0.929</td><td><strong>182.46</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="benchmark-link"><a href="https://github.com/Hammour-steak/PCVE-RigidBench" target="_blank" rel="noopener noreferrer">Explore PCVE-RigidBench <span aria-hidden="true">↗</span></a></p>
+      </div>
+    </section>
+
+    <section class="section section-tinted comparison-section" id="comparisons" aria-labelledby="comparisons-title">
+      <div class="container wide-container">
+        <h2 class="section-title" id="comparisons-title">Comparison with Baselines</h2>
+        <div class="comparison-block has-cases" id="synthetic-comparison">
+          <h3>Synthetic Videos</h3>
+          <p class="comparison-description">Physical edits and their downstream consequences on PCVE-RigidBench.</p>
+          <div class="comparison-cases" role="group" aria-label="Select synthetic scene"></div>
+          <div class="comparison-edit">
+            <p class="comparison-instruction" aria-live="polite"></p>
+          </div>
+          <div class="comparison-grid" data-comparison="synthetic" role="region" aria-label="Synthetic video comparisons" tabindex="0"></div>
+          <div class="comparison-playback">
+            <button class="comparison-play" type="button" disabled>Play all</button>
+            <input class="comparison-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="Comparison playback time" disabled>
+            <output class="comparison-time">0.0 s</output>
+          </div>
+          <p class="comparison-status" role="status"></p>
+        </div>
+        <div class="comparison-block has-cases" id="real-comparison">
+          <h3>Real Videos</h3>
+          <p class="comparison-description">Physical edits in real-world scenes.</p>
+          <div class="comparison-cases" role="group" aria-label="Select real scene"></div>
+          <div class="comparison-edit">
+            <p class="comparison-instruction" aria-live="polite"></p>
+          </div>
+          <div class="comparison-grid" data-comparison="real" role="region" aria-label="Real video comparisons" tabindex="0"></div>
+          <div class="comparison-playback">
+            <button class="comparison-play" type="button" disabled>Play all</button>
+            <input class="comparison-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="Real comparison playback time" disabled>
+            <output class="comparison-time">0.0 s</output>
+          </div>
+          <p class="comparison-status" role="status"></p>
+        </div>
+        <div class="comparison-block has-cases" id="removal-comparison">
+          <h3>Object Removal</h3>
+          <p class="comparison-description">Additional comparisons with VOID on object removal tasks.</p>
+          <div class="comparison-cases" role="group" aria-label="Select removal scene"></div>
+          <div class="comparison-edit">
+            <p class="comparison-instruction" aria-live="polite"></p>
+          </div>
+          <div class="comparison-grid" data-comparison="removal" role="region" aria-label="Object removal comparisons" tabindex="0"></div>
+          <div class="comparison-playback">
+            <button class="comparison-play" type="button" disabled>Play all</button>
+            <input class="comparison-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="Removal comparison playback time" disabled>
+            <output class="comparison-time">0.0 s</output>
+          </div>
+          <p class="comparison-status" role="status"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section citation-section" id="citation" aria-labelledby="citation-title">
+      <div class="container text-container">
+        <div class="citation-heading"><h2 class="section-title" id="citation-title">BibTeX</h2><button class="copy-button" id="copy-citation" type="button" disabled>Copy</button></div>
+        <p id="citation-pending">Citation details will be added when the paper is available.</p>
+        <pre id="citation-code" hidden><code></code></pre>
+        <p class="sr-only" id="copy-status" role="status"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p><a class="wordmark" href="#top">VideoPhysEdit</a></p>
+    <p>Page layout inspired by <a href="https://hwidong-kim.github.io/projects/3DPhysVideo/" target="_blank" rel="noopener noreferrer">3DPhysVideo</a>.</p>
+  </footer>
+</body>
+</html>

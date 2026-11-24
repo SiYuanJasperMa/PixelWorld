@@ -1,0 +1,42 @@
+{
+  "verified_at": "2026-11-11T13:38:15.754062+00:00",
+  "paper": "https://arxiv.org/html/2606.06361v2#A5",
+  "repo": "https://github.com/dnwjddl/phaselock",
+  "repo_revision": "4ebb65ba1348e754723f08a190723cf82294db19",
+  "finding": "PhaseLock constructs an I2V adaptation of original 160-prompt T2V PhyGenBench",
+  "initializers": [
+    "black-forest-labs/FLUX.1-schnell (paper name FLUX-schnell)",
+    "gemini-2.5-flash-image-preview"
+  ],
+  "t2i_prompt_example": "Original Prompt + \", static scene immediately before the action.\"",
+  "original_i2v_prompt_byte_identity": "not independently verified; no released full input manifest found",
+  "availability": "Repository and linked gallery expose source and selected output videos, but no full 160-case first-frame package or input manifest/download found",
+  "paired_design": "Original text-only tasks versus same tasks plus frozen synthetic starting frames; adaptation by PhaseLock authors, not original PhyGenBench official I2V track",
+  "table2_average": {
+    "CogVideoX_FLUX": 0.46,
+    "CogVideoX_FLUX_PhaseLock": 0.57,
+    "CogVideoX_Gemini": 0.51,
+    "CogVideoX_Gemini_PhaseLock": 0.61,
+    "Wan2.1_FLUX": 0.42,
+    "Wan2.1_FLUX_PhaseLock": 0.51,
+    "Wan2.1_Gemini": 0.46,
+    "Wan2.1_Gemini_PhaseLock": 0.52
+  },
+  "comparison_limitation": "Exact same-input comparison with these I2V numbers requires author starting frames and evaluation settings. Recreating images is a new input version.",
+  "availability_checks": {
+    "main_revision": "4ebb65ba1348e754723f08a190723cf82294db19",
+    "gh_pages_revision": "0c4bd3630e957e5963ee64274fb76cc0f451d861",
+    "github_releases": "No releases",
+    "huggingface_phaselock_search": "No matching dataset",
+    "complete_first_frame_manifest": "Not found"
+  },
+  "paper_t2i_parameters_not_specified": [
+    "image resolution",
+    "image generation seed",
+    "FLUX inference step count",
+    "guidance scale",
+    "Gemini generation settings",
+    "number of image candidates",
+    "image acceptance/rejection policy"
+  ]
+}

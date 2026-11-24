@@ -2,9 +2,11 @@
 
 ## Authoritative protocol
 
-- [FINAL_EXPERIMENT_PROTOCOL.md](FINAL_EXPERIMENT_PROTOCOL.md) — frozen main
-  protocol, model matrix, 720p/24 FPS outputs, 1M output-token amendment,
-  retry accounting and reuse rules.
+- [MAIN_SUITE_20261124.md](MAIN_SUITE_20261124.md) — current four-benchmark
+  suite: Physics-IQ, RBench Common Manipulation, PhyGenBench, PCVE-RigidBench.
+- [FINAL_EXPERIMENT_PROTOCOL.md](FINAL_EXPERIMENT_PROTOCOL.md) — historical
+  frozen main protocol, model matrix, 720p/24 FPS outputs, 1M output-token
+  amendment, retry accounting and reuse rules.
 - [MAIN_EXPERIMENT_PROTOCOL.md](MAIN_EXPERIMENT_PROTOCOL.md) — public benchmark
   reference and reviewer-facing notes.
 
@@ -27,10 +29,22 @@
 
 ## Operations
 
-- [RETRY_POLICY.md](RETRY_POLICY.md)
-- [STORAGE_POLICY.md](STORAGE_POLICY.md)
+- [RETRY_POLICY.md](RETRY_POLICY.md) — five-attempt cap, infra exemption and
+  scoped rescues.
+- [STORAGE_POLICY.md](STORAGE_POLICY.md) — durable storage, archive readback and
+  pruning rules.
+- [STORAGE_LAYOUT.md](STORAGE_LAYOUT.md) — canonical local directory map,
+  ownership and retention.
+- [AUTOMATIC_EVALUATION.md](AUTOMATIC_EVALUATION.md) — scoring and GPU dispatch.
 - [MONITORING_RECOVERY.md](MONITORING_RECOVERY.md)
 - [SERVICE_RECOVERY.md](SERVICE_RECOVERY.md)
+
+## Publication
+
+- [HF_PUBLISHING.md](HF_PUBLISHING.md) — Hugging Face dataset and Space upload,
+  dashboard refresh and verification.
+- [RESULT_PROVENANCE.md](RESULT_PROVENANCE.md) — retained-result provenance and
+  configuration audits.
 
 ## Paper
 

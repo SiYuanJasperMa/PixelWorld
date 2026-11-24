@@ -1,0 +1,38 @@
+[
+  {
+    "type": "directory",
+    "oid": "31551b94b3c2af014166cf2d87610fb6cff05aab",
+    "size": 0,
+    "path": "scenes"
+  },
+  {
+    "type": "directory",
+    "oid": "01d732927dae345dbb6cb9dbd6a174f847cde1fa",
+    "size": 0,
+    "path": "splits"
+  },
+  {
+    "type": "directory",
+    "oid": "cdaf50c50c606539c2b72b7b1336a4e3c5563f17",
+    "size": 0,
+    "path": "thumbnails"
+  },
+  {
+    "type": "file",
+    "oid": "bed0738c7eeb449bca98b5d2f33c89a1ee56349a",
+    "size": 2504,
+    "path": ".gitattributes"
+  },
+  {
+    "type": "file",
+    "oid": "c49ee2b5f626a5468724f8d3fa72b4d145cf7122",
+    "size": 3558,
+    "path": "README.md"
+  },
+  {
+    "type": "file",
+    "oid": "041b4334600882a8693cf12b57616139ffc191a3",
+    "size": 279500,
+    "path": "benchmark_manifest.json"
+  }
+]

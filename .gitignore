@@ -18,3 +18,7 @@ configs/*.local.json
 
 # local build artifacts
 build/
+
+# local research downloads and clones
+research/**/*.pdf
+research/**/official_repo/
