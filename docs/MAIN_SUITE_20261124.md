@@ -152,3 +152,10 @@ and verifies the bytes of every shard on readback. Code-agent scores are
 indexed against exact paper run paths; missing or changed generation manifest
 hashes are distinguished from exact current hash matches. External VideoGen
 scores retain their source identity without inventing a coding-agent run link.
+
+`tools.archive_photographic_scores` verifies both presentation orders against
+the frozen appearance manifest and rubric. It archives exact proxy request and
+response bodies with independent readback, then links the two judgments to a
+paper run only when the source path and generation manifest hash both match.
+The same comparative call is stored once even if it covers multiple models.
+Existing failed judge attempts remain in the original append-only raw folder.

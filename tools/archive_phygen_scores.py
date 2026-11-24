@@ -45,7 +45,7 @@ def exact_pair(root, rid, call):
     return wire
 
 
-def archive_pairs(proxy, output, calls):
+def archive_pairs(proxy, output, calls, *, verify=exact_pair):
     output.mkdir(mode=0o700)
     index = {}
     ids = sorted(calls)
@@ -56,7 +56,7 @@ def archive_pairs(proxy, output, calls):
         expected = {}
         with tarfile.open(part,'w:gz',compresslevel=1) as archive:
             for rid in batch:
-                for suffix,body in exact_pair(proxy,rid,calls[rid]).items():
+                for suffix,body in verify(proxy,rid,calls[rid]).items():
                     member = tarfile.TarInfo(f'{rid}/{suffix}')
                     member.size = len(body)
                     member.mode = 0o600
