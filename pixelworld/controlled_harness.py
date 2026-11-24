@@ -287,6 +287,11 @@ def run_prepared(*, model, workspace, logs, task, environment, limit, prior_outp
     if not budget.can_dispatch and stop is None:
         stop = 'token_usage_unavailable' if budget.unavailable else 'output_token_budget_exhausted'
     trace = prepared_rollout(out/'responses_wire',logs,events,budget,terminal and stop is None)
+    if stop == 'token_usage_unavailable':
+        from .responses_budget_proxy import transport_failure_evidence
+        evidence = transport_failure_evidence(out/'responses_wire', model=model.model, effort=model.reasoning_effort)
+        if evidence:
+            trace['transport_failure'] = evidence
     atomic_json(logs/'native_delivery.json',{'terminal_ok':terminal,'tool_calls':calls,'raw_events':'native/events.native.jsonl',
                 'stop_reason':stop,'budget':budget.report()})
     return rc,stop,budget.report(),trace

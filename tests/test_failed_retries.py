@@ -97,6 +97,39 @@ def test_unknown_failures_remain_bounded_without_positive_infra_evidence(tmp_pat
     assert authorize_failed(config,max_rounds=None,apply=True)['authorized_cases']==0
 
 
+def test_transport_receipt_exempts_unknown_usage_but_never_delivery_or_budget_failure(tmp_path):
+    from dataclasses import replace
+    from pixelworld.retries import infrastructure_failure
+    from pixelworld.responses_budget_proxy import transport_failure_evidence
+    config, model = fixture(tmp_path)
+    config = replace(config, max_attempts=1, max_total_attempts=1)
+    value = {'status': 'failed', 'cli_backend': 'opencode', 'model': 'fixture', 'reasoning_effort': 'high',
+             'stop_reason': 'token_usage_unavailable', 'token_usage': {'output_tokens': None},
+             'validation': {'pass': False, 'infra_error': 'unproved'}}
+    run = manifest(config, model, 'bad', 1, value)
+    assert not infrastructure_failure(value)
+    wire = run/'logs/native/responses_wire/0001'
+    wire.mkdir(parents=True)
+    (wire/'input.json').write_text(json.dumps({'model':'fixture','reasoning':{'effort':'high'}}))
+    (wire/'receipt.json').write_text(json.dumps({'response_id':None,'usage':None,'upstream_status':None}))
+    (wire/'transport_error.json').write_text(json.dumps({'type':'TimeoutError'}))
+    proof = transport_failure_evidence(wire.parent, model='fixture', effort='high')
+    value['full_trace'] = {'transport_failure': proof}
+    (run/'run_manifest.json').write_text(json.dumps(value))
+    assert infrastructure_failure(value)
+    assert inspect(config, model, 'text', 'bad')['infra_attempts'] == 1
+    assert inspect(config, model, 'text', 'bad')['model_attempts'] == 0
+    assert authorize_failed(config, max_rounds=None, apply=True)['authorized_cases'] == 1
+    value['stop_reason'] = 'output_token_budget_exhausted'
+    assert not infrastructure_failure(value)
+    value['stop_reason'] = None
+    value['validation'].pop('infra_error')
+    assert not infrastructure_failure(value)
+    value['stop_reason'] = 'token_usage_unavailable'
+    proof['model'] = 'wrong-model'
+    assert not infrastructure_failure(value)
+
+
 def test_pending_authorization_recovers_manager_without_another_grant(tmp_path):
     from tools.watch_failed_retries import needs_manager
     config,model=fixture(tmp_path)

@@ -16,6 +16,27 @@ def infrastructure_failure(manifest: dict) -> bool:
     """Only positively identified system failures are exempt from model caps."""
     if manifest.get('stop_reason') == 'output_token_budget_exhausted':
         return False
+    if manifest.get('stop_reason') == 'token_usage_unavailable':
+        evidence = (manifest.get('full_trace') or {}).get('transport_failure') or {}
+        from .responses_budget_proxy import TRANSPORT_TYPES
+        if not isinstance(evidence, dict):
+            return False
+        failures = evidence.get('failures')
+        if not (manifest.get('status') == 'failed' and manifest.get('cli_backend') in ('opencode', 'claude_code')
+            and evidence.get('schema') == 'pixelworld-transport-failure-v1'
+            and isinstance(evidence.get('model'), str) and evidence['model'] == manifest.get('model')
+            and isinstance(evidence.get('reasoning_effort'), str) and evidence['reasoning_effort'] == manifest.get('reasoning_effort')
+            and evidence.get('wire_directory') == 'logs/native/responses_wire'
+            and isinstance(failures, list) and failures):
+            return False
+        def valid_hash(value):
+            return isinstance(value, str) and re.fullmatch(r'[0-9a-f]{64}', value)
+        return all(isinstance(row, dict) and row.get('type') in TRANSPORT_TYPES
+            and isinstance(row.get('request_directory'), str) and re.fullmatch(r'[0-9]+', row['request_directory'])
+            and all(valid_hash(row.get(key)) for key in ('request_sha256', 'receipt_sha256'))
+            and (valid_hash(row.get('transport_error_sha256')) or
+                 row.get('type') == 'StreamDisconnectedBeforeTerminal' and valid_hash(row.get('response_sha256')))
+            for row in failures)
     return bool((manifest.get('validation') or {}).get('infra_error')
                 or manifest.get('stop_reason') in ('provider_queue_exceeded','provider_connection_failed',
                                                  'storage_infrastructure_failure','local_proxy_request_limit',

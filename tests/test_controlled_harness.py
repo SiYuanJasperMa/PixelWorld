@@ -2,6 +2,7 @@ import base64
 import json
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from http.client import HTTPConnection
 
 import pytest
 
@@ -9,6 +10,25 @@ from pixelworld.controlled_harness import project
 from pixelworld.messages_responses_proxy import messages_frontend
 from pixelworld.token_budget import ResponseUsageBudget
 from test_responses_budget_proxy import fake_provider, relay
+
+
+def test_messages_bridge_has_no_independent_request_deadline(tmp_path, monkeypatch):
+    timeouts = []
+    def connection(*args, **kwargs):
+        timeouts.append(kwargs.get('timeout'))
+        return HTTPConnection(*args, **kwargs)
+    monkeypatch.setattr('pixelworld.messages_responses_proxy.HTTPConnection', connection)
+    response = {'id': 'r', 'status': 'completed', 'model': 'pinned-model',
+                'output': [{'type': 'message', 'role': 'assistant', 'content': [{'type':'output_text','text':'ok'}]}],
+                'usage': {'input_tokens': 3, 'output_tokens': 1}}
+    with fake_provider([(200, 'application/json', json.dumps(response).encode())]) as (up, _):
+        with messages_frontend(responses_base=up.removesuffix('/responses'), responses_key='key',
+             client_key='native', model='pinned-model', effort='high', wire=tmp_path/'wire', allowed_tools=frozenset()) as address:
+            body = {'model':'pinned-model','messages':[{'role':'user','content':'fixture'}], 'max_tokens':64}
+            with urlopen(Request(address+'/v1/messages', data=json.dumps(body).encode(),
+                         headers={'x-api-key':'native','Content-Type':'application/json'}), timeout=5) as reply:
+                assert json.load(reply)['content'][0]['text'] == 'ok'
+    assert timeouts == [None]
 
 
 def test_messages_frontend_shares_budget_and_preserves_image_and_tool_ids(tmp_path):

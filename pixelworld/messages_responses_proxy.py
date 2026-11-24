@@ -6,12 +6,12 @@ import hmac
 from http.client import HTTPConnection, HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import socket
 from pathlib import Path
-from threading import Lock, Thread
+from threading import Event, Lock, Thread
 from urllib.parse import urlsplit
 
 from .messages_responses_adapter import to_messages, to_responses
-from .responses_budget_proxy import MAX_BODY
 from .util import atomic_json
 
 
@@ -47,22 +47,27 @@ def messages_frontend(*, responses_base: str, responses_key: str, client_key: st
         raise ValueError('Both local credentials are required')
     wire.mkdir(mode=0o700, exist_ok=False)
     lock = Lock()
+    connection_lock = Lock()
+    cancelled = Event()
+    sockets = set()
     seq = 0
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             return
 
-        def emit(self, status, content, mime='application/json'):
+        def emit(self, status, content, mime='application/json', extra_headers=None):
             self.send_response(status)
             self.send_header('Content-Type', mime)
             self.send_header('Content-Length', str(len(content)))
+            for key, value in (extra_headers or {}).items():
+                self.send_header(key, value)
             self.end_headers()
             self.wfile.write(content)
 
-        def reject(self, status, label):
+        def reject(self, status, label, extra_headers=None):
             kind = 'rate_limit_error' if status == 429 else 'invalid_request_error' if status < 500 else 'api_error'
-            self.emit(status, json.dumps({'type': 'error', 'error': {'type': kind, 'message': label}}).encode())
+            self.emit(status, json.dumps({'type': 'error', 'error': {'type': kind, 'message': label}}).encode(), extra_headers=extra_headers)
 
         def do_POST(self):
             nonlocal seq
@@ -73,7 +78,7 @@ def messages_frontend(*, responses_base: str, responses_key: str, client_key: st
                 return self.reject(404, 'route_not_available')
             try:
                 size = int(self.headers.get('Content-Length', '0'))
-                if not 0 < size <= MAX_BODY:
+                if size <= 0:
                     raise ValueError('invalid body length')
                 raw = self.rfile.read(size)
                 request = json.loads(raw)
@@ -90,15 +95,20 @@ def messages_frontend(*, responses_base: str, responses_key: str, client_key: st
                 directory = wire/f'{seq:04d}'
                 directory.mkdir(mode=0o700)
                 (directory/'input.json').write_bytes(raw)
-                conn = HTTPConnection(target.hostname, target.port, timeout=190)
+                conn = HTTPConnection(target.hostname, target.port, timeout=None)
+                upstream_socket = None
                 try:
+                    conn.connect()
+                    upstream_socket = conn.sock
+                    with connection_lock:
+                        if cancelled.is_set():
+                            raise ConnectionAbortedError('frontend shutdown')
+                        sockets.add(upstream_socket)
                     conn.request('POST', '/v1/responses', body=json.dumps(translated).encode(), headers={
                         'Authorization': 'Bearer ' + responses_key, 'Content-Type': 'application/json',
                     })
                     with conn.getresponse() as upstream:
-                        body = upstream.read(MAX_BODY+1)
-                        if len(body) > MAX_BODY:
-                            raise ValueError('response too large')
+                        body = upstream.read()
                         if upstream.status != 200:
                             label = 'upstream_unavailable'
                             try:
@@ -108,7 +118,8 @@ def messages_frontend(*, responses_base: str, responses_key: str, client_key: st
                             except (ValueError, AttributeError):
                                 pass
                             atomic_json(directory/'receipt.json', {'status': upstream.status, 'error': label})
-                            return self.reject(upstream.status, label)
+                            return self.reject(upstream.status, label,
+                                {'Retry-After': upstream.getheader('Retry-After')} if upstream.getheader('Retry-After') else None)
                     result = to_messages(json.loads(body), model=model)
                     if any(part['type'] == 'tool_use' and part['name'] not in allowed_tools for part in result['content']):
                         raise ValueError('provider tool outside the case allowlist')
@@ -118,9 +129,15 @@ def messages_frontend(*, responses_base: str, responses_key: str, client_key: st
                     atomic_json(directory/'receipt.json', {'status': 200, 'response_id': result['id'],
                                                           'projected_usage': result['usage']})
                 except (OSError, HTTPException, ValueError, KeyError, TypeError, AttributeError) as error:
-                    atomic_json(directory/'receipt.json', {'status': 502, 'error_type': type(error).__name__})
-                    return self.reject(502, 'native_translation_failed')
+                    atomic_json(directory/'receipt.json', {'status': 502, 'error_type': type(error).__name__,
+                        'origin': 'frontend_shutdown' if cancelled.is_set() else 'responses_relay'})
+                    try:
+                        return self.reject(502, 'native_translation_failed')
+                    except OSError:
+                        return
                 finally:
+                    with connection_lock:
+                        sockets.discard(upstream_socket)
                     conn.close()
                 self.emit(200, output, 'text/event-stream' if streaming else 'application/json')
 
@@ -131,6 +148,14 @@ def messages_frontend(*, responses_base: str, responses_key: str, client_key: st
     try:
         yield f'http://127.0.0.1:{server.server_port}'
     finally:
+        cancelled.set()
+        with connection_lock:
+            for active in list(sockets):
+                try:
+                    active.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                active.close()
         server.shutdown()
         server.server_close()
         thread.join()
