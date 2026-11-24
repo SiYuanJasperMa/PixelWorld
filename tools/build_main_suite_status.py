@@ -350,6 +350,41 @@ def count_config(config, model, expected):
     return {'counts': {key: counts[key] for key in COUNT_FIELDS}, 'last_delivery_utc': latest}
 
 
+def count_parallel_config(config, model, expected, mappings):
+    """Join a worker's fresh PID-checked snapshot with preserved master cases."""
+    entry = next((row for row in mappings.values() if row.get('source_config') == str(config.source)), None)
+    if entry is None:
+        return count_config(config, model, expected)
+    worker = load_config(Path(entry['canonical_config']))
+    if (worker.protocol != config.protocol or worker.inputs_root != config.inputs_root or
+            worker.models != config.models or worker.max_total_attempts != config.max_total_attempts or
+            worker.max_attempts != config.max_attempts or worker.harness_variant != config.harness_variant or
+            worker.output_token_budget != config.output_token_budget or
+            worker.filesystem_policy != config.filesystem_policy or
+            not set(worker.case_ids).issubset(config.case_ids)):
+        raise ValueError('Parallel worker changed the frozen experiment contract')
+    snapshot = read(worker.runs_root/'status.json')
+    group = snapshot.get('groups', {}).get(f'{model.key}/{TRACK}', {})
+    # A fresh worker snapshot already ran _pid_alive on the owning machine.
+    # Do not reinterpret worker PID numbers using the dashboard host's /proc.
+    try:
+        updated = datetime.fromisoformat(snapshot['updated_utc'].replace('Z', '+00:00'))
+        fresh = 0 <= (datetime.now(timezone.utc)-updated).total_seconds() <= 180
+    except (KeyError, ValueError, TypeError):
+        fresh = False
+    running = set(group.get('running_cases', [])) if fresh else set()
+    states = []
+    worker_ids = set(worker.case_ids)
+    for case in config.case_ids:
+        item = inspect(worker if case in worker_ids else config, model, TRACK, case)
+        if case in running and item['state'] != 'complete':
+            item = {**item, 'state':'running'}
+        states.append(item)
+    counts = Counter(row['state'] for row in states)
+    latest = max((row.get('completed_utc') for row in states if row.get('completed_utc')), default=None)
+    return {'counts':{key:counts[key] for key in COUNT_FIELDS}, 'last_delivery_utc':latest}
+
+
 def public_counts(group, expected):
     values = {key: group.get('counts', {}).get(key, 0) for key in COUNT_FIELDS}
     if any(type(value) is not int or value < 0 for value in values.values()) or sum(values.values()) > expected:
@@ -506,16 +541,18 @@ def build(nightly, publication):
     rconfigs = rbench_configs(nightly / 'rbench_full_dispatch')
     registry = read(nightly / 'gpt62_cohorts/dispatch_registry.json')['configured']
     gpt62 = {x['name']: load_config(Path(x['config'])) for x in registry if x['name'].endswith('_full')}
+    parallel_source = read(nightly/'main_parallel_sources.json')
+    parallel = read(Path(parallel_source['mapping'])) if isinstance(parallel_source.get('mapping'), str) else {}
     rows = {}
     for model in ROSTER:
         cells = {}
         for key, (suite, expected, metric) in BENCHMARKS.items():
             if key == 'rbench':
-                progress = count_config(*rconfigs[model], expected) if model in rconfigs else public_counts({}, expected)
+                progress = count_parallel_config(*rconfigs[model], expected, parallel) if model in rconfigs else public_counts({}, expected)
                 scored, score = rbench_score(rbench, model)
             else:
                 config = gpt62.get(key + '_full') if model == 'gpt62-sol' else None
-                progress = count_config(config, config.model(model), expected) if config else public_counts(groups.get((suite, model), {}), expected)
+                progress = count_parallel_config(config, config.model(model), expected, parallel) if config else public_counts(groups.get((suite, model), {}), expected)
                 record = cohorts.get((suite, model), {})
                 if key == 'phygenbench':
                     scored, score = phygen_score(phygen, model)

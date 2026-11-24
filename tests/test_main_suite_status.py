@@ -428,3 +428,29 @@ def test_native_formal_cells_keep_real_completion_time():
         {'benchmark':'physics_iq','case':'0005','state':'generating','completed_unix':1795526000}]}}
     cell = native_experiment_cells(smoke)['physics_iq']
     assert cell['last_delivery_utc'] == '2026-11-24T12:56:40+00:00'
+
+
+def test_parallel_main_counts_worker_pids_on_the_worker_and_keeps_master_cases(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from tools import build_main_suite_status as mod
+    model = SimpleNamespace(key='model')
+    fields = dict(protocol='frozen', inputs_root=tmp_path/'inputs', models=(model,),
+                  max_attempts=1, max_total_attempts=5, output_token_budget=1000000,
+                  filesystem_policy='case-only-v1', harness_variant='baseline')
+    original = SimpleNamespace(source=tmp_path/'original.json', runs_root=tmp_path/'original',
+                               case_ids=('0001','0002','0003'), **fields)
+    worker = SimpleNamespace(source=tmp_path/'worker.json', runs_root=tmp_path/'worker',
+                             case_ids=('0001','0002'), **fields)
+    worker.runs_root.mkdir()
+    (worker.runs_root/'status.json').write_text(json.dumps({
+        'updated_utc':datetime.now(timezone.utc).isoformat(),
+        'groups':{'model/vision-agent':{'running_cases':['0002']}}}))
+    monkeypatch.setattr(mod, 'load_config', lambda _:worker)
+    def inspect(config, _, track, case):
+        if case == '0001': return {'state':'complete','completed_utc':'2026-11-24T12:00:00+00:00'}
+        return {'state':'exhausted' if config is worker else 'running'}
+    monkeypatch.setattr(mod, 'inspect', inspect)
+    mappings = {'main':{'source_config':str(original.source),'canonical_config':str(worker.source)}}
+    result = mod.count_parallel_config(original, model, 3, mappings)
+    assert result['counts'] == {'complete':1,'running':2,'pending':0,'exhausted':0}
