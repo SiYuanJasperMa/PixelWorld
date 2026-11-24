@@ -1,0 +1,128 @@
+{
+  "schema": "pixelworld-hf-results-v2",
+  "snapshot_utc": "2026-11-24T18:03:47.689767+00:00",
+  "track": "vision-agent",
+  "analysis_track": "text",
+  "codex_version": "0.169.0",
+  "filesystem_policy": "case-only-v1",
+  "output_token_budget": 1000000,
+  "max_real_attempts": 5,
+  "infra_failures_exempt_from_attempt_cap": true,
+  "models": {
+    "gpt62-sol": "traex/GPT-6.2-Sol",
+    "gpt61-sol": "traex/GPT-6.1-Sol",
+    "gpt6-astra": "traex/GPT-6-Astra",
+    "gpt56-sol": "traex/GPT-5.6-Sol",
+    "gpt56-terra": "traex/GPT-5.6-Terra",
+    "gpt56-luna": "traex/GPT-5.6-Luna",
+    "deepseek-v41": "traex/DeepSeek-V4.1-Flash",
+    "seed21-pro": "traex/Seed-2.1-Pro-0915"
+  },
+  "benchmarks": {
+    "physics_iq": {
+      "cases": 198,
+      "width": 1280,
+      "height": 720,
+      "fps": 24,
+      "frames": 120,
+      "task": "i2v",
+      "judge": "pinned official Physics-IQ Verified evaluator"
+    },
+    "rbench_common_manipulation": {
+      "cases": 50,
+      "short_edge": 720,
+      "fps": 24,
+      "frames": 120,
+      "task": "i2v",
+      "candidates_per_case": 1,
+      "judge": "pinned upstream GPT branch with GPT-6.1-Sol"
+    },
+    "phygenbench": {
+      "cases": 160,
+      "width": 1280,
+      "height": 720,
+      "fps": 24,
+      "frames": 120,
+      "task": "t2v",
+      "judge": "three-stage MCQ with GPT-6.1-Sol"
+    },
+    "pcve": {
+      "cases": 129,
+      "width": 1280,
+      "height": 720,
+      "fps": 24,
+      "frames": 96,
+      "task": "video_edit",
+      "judge": "pinned official PCVE-RigidBench evaluator"
+    }
+  },
+  "appearance_judge": "GPT-6.1-Sol anchored 1-5 rubric; separate from physical scores",
+  "note": "Generated previews and sanitized native traces may include recorded tool images. Private raw HTTP bodies, complete RGB tensors, licensed standalone benchmark sources and evaluator ground truth are excluded. Physical QA, appearance and benchmark-specific FVD remain separate. Config registration is not proof of full generation, scoring or publication.",
+  "supplemental_native_cohorts": {
+    "gpt62-astra-native": {
+      "model": "gpt-6.2-astra",
+      "provider": "native OpenAI",
+      "codex_version": "0.172.0",
+      "reasoning_effort": "high",
+      "service_tier": "default",
+      "media_contract": "same per-benchmark main contract",
+      "scope": "separate native quota cohort; not pooled with Codex0.169 baseline",
+      "usage_report": "metadata/astra62_native_quota_final.json"
+    }
+  },
+  "analysis_models": {
+    "gpt61-sol": "traex/GPT-6.1-Sol",
+    "gpt56-sol": "traex/GPT-5.6-Sol",
+    "gpt56-terra": "traex/GPT-5.6-Terra",
+    "gpt56-luna": "traex/GPT-5.6-Luna",
+    "deepseek-v41": "traex/DeepSeek-V4.1-Flash",
+    "gpt62-sol": "traex/GPT-6.2-Sol"
+  },
+  "retained_analyses": {
+    "text_vs_vision": {
+      "benchmarks": [
+        "physics_iq",
+        "phygenbench",
+        "pcve"
+      ],
+      "vision_baseline": "reuse main720p24fpshigh"
+    },
+    "resolution": {
+      "benchmark": "physics_iq",
+      "settings": [
+        "480p",
+        "720p",
+        "1080p"
+      ],
+      "fps": 24
+    },
+    "fps": {
+      "benchmark": "physics_iq",
+      "settings": [
+        12,
+        24,
+        48
+      ],
+      "resolution": "720p",
+      "duration_seconds": 5
+    },
+    "thinking": {
+      "benchmark": "physics_iq",
+      "settings": [
+        "low",
+        "high",
+        "model-specific verified higher/max"
+      ],
+      "unsupported_modes": "record incompatibility; no silent substitute"
+    },
+    "harness": {
+      "benchmark": "physics_iq",
+      "versions": {
+        "codex": "0.169.0",
+        "opencode": "1.19.6",
+        "claude_code": "2.1.304"
+      },
+      "controls": "same exact model, main720p24fps media and common capability boundary"
+    }
+  }
+}

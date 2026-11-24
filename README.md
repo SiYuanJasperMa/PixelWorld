@@ -36,6 +36,15 @@ GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash and Seed-2.1-Pro-0915.
 Inclusion in the roster does not imply a completed cohort. The dashboard
 reports generation, evaluation and publication progress separately.
 
+The dashboard also lists the **native GPT-6.2-Astra cohort** separately as
+`gpt62-astra-native`. It uses the same benchmark media contracts with native
+OpenAI authentication, **Codex 0.172.0 / high / default service tier**. This is
+an explicit version exception; do not pool it with the 0.169.0 harness baseline
+or identify it as the TRAEX GPT-6.2-Sol route. Its completed quota study has
+41 accepted runs, preserved original audit evidence, and
+[per-run token and quota records](https://huggingface.co/datasets/HuggingFriends/PixelWorld/blob/main/metadata/astra62_native_quota_final.json).
+Further native generation awaits the owner's budget decision.
+
 RBench uses the pinned upstream Common Manipulation GPT branch adapted to
 GPT-6.1-Sol. PhyGenBench uses the three-stage ordinal MCQ adaptation with
 GPT-6.1-Sol; older GPT-5.5 judgments remain separate. Complete benchmark scopes
@@ -49,6 +58,29 @@ Pi evidence and RoboJudge cohorts are historical. The
 [November 17 freeze](docs/FINAL_EXPERIMENT_PROTOCOL.md) documents earlier
 settings, including retained 100k-budget deliveries; it is not the current
 four-benchmark launch specification.
+
+## Retained analyses
+
+The analysis roster includes GPT-6.1-Sol, GPT-5.6-Sol, GPT-5.6-Terra,
+GPT-5.6-Luna, DeepSeek-V4.1-Flash and **GPT-6.2-Sol**. A prepared config or a
+queued condition is not proof that generation or scoring has completed.
+
+| Analysis | Frozen comparison |
+|---|---|
+| Text versus Vision | Physics-IQ, PhyGenBench and PCVE; reuse the main Vision cohort |
+| Spatial resolution | Physics-IQ: 480p / 720p / 1080p, fixed 24 FPS |
+| Temporal sampling | Physics-IQ: 12 / 24 / 48 FPS, fixed 720p and five-second duration |
+| Thinking effort | Physics-IQ: low / high / the model's verified higher or maximum setting |
+| Agent harness | Physics-IQ: Codex 0.169.0 / OpenCode 1.19.6 / Claude Code 2.1.304, the same model and 720p/24 FPS contract |
+| Video quality | Separate GPT-6.1-Sol appearance judgments and benchmark-specific FVD |
+
+RBench currently has its main Vision cohort; no Text or Vision-Input control
+has been admitted. Main 720p/24 FPS/high results are reused in the appropriate
+analyses. Physical QA, subjective appearance and FVD have separate score
+versions and scopes. Interrupted transport calls are not evidence of poor
+generation quality; preserve their original records and correct accounting
+only when the interruption is evidenced. Pi, DSH, retired Flash conditions and
+superseded quality settings remain historical.
 
 ## Run or add a model
 

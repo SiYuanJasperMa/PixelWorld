@@ -11,6 +11,20 @@ The current suite is Physics-IQ Verified 198, RBench Common Manipulation 50,
 PhyGenBench T2V 160 and PCVE-RigidBench full 129. RoboJudge is historical.
 See [the current protocol](MAIN_SUITE_20261124.md).
 
+The public repository cards are tracked as [HF_DATASET_README.md](HF_DATASET_README.md)
+and [HF_SPACE_README.md](HF_SPACE_README.md). Their protocol source is
+`configs/hf-publication-protocol.json`. After reviewing those sources, publish
+only the documentation and verify it at the returned commit revisions:
+
+```bash
+python -m tools.publish_hf_readmes --dry-run
+python -m tools.publish_hf_readmes --token-file "$HF_TOKEN_FILE"
+```
+
+This command preserves the static Space settings, updates its README and the
+dataset README/protocol metadata, and records byte-for-byte readback receipts.
+It does not upload or alter experiment videos, traces or generation results.
+
 ## Credentials and private storage
 
 Use a private HF token file with write access to both public repositories.

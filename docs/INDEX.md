@@ -20,6 +20,8 @@
 
 - [HF_PUBLISHING.md](HF_PUBLISHING.md) — dataset/media/trace pipeline,
   dataset-first snapshot readback, Space publication and open-tab refresh.
+- [HF_DATASET_README.md](HF_DATASET_README.md) and [HF_SPACE_README.md](HF_SPACE_README.md)
+  — tracked sources for the public dataset and dashboard repository cards.
 - [STORAGE_LAYOUT.md](STORAGE_LAYOUT.md) — private artifact ownership,
   LF3data archive and local working/publication directories.
 - [STORAGE_POLICY.md](STORAGE_POLICY.md) — durable storage, archive readback
