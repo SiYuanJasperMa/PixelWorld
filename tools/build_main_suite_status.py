@@ -364,6 +364,7 @@ def project_all_video_evaluation_progress(report):
     def counter(value):
         return value if type(value) is int and value >= 0 else None
     result = {'schema_version': 1, 'updated_utc': timestamp(report.get('updated_utc')),
+        'registry_updated_utc': timestamp(report.get('registry_updated_utc')),
         'collection_complete': report.get('collection_complete') is True,
         'available_video_records': counter(report.get('available_video_records')),
         'registered_new_score_bindings': counter(report.get('registered_new_score_bindings')),
@@ -373,6 +374,8 @@ def project_all_video_evaluation_progress(report):
             continue
         result['services'].append({'kind': identifier(service['kind']), 'phase': identifier(service.get('phase')),
             'updated_utc': timestamp(service.get('updated_utc')),
+            **{field: timestamp(service.get(field)) for field in ('workers_verified_utc',
+                'source_updated_utc', 'latest_score_utc')},
             **{field: counter(service.get(field)) for field in ('workers', 'rated_video_hashes',
                 'unique_complete_videos', 'completed', 'pending')}})
     for group in report.get('groups', []):
@@ -963,11 +966,15 @@ def render(status):
                          f'<span class="small muted">{escape(phase)}</span></td><td class="small muted">{stamp}</td></tr>')
     native_video = video_progress.get('native41', {})
     collected = '当前收集快照已闭合，评分仍按绑定更新' if video_progress.get('collection_complete') else '仍在收集新记录，尚非全库完成'
+    registry_time = video_progress.get('registry_updated_utc')
+    registry_label = (f'<time datetime="{escape(registry_time)}">{escape(registry_time)}</time>'
+                      if registry_time else '等待首次登记')
     video_progress_section = ('<section id="all-video-evaluation-progress"><h2>所有视频 · 评测进度</h2>'
         f'<p><b>已发现视频记录 {smoke_number(video_progress.get("available_video_records"))}</b>'
         f' · 画质队列独立视频 {smoke_number(independent)}'
         f' · 新增评分绑定 {smoke_number(video_progress.get("registered_new_score_bindings"))}</p>'
         f'<p class="small muted">{collected}。记录、独立视频哈希与评分绑定分别统计，记录数不等于独立视频数或帧数。</p>'
+        f'<p class="small muted">评分绑定索引更新：{registry_label}。索引同步可能晚于实际评分产出。</p>'
         '<div class="table"><table><thead><tr><th>服务</th><th>并发</th><th>评分进度</th><th>源更新时间</th></tr></thead>'
         f'<tbody>{service_rows}</tbody></table></div>'
         f'<p>原生 Astra：{smoke_number(native_video.get("accepted_videos"))} 条接受记录'

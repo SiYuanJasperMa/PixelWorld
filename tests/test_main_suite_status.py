@@ -497,6 +497,19 @@ def test_native_partial_physical_coverage_does_not_claim_full_score():
     assert cell['score'] is None and cell['expected'] == 198
 
 
+def test_evaluation_projection_keeps_distinct_freshness_timestamps():
+    from tools.build_main_suite_status import project_all_video_evaluation_progress
+    result = project_all_video_evaluation_progress({'schema_version':1,
+        'updated_utc':'2026-11-25T01:00:00Z','registry_updated_utc':'2026-11-25T00:00:00Z',
+        'services':[{'kind':'pcve_physical','workers':4,
+                     'workers_verified_utc':'2026-11-25T00:59:00Z',
+                     'latest_score_utc':'2026-11-25T00:59:50Z','pid':123}]})
+    assert result['registry_updated_utc'] == '2026-11-25T00:00:00Z'
+    assert result['services'][0]['workers_verified_utc'] == '2026-11-25T00:59:00Z'
+    assert result['services'][0]['latest_score_utc'] == '2026-11-25T00:59:50Z'
+    assert 'pid' not in result['services'][0]
+
+
 def test_all_video_progress_keeps_record_hash_and_binding_units_separate():
     from tools.build_main_suite_status import project_all_video_evaluation_progress
     report = {'schema_version':1,'updated_utc':'2026-11-25T02:00:00Z','collection_complete':False,
