@@ -128,6 +128,13 @@ def test_command_classification_is_command_level():
     assert not invokes_network("printf 'curl was forbidden' > METHOD.md")
     assert not invokes_network("cat > generate.py <<'PY'\n    curl = scorch * growth\nPY")
     assert not invokes_network("python - <<'PY'\ncurl=0.5\nPY")
+    assert not invokes_network("cat > generate.py <<'PY'\n    nc+= (10*gauss(hy-cy-9,2.1))[...,None]\nPY\npython generate.py")
+    for operator in ('=', '+=', '-=', '*=', '/=', '//=', '%=', '**=', '&=', '|=', '^=', '<<=', '>>='):
+        assert not invokes_network(f"python - <<'PY'\n    nc {operator} values\nPY")
+    for command in ('nc example.com 443', 'ncat -v example.com 443',
+                    'env HTTPS_PROXY=http://proxy /usr/bin/curl https://example.com',
+                    'python -c \"requests.get(\'https://example.com\')\"'):
+        assert invokes_network(command)
     workspace = Path("/tmp/workspace")
     assert outside_command_paths("sed -n 1,20p /home/user/.codex/skills/SKILL.md", workspace)
     assert not outside_command_paths("/bin/bash -lc 'python3 generate.py'", workspace)

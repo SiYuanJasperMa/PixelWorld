@@ -23,7 +23,8 @@ SUBAGENT_PATTERN = re.compile(
     re.I | re.M,
 )
 NETWORK_PATTERN = re.compile(
-    r"(?:^|&&|\|\||;)\s*(?:env\s+\S+\s+)*(?:\S*/)?(?:curl|wget|nc|ncat)\b(?!\s*=)|"
+    r"(?:^|&&|\|\||;)\s*(?:env\s+\S+\s+)*(?:\S*/)?(?:curl|wget|nc|ncat)\b"
+    r"(?!\s*(?:\*\*|//|<<|>>|[+\-*/%&|^])?=)|"
     r"\b(?:requests\.(?:get|post|request)|socket\.connect|urllib\.request\.urlopen)\s*\(",
     re.I | re.M,
 )
