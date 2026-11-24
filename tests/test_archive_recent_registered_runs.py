@@ -52,7 +52,7 @@ def test_archives_only_registered_recent_closed_attempts_and_preserves_source(tm
 
 def test_respects_closed_window_exact_route_and_limit(tmp_path):
     run, config, routes = fixture(tmp_path)
-    assert archive_recent({config: 'p'}, tmp_path / 'archive', {})['counts'] == {'unregistered_proxy_route': 1}
+    assert archive_recent({config: 'p'}, tmp_path / 'archive', {})['counts'] == {'wire_route_unavailable_artifacts_retained': 1, 'eligible': 1}
     path = run / 'run_manifest.json'; m = json.loads(path.read_text())
     m['status'] = 'running'; path.write_text(json.dumps(m))
     assert archive_recent({config: 'p'}, tmp_path / 'archive', routes)['counts'] == {'active_or_unknown': 1}
@@ -79,13 +79,15 @@ def test_registries_follow_explicit_config_paths_and_job_scopes(tmp_path):
     assert registered_configs(registries=[registry, queue], overrides={config: 'approved-scope'}) == {config: 'approved-scope'}
 
 
-def test_existing_source_revision_conflict_does_not_rewrite_archive(tmp_path):
+def test_existing_source_revision_is_preserved_and_new_copy_is_numbered(tmp_path):
     run, config, routes = fixture(tmp_path)
     root = tmp_path / 'archive'
     archive_recent({config: 'p'}, root, routes, apply=True)
     receipt = root / 'p/m/run_0001/verified.json'; original = receipt.read_bytes()
     path = run / 'run_manifest.json'; path.write_text(path.read_text() + '\n')
-    assert archive_recent({config: 'p'}, root, routes, apply=True)['counts'] == {'existing_archive_revision_conflict': 1}
+    result = archive_recent({config: 'p'}, root, routes, apply=True)
+    assert result['counts'] == {'verified': 1}
+    assert result['items'][0]['run_number'] == 2
     assert receipt.read_bytes() == original
 
 

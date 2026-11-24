@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import stat
 import tarfile
+from time import time_ns
 import zipfile
 
 from .util import atomic_json, sha256, utc_now
@@ -41,12 +42,15 @@ def _closed_files(run):
                 if p.is_file() and not p.is_symlink():yield p.relative_to(run).as_posix(),p
 
 
-def _wire_files(run, log_root):
-    ids=[]; ledger=run/'recording/api_usage.jsonl'
+def _wire_files(run, log_root, request_ids=()):
+    ids=list(dict.fromkeys(rid for rid in request_ids if isinstance(rid, str) and RID.fullmatch(rid)))
+    ledger=run/'recording/api_usage.jsonl'
     if ledger.is_file():
         with ledger.open() as f:
             for line in f:
-                x=json.loads(line);rid=x.get('response_id')
+                try:x=json.loads(line)
+                except ValueError:continue
+                rid=x.get('response_id')
                 if isinstance(rid,str) and RID.fullmatch(rid) and rid not in ids:ids.append(rid)
     files=[]; roles={}
     for rid in ids:
@@ -122,8 +126,60 @@ def _prune_reproducible(run, manifest, hashes, roles, verified_receipt):
     return removed
 
 
+def _external_files(extra_files):
+    files=[]
+    for name, source in sorted((extra_files or {}).items()):
+        relative=Path(name)
+        if (relative.is_absolute() or '..' in relative.parts or not relative.parts or
+                relative.parts[0] not in ('configuration', 'evaluations') or
+                any(not SAFE.fullmatch(part) or part in ('.', '..') for part in relative.parts)):
+            raise ValueError('Unsafe archive attachment name')
+        source=Path(source).absolute()
+        if source.is_symlink() or source.resolve()!=source or not source.is_file():
+            raise ValueError('Archive attachments must be explicit regular files')
+        files.append((relative.as_posix(),source))
+    return files
+
+
+def _archive_identity(run, manifest_sha256, wire_files, extras, request_ids=()):
+    def signature(path):
+        st=path.stat()
+        return [st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns]
+    value={'source_run':str(run), 'manifest_sha256':manifest_sha256,
+           'known_request_ids':sorted(request_ids),
+           'wire_members':{name:signature(path) for name,path in wire_files},
+           'attachments':{name:sha256(path) for name,path in extras}}
+    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest(),value
+
+
+def latest_archive_receipt(run, root, *, benchmark, proxy_logs=None, request_ids=(), extra_files=None):
+    """Return only the exact current archive; changed revisions remain available."""
+    run=Path(run).resolve();root=Path(root).absolute()
+    manifest=json.loads((run/'run_manifest.json').read_text())
+    parent=root/_safe(benchmark)/_safe(manifest['model_key']);index=parent/'archive_index.json'
+    if not index.is_file():return None
+    key=f"{_safe(manifest['track'])}/{_safe(str(manifest['case_id']))}/{int(manifest['attempt'])}"
+    number=json.loads(index.read_text()).get(key)
+    if number is None:return None
+    path=parent/f'run_{number:04d}'/'verified.json'
+    if not path.is_file() or path.is_symlink():return None
+    old=json.loads(path.read_text());target=path.parent/'artifacts.tar.gz'
+    if target.is_symlink() or not target.is_file() or target.stat().st_size!=old.get('archive_bytes'):
+        raise ValueError('Existing verified archive is missing or changed')
+    wire,roles=_wire_files(run,proxy_logs,request_ids);extras=_external_files(extra_files)
+    identity,_=_archive_identity(run,sha256(run/'run_manifest.json'),wire,extras,roles)
+    if old.get('archive_identity')==identity:return old
+    # Compatibility for earlier receipts with no additional attachments.
+    if (not old.get('archive_identity') and not extras and old.get('source_run')==str(run)
+            and old.get('members',{}).get('run_manifest.json')==sha256(run/'run_manifest.json')
+            and set(old.get('known_request_roles',{}))==set(roles)
+            and all(name in old.get('members',{}) for name,_ in wire)):
+        return old
+    return None
+
+
 def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Path|None=None,
-                           prune_reproducible:bool=False) -> dict:
+                           prune_reproducible:bool=False, request_ids=(), extra_files=None) -> dict:
     """Pin an attempt in a numbered per-model directory, then independently read back payloads."""
     run,root=run.resolve(),root.absolute()
     if root.resolve()!=root or root.is_relative_to(run) or run.is_relative_to(root):
@@ -134,6 +190,10 @@ def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Pat
     if proxy_logs is not None:
         proxy_logs=proxy_logs.resolve(strict=True)
         if not proxy_logs.is_dir():raise ValueError('Proxy log root must be a directory')
+    wire_files,roles=_wire_files(run,proxy_logs,request_ids)
+    extras=_external_files(extra_files)
+    manifest_hash=sha256(run/'run_manifest.json')
+    identity,identity_fields=_archive_identity(run,manifest_hash,wire_files,extras,roles)
     parent=root/_safe(benchmark)/_safe(m['model_key']);parent.mkdir(mode=0o700,parents=True,exist_ok=True)
     if parent.resolve()!=parent:raise ValueError('Archive hierarchy contains a symlink')
     case,track,attempt=_safe(str(m['case_id'])),_safe(m['track']),int(m['attempt'])
@@ -141,21 +201,46 @@ def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Pat
     with (parent/'.archive_lock').open('a')as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
         rows=json.loads(index.read_text()) if index.is_file() else {}
-        if key not in rows:
+        previous_number=rows.get(key)
+        previous=None
+        if previous_number is not None:
+            previous_path=parent/f'run_{previous_number:04d}'/'verified.json'
+            if previous_path.is_file():
+                previous=json.loads(previous_path.read_text())
+                exact=latest_archive_receipt(run,root,benchmark=benchmark,proxy_logs=proxy_logs,
+                                            request_ids=request_ids,extra_files=extra_files)
+                if exact is not None:
+                    if prune_reproducible:
+                        archive=previous_path.parent/'artifacts.tar.gz'
+                        _verify_tar(archive,exact['members'])
+                        removed=_prune_reproducible(run,m,exact['members'],exact.get('known_request_roles',{}),previous_path)
+                        if removed:
+                            record={'verified_utc':utc_now(),'archive_identity':identity,'removed':removed,
+                                    'source_manifest_sha256':manifest_hash}
+                            atomic_json(previous_path.parent/f'pruning_{time_ns()}.json',record)
+                            return {**exact,'pruned_source_files':len(removed),'pruning':removed}
+                    return exact
+        if previous_number is None or previous is not None:
             rows[key]=max(rows.values(),default=0)+1;atomic_json(index,rows)
         num=rows[key];dest=parent/f'run_{num:04d}'
         dest.mkdir(mode=0o700,exist_ok=True)
         if dest.resolve()!=dest:raise ValueError('Archive destination contains a symlink')
+        lineage=dest/'revision.json'
+        if not lineage.exists():
+            atomic_json(lineage,{'previous_run_number':previous_number if previous else None,
+                                'previous_manifest_sha256':previous.get('members',{}).get('run_manifest.json') if previous else None,
+                                'reason':'source_or_recording_revision' if previous else 'initial_archive',
+                                'archive_identity':identity})
     with (dest/'.archive_lock').open('a')as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
         receipt=dest/'verified.json';target=dest/'artifacts.tar.gz';tmp=dest/'artifacts.part'
         if receipt.is_file():
             old=json.loads(receipt.read_text())
             with (run/'run_manifest.json').open('rb')as f:current=hashlib.file_digest(f,'sha256').hexdigest()
-            if (old['source_run'],old['members']['run_manifest.json'],old['archive_bytes'])!=(str(run),current,target.stat().st_size):
+            if (old['source_run'],old['members']['run_manifest.json'],old['archive_bytes'])!=(str(run),current,target.stat().st_size) or old.get('archive_identity')!=identity:
                 raise ValueError('Existing verified archive represents a different source revision')
             return old
-        files=list(_closed_files(run));wire_files,roles=_wire_files(run,proxy_logs);files.extend(wire_files)
+        files=list(_closed_files(run));files.extend(wire_files);files.extend(extras)
         expected={}
         try:
             with tarfile.open(tmp,'w:gz',compresslevel=1)as tar:
@@ -174,6 +259,8 @@ def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Pat
                             raise ValueError(f'Source changed during archival: {name}')
                         expected[name]=digest.hexdigest()
             _verify_tar(tmp,expected)
+            if sha256(run/'run_manifest.json')!=manifest_hash:
+                raise ValueError('Closed manifest changed while archiving; source preserved')
             with tmp.open('rb')as f:os.fsync(f.fileno())
             tmp.replace(target)
         finally:tmp.unlink(missing_ok=True)
@@ -182,7 +269,10 @@ def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Pat
                 'archive':target.name,'archive_bytes':target.stat().st_size,'members':expected,
                 'verification':'independent SHA256 member readback','completed_utc':utc_now(),
                 'known_request_roles':roles,'wire_pair_count':sum(bool(set(v)&{'input.json','native.json'}) and bool(set(v)&{'events.json','response.json'}) for v in roles.values()),
-                'wire_scope':'known response IDs from native usage; missing roles are not reconstructed','pruned_source_files':0}
+                'wire_scope':'explicit response IDs from native usage or exact proxy thread index; missing roles are not reconstructed',
+                'pruned_source_files':0,'archive_identity':identity,'archive_identity_fields':identity_fields,
+                'revision':json.loads(lineage.read_text()),
+                'configuration_scope':'provided registry configuration at archival; original launch facts remain in frozen manifest/task'}
         atomic_json(receipt,result)
         if prune_reproducible:
             try:

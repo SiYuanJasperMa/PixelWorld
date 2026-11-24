@@ -122,3 +122,62 @@ def test_rbench_evaluation_attachment_matches_exact_generation_revision(tmp_path
     report.write_text(json.dumps(row))
     with pytest.raises(ValueError, match='different score record'):
         attach(report, index)
+
+
+def test_changed_manifest_creates_revision_and_preserves_original_bytes(tmp_path):
+    run = completed_run(tmp_path)
+    root = tmp_path/'archive'
+    first = archive_closed_attempt(run, root, benchmark='p')
+    directory = root/'p/sample-model/run_0001'
+    old_receipt = (directory/'verified.json').read_bytes()
+    old_archive = (directory/'artifacts.tar.gz').read_bytes()
+    manifest = run/'run_manifest.json'
+    data = json.loads(manifest.read_text()); data['audit_correction'] = {'reason': 'proven false positive'}
+    manifest.write_text(json.dumps(data))
+    second = archive_closed_attempt(run, root, benchmark='p')
+    assert second['run_number'] == 2 and second['revision']['previous_run_number'] == 1
+    assert first['members']['run_manifest.json'] != second['members']['run_manifest.json']
+    assert (directory/'verified.json').read_bytes() == old_receipt
+    assert (directory/'artifacts.tar.gz').read_bytes() == old_archive
+    assert archive_closed_attempt(run, root, benchmark='p') == second
+
+
+def test_late_wire_configuration_and_missing_ids_are_honest_revisions(tmp_path):
+    run = completed_run(tmp_path)
+    root = tmp_path/'archive'; proxy = tmp_path/'proxy'; proxy.mkdir()
+    config = tmp_path/'config.json'; config.write_text('{"max_concurrency": 1}')
+    extra = {'configuration/registry_config.json': config}
+    first = archive_closed_attempt(run, root, benchmark='p', proxy_logs=proxy, extra_files=extra)
+    assert first['wire_pair_count'] == 0
+    (proxy/'resp_test.input.json').write_text('{}')
+    (proxy/'resp_test.response.json').write_text('{}')
+    second = archive_closed_attempt(run, root, benchmark='p', proxy_logs=proxy, extra_files=extra)
+    assert second['run_number'] == 2 and second['wire_pair_count'] == 1
+    config.write_text('{"max_concurrency": 2}')
+    third = archive_closed_attempt(run, root, benchmark='p', proxy_logs=proxy, extra_files=extra,
+                                   request_ids=['resp_stillMissing'])
+    assert third['run_number'] == 3
+    assert third['known_request_roles']['resp_stillMissing'] == []
+    assert 'configuration/registry_config.json' in third['members']
+
+
+def test_score_lookup_prefers_latest_exact_manifest_revision(tmp_path):
+    from tools.archive_rbench_scores import index_receipts
+    run = completed_run(tmp_path); root = tmp_path/'archive'
+    first = archive_closed_attempt(run, root, benchmark='p')
+    config = tmp_path/'config.json'; config.write_text('{}')
+    second = archive_closed_attempt(run, root, benchmark='p', extra_files={'configuration/config.json':config})
+    lookup = index_receipts(root)
+    assert lookup[(str(run), first['members']['run_manifest.json'])][0][1]['run_number'] == second['run_number'] == 2
+
+
+def test_late_prune_independent_readback_preserves_original_receipt(tmp_path):
+    run, workspace, proxy = prepare_prune_case(tmp_path)
+    root = tmp_path/'archive'
+    archive_closed_attempt(run, root, benchmark='p', proxy_logs=proxy)
+    receipt = root/'p/sample-model/run_0001/verified.json'; original = receipt.read_bytes()
+    result = archive_closed_attempt(run, root, benchmark='p', proxy_logs=proxy, prune_reproducible=True)
+    assert result['pruned_source_files'] == 1
+    assert receipt.read_bytes() == original
+    assert not (workspace/'pixels.packing.npy').exists()
+    assert (workspace/'pixels.npz').is_file()

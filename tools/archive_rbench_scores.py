@@ -21,7 +21,10 @@ def index_receipts(root):
         r = json.loads(path.read_text())
         k = (r['source_run'], r['members']['run_manifest.json'])
         rows.setdefault(k, []).append((path, r))
-    return rows
+    # Wire/config revisions may legitimately share a generation manifest.
+    # Keep old attached scores in place and target the newest verified copy.
+    return {key: [max(values, key=lambda item: (item[1].get('completed_utc', ''), item[1]['run_number']))]
+            for key, values in rows.items()}
 
 
 def attach(source, lookup):

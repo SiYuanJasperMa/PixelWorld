@@ -18,7 +18,7 @@ import signal
 import sys
 import time
 
-from pixelworld.run_archive import SAFE, archive_closed_attempt
+from pixelworld.run_archive import SAFE, archive_closed_attempt, latest_archive_receipt
 from pixelworld.util import atomic_json, sha256, utc_now
 
 SINCE = '2026-11-24T09:20:00'
@@ -85,11 +85,13 @@ def discover_registered(configs: dict[Path, str]):
                 if track not in ('text', 'vision-input', 'vision-agent'):
                     raise ValueError('Unknown registered track')
                 leaf = root / model_key / track
-                if leaf.resolve() != leaf:
-                    continue
+                leaf = leaf.resolve()
                 # Fixed-depth directory enumeration; never enter workspace/frames.
                 for path in sorted(leaf.glob('case_*/run_manifest.json')):
-                    if path in seen or path.is_symlink() or path.parent.is_symlink():
+                    # Registered cloud history aliases preserve their original
+                    # attempt paths; archive the resolved source, never rewrite it.
+                    path = path.resolve()
+                    if path in seen:
                         continue
                     seen.add(path)
                     try:
@@ -106,7 +108,7 @@ def discover_registered(configs: dict[Path, str]):
                     yield path, manifest, scope, config_path
 
 
-def _existing(root: Path, scope: str, path: Path, manifest: dict) -> str | None:
+def _existing(root: Path, scope: str, path: Path, manifest: dict, *, proxy=None, request_ids=(), extra_files=None) -> str | None:
     parent = root / scope / manifest['model_key']
     index = parent / 'archive_index.json'
     if not index.is_file():
@@ -123,13 +125,14 @@ def _existing(root: Path, scope: str, path: Path, manifest: dict) -> str | None:
     if (not target.is_file() or target.is_symlink() or
             target.stat().st_size != old.get('archive_bytes')):
         return 'existing_archive_missing_or_incomplete'
-    if old.get('source_run') == str(path.parent) and old.get('members', {}).get('run_manifest.json') == sha256(path):
+    if latest_archive_receipt(path.parent,root,benchmark=scope,proxy_logs=proxy,
+                              request_ids=request_ids,extra_files=extra_files) is not None:
         return 'already_verified'
-    return 'existing_archive_revision_conflict'
+    return None  # Capture a new numbered revision; the old receipt remains intact.
 
 
 def archive_recent(configs: dict[Path, str], root: Path, proxy_roots: dict[str, Path], *,
-                   since=SINCE, apply=False, limit=4) -> dict:
+                   since=SINCE, apply=False, limit=4, proxy_indexes=None, evaluation_records=(), prune=False) -> dict:
     if limit < 1:
         raise ValueError('Archive limit must be positive')
     root = root.absolute()
@@ -148,26 +151,44 @@ def archive_recent(configs: dict[Path, str], root: Path, proxy_roots: dict[str, 
             continue
         provider = (manifest.get('provider') or {}).get('base_url')
         proxy = proxy_roots.get(provider)
+        request_ids=[];wire_evidence={}
+        index=(proxy_indexes or {}).get(provider)
+        if index:
+            from tools.archive_proxy_request_index import request_ids_for_run
+            wire_evidence=request_ids_for_run(index,manifest,run_path=path.parent)
+            request_ids=wire_evidence['request_ids']
+        extras={'configuration/registry_config.json':config}
+        for record in evaluation_records:
+            recorded_run=record.get('source_run') or record.get('run')
+            if recorded_run and Path(recorded_run).resolve() == path.parent.resolve() and record.get('source_manifest_sha256') == sha256(path):
+                score=Path(record.get('score_file') or record.get('path'))
+                expected=record.get('score_sha256')
+                if score.is_file() and (not expected or sha256(score)==expected):
+                    protocol=record.get('protocol','recorded-score')
+                    name=record.get('archive_name') or f'evaluations/{protocol}/{score.stem}.json'
+                    extras[name]=score
         if proxy is None:
-            counts['unregistered_proxy_route'] += 1
-            continue
+            counts['wire_route_unavailable_artifacts_retained'] += 1
         try:
-            existing = _existing(root, scope, path, manifest)
+            existing = _existing(root, scope, path, manifest,proxy=proxy,request_ids=request_ids,extra_files=extras)
         except (OSError, ValueError, KeyError, TypeError):
             counts['existing_archive_unreadable'] += 1
             continue
-        if existing:
+        pending_prune=prune and existing=='already_verified' and any(
+            (path.parent/'workspace'/name).is_file() for name in ('pixels.packing.npy','pixels.npz.partial'))
+        if existing and not pending_prune:
             counts[existing] += 1
             continue
         attempts += 1
         item = {'source_run': str(path.parent), 'config': str(config), 'scope': scope,
                 'provider_base_url': provider, 'source_manifest_sha256': sha256(path),
                 'closed_utc': closed_utc,
-                'prune_reproducible': False, 'status': 'eligible'}
+                'prune_reproducible': prune, 'status': 'eligible', 'wire_evidence':wire_evidence}
         if apply:
             try:
                 receipt = archive_closed_attempt(path.parent, root, benchmark=scope,
-                                                 proxy_logs=proxy, prune_reproducible=False)
+                                                 proxy_logs=proxy, prune_reproducible=prune,
+                                                 request_ids=request_ids,extra_files=extras)
                 item.update(status='verified', run_number=receipt['run_number'],
                             archive_bytes=receipt['archive_bytes'], wire_pair_count=receipt['wire_pair_count'],
                             known_requests=len(receipt['known_request_roles']),
@@ -180,7 +201,7 @@ def archive_recent(configs: dict[Path, str], root: Path, proxy_roots: dict[str, 
             'since': since, 'apply': apply, 'archive_root': str(root), 'limit': limit,
             'registered_configs': len(configs), 'counts': dict(counts), 'items': items,
             'registered_scope_scan_complete': scope_scan_complete,
-            'source_pruning_enabled': False}
+            'source_pruning_enabled': prune}
 
 
 def _assignments(values):
@@ -199,6 +220,9 @@ def main():
     p.add_argument('--registry', type=Path, action='append', default=[])
     p.add_argument('--scope', action='append', default=[], metavar='CONFIG=BENCHMARK_CONDITION')
     p.add_argument('--proxy-route', action='append', default=[], metavar='BASE_URL=PRIVATE_LOG_ROOT')
+    p.add_argument('--proxy-index', action='append', default=[], metavar='BASE_URL=PRIVATE_INDEX_DB')
+    p.add_argument('--evaluation-registry', type=Path, action='append', default=[])
+    p.add_argument('--prune-reproducible', action='store_true')
     p.add_argument('--archive-root', type=Path, default=os.environ.get('PIXELWORLD_VERIFIED_ARCHIVE_ROOT'))
     p.add_argument('--report', type=Path, required=True)
     p.add_argument('--since', default=SINCE)
@@ -215,6 +239,7 @@ def main():
     os.umask(0o077)
     configs = registered_configs(args.config, args.registry, _assignments(args.scope))
     routes = {url: Path(root).resolve(strict=True) for url, root in _assignments(args.proxy_route).items()}
+    indexes={url:Path(path) for url,path in _assignments(args.proxy_index).items()}
     if not routes:
         p.error('At least one exact --proxy-route must be authorized')
     lock_path = args.lock or args.report.with_suffix('.lock')
@@ -237,8 +262,19 @@ def main():
         lock.seek(0); lock.truncate(); lock.write(json.dumps(identity) + '\n'); lock.flush()
         print(json.dumps({'worker': identity, 'ready': True}), flush=True)
         while not stopped:
+            configs = registered_configs(args.config, args.registry, _assignments(args.scope))
+            if indexes:
+                from tools.archive_proxy_request_index import update_index
+                for url,path in indexes.items():
+                    if url in routes:update_index(routes[url],path)
+            evaluation_records=[]
+            for path in args.evaluation_registry:
+                if path.is_file():
+                    records=json.loads(path.read_text())
+                    evaluation_records.extend(records if isinstance(records,list) else records.get('records',records.get('rows',[])))
             report = archive_recent(configs, args.archive_root, routes, since=args.since,
-                                    apply=args.apply, limit=args.limit)
+                                    apply=args.apply, limit=args.limit,proxy_indexes=indexes,
+                                    evaluation_records=evaluation_records,prune=args.prune_reproducible)
             report['worker'] = identity
             atomic_json(args.report, report)
             print(json.dumps({'updated_utc': report['updated_utc'], 'counts': report['counts']}), flush=True)
