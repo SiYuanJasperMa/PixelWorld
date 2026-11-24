@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, timezone
 from html import escape
 import json
 import math
@@ -31,12 +32,30 @@ SMOKE_TOKEN_FIELDS = ('input_tokens', 'cached_input_tokens', 'cache_write_input_
                       'output_tokens', 'reasoning_output_tokens', 'total_tokens')
 SMOKE_STATES = ('pending', 'waiting', 'generating', 'running', 'validating',
                 'complete', 'finished', 'failed', 'blocked', 'skipped')
+NATIVE_RUN_STATES = ('generating', 'running', 'validating', 'complete', 'finished', 'failed')
 
 
 def native_smoke_tokens(usage):
     return ({field: value for field in SMOKE_TOKEN_FIELDS
              if (value := finite_score(usage.get(field))) is not None and value >= 0}
             if isinstance(usage, dict) else None)
+
+
+def native_completed_utc(row):
+    value = finite_score(row.get('completed_unix'))
+    if value is not None:
+        try:
+            return datetime.fromtimestamp(value, timezone.utc).isoformat()
+        except (OverflowError, OSError, ValueError):
+            return None
+    value = row.get('completed_utc')
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            return parsed.astimezone(timezone.utc).isoformat() if parsed.tzinfo else None
+        except ValueError:
+            pass
+    return None
 
 
 def native_quota_study(source_path):
@@ -89,6 +108,7 @@ def native_quota_study(source_path):
                                    duration_seconds=manifest.get('duration_seconds'))
         result['samples'].append({'benchmark': benchmark, 'case': case,
             'state': choice(current.get('state'), SMOKE_STATES),
+            'completed_utc': native_completed_utc(current),
             'token_usage': native_smoke_tokens(current.get('token_usage')),
             'duration_seconds': finite_score(current.get('duration_seconds')),
             'quota_attribution': 'shared_parallel_window', 'quota_weekly_consumed': None, 'credits_consumed': None})
@@ -99,7 +119,7 @@ def native_quota_study(source_path):
 
 
 def native_sample_totals(samples):
-    records = [row for row in samples if row.get('case')]
+    records = [row for row in samples if row.get('case') and row.get('state') in NATIVE_RUN_STATES]
     known = [row.get('token_usage') for row in records if row.get('token_usage')]
     totals = {}
     for field in SMOKE_TOKEN_FIELDS:
@@ -110,6 +130,34 @@ def native_sample_totals(samples):
         'failed': sum(row.get('state') == 'failed' for row in records),
         'active': sum(row.get('state') in ('running', 'generating', 'validating') for row in records),
         'samples_with_usage': len(known), 'samples_without_usage': len(records)-len(known), 'token_usage': totals}
+
+
+def native_experiment_cells(smoke):
+    """Count unique official case identities across native batches, keeping scores unavailable."""
+    rows = smoke.get('samples', []) + smoke.get('additional_samples', []) + smoke.get('quota_study', {}).get('samples', [])
+    cells = {}
+    for key, (_, expected, metric) in BENCHMARKS.items():
+        cases = {}
+        deliveries = []
+        for row in rows:
+            if row.get('benchmark') != key or not isinstance(row.get('case'), str):
+                continue
+            match = re.search(r'(\d+)$', row['case'])
+            lower, upper = (0, expected-1) if key == 'pcve' else (1, expected)
+            if not match or not lower <= int(match[1]) <= upper:
+                continue
+            case = int(match[1])
+            state = row.get('state')
+            rank = 0 if state in ('complete', 'finished') else 1 if state in ('running', 'generating', 'validating') else 3 if state in ('failed', 'blocked') else 2
+            cases[case] = min(cases.get(case, 4), rank)
+            if rank == 0 and (completed := native_completed_utc(row)):
+                deliveries.append(completed)
+        counts = Counter(cases.values())
+        cells[key] = {'counts': {'complete': counts[0], 'running': counts[1], 'exhausted': counts[3],
+                                'pending': expected-counts[0]-counts[1]-counts[3]},
+                      'expected': expected, 'scored': 0, 'score': None, 'metric': metric,
+                      'last_delivery_utc': max(deliveries, default=None)}
+    return cells
 
 
 def native_smoke_additional_samples(source_path):
@@ -371,12 +419,35 @@ def appearance_scores(report):
 def harness_progress(root):
     """Project only model labels, case counts, and launch state from private runs."""
     joined = {}
+    live_source = read(root/'opencode_live_status.json')
+    live = {}
+    updated = live_source.get('updated_utc')
+    updated = updated if isinstance(updated, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}T[0-9:.+Z-]+', updated) else None
+    for row in live_source.get('models', []):
+        model, expected = row.get('model_key'), row.get('expected')
+        if model not in ROSTER:
+            continue
+        if expected != BENCHMARKS['physics_iq'][1]:
+            raise ValueError('Unexpected OpenCode live scope')
+        counts = public_counts(row, expected)['counts']
+        released = row.get('full_released') is True
+        phase = row.get('phase')
+        phase = phase if phase in ('full_running', 'full_complete', 'full_released', 'canary_running',
+                                   'canary_waiting', 'canary_failed', 'canary_scoring', 'registered') else None
+        state = ('full_complete' if counts['complete'] == expected else 'full_released') if released else (
+            phase if phase in ('canary_running', 'canary_waiting', 'canary_failed', 'canary_scoring', 'registered')
+            else 'canary_running' if counts['running'] else 'registered')
+        live[model] = {'state': state, 'phase': phase, 'counts': counts, 'expected': expected,
+                       'full_released': released, 'updated_utc': updated}
     registry = read(root/'dispatch.json').get('models', {})
     for model in ROSTER:
         if model not in registry:
             continue
         matrix = {}
         for harness in ('opencode','claude_code'):
+            if harness == 'opencode' and model in live:
+                matrix[harness] = live[model]
+                continue
             entry = registry[model].get(harness)
             if not entry:
                 continue
@@ -415,6 +486,8 @@ def harness_progress(root):
                     attempt.get('status'),'canary_running' if active else 'canary_waiting')
             matrix[harness] = {'state':state,'counts':counts,'expected':expected,'full_released':released}
         joined[model] = matrix
+    for model, entry in live.items():
+        joined.setdefault(model, {})['opencode'] = entry
     return joined
 
 
@@ -485,6 +558,9 @@ def build(nightly, publication):
     baseline_report = read(evaluation/'physics_iq_local_baselines/summary.json')
     baseline_rechecks = [{k: row.get(k) for k in ('cohort','model','status','partial_done','expected','source_count','selected_count','failed','missing_ids','official_full_score')}
                          for row in baseline_report.get('cohorts', [])]
+    native = native_main_smoke(evaluation/'astra62_native_main_smoke.json', evaluation/'astra62_native_smoke_source.json')
+    if native:
+        rows['gpt62-astra-native'] = native_experiment_cells(native)
     return {'protocol': 'pixelworld-main-suite-20261124', 'updated_utc': utc_now(), 'models': rows,
             'references': references,
             'harness_progress': harness_progress(nightly/'controlled_harness_matrix'),
@@ -492,19 +568,19 @@ def build(nightly, publication):
             'photographic_scores': appearance_scores(photo),
             'photographic_judge': JUDGE, 'publication_coverage': upload_coverage,
             'baseline_rechecks': baseline_rechecks,
-            'native_main_smoke': native_main_smoke(evaluation/'astra62_native_main_smoke.json',
-                                                  evaluation/'astra62_native_smoke_source.json')}
+            'native_main_smoke': native}
 
 
 LABELS = {
     'gpt62-sol': 'GPT-6.2-Sol', 'gpt61-sol': 'GPT-6.1-Sol', 'gpt6-astra': 'GPT-6-Astra',
     'gpt56-sol': 'GPT-5.6-Sol', 'gpt56-terra': 'GPT-5.6-Terra', 'gpt56-luna': 'GPT-5.6-Luna',
     'deepseek-v41': 'DeepSeek-V4.1-Flash', 'seed21-pro': 'Seed-2.1-Pro-0915',
+    'gpt62-astra-native': 'GPT-6.2-Astra',
 }
 HEADER = {
     'physics_iq': ('Physics-IQ Verified', 'I2V · 198 cases', 'physics_iq_baseline.html'),
-    'rbench': ('RBench Common Manipulation', 'I2V · 50 cases', ''),
-    'phygenbench': ('PhyGenBench', 'T2V · 160 cases', 'phygen_pixelspace.html'),
+    'rbench': ('RBench Common Manipulation', 'I2V · 50 cases', 'rbench_common_manipulation.html'),
+    'phygenbench': ('PhyGenBench', 'T2V · 160 cases', 'phygenbench.html'),
     'pcve': ('PCVE-RigidBench', 'V2V editing · 129 cases', 'pcve_rigid.html'),
 }
 
@@ -515,6 +591,8 @@ def render(status):
         return f'{score:.{digits}f}'
 
     def viewer_href(key, model):
+        if model == 'gpt62-astra-native':
+            return f'videos.html?benchmark={key}&amp;model={model}'
         suite = BENCHMARKS[key][0]
         if key == 'rbench': suite += '_' + model
         elif model == 'gpt62-sol': suite += '_gpt62'
@@ -526,16 +604,18 @@ def render(status):
         _, _, href = HEADER[key]
         progress = f"<b>{count['complete']} / {total}</b>"
         viewer = viewer_href(key, model)
-        detail = f'{href}?model={quote(model)}' if href and model != 'gpt62-sol' else viewer
+        detail = f'{href}?model={quote(model)}' if href else viewer
         progress = f'<a href="{detail}">{progress}</a>'
         if row['score'] is None:
             evaluation = f"评分 {row['scored']} / {total}"
         else:
             evaluation = f"<b>{escape(row['metric'])} {display_score(key, row['score'])}</b>"
         recent = row.get('last_delivery_utc')
-        last = f'<time datetime="{escape(recent)}">{escape(recent)}</time>' if recent else '尚无交付'
+        last = (f'<time datetime="{escape(recent)}">{escape(recent)}</time>' if recent else
+                '交付时间待同步' if count['complete'] else '尚无交付')
+        pending_label = '待补齐（额度审核）' if model == 'gpt62-astra-native' else '待生成'
         return (f'<td>{progress}<div class="progress"><i style="width:{100*count["complete"]/total:.1f}%"></i></div>'
-                f'<div class="small muted">{count["running"]} 运行 · {count["pending"]} 待生成 · {count["exhausted"]} 终止</div>'
+                f'<div class="small muted">{count["running"]} 运行 · {count["pending"]} {pending_label} · {count["exhausted"]} 终止</div>'
                 f'<div>{evaluation}</div><div class="small muted">最近交付：{last}</div>'
                 f'<a class="small" href="{viewer}">视频与 Trace →</a></td>')
 
@@ -552,8 +632,11 @@ def render(status):
     rows = ''.join(f'<tr class="baseline"><th>{baseline_labels[model]}<br><span class="small muted">VideoGen baseline</span></th>' +
                    ''.join(baseline_cell(scores, k) for k in HEADER) + '</tr>'
                    for model, scores in status.get('references', {}).items())
-    rows += ''.join(f'<tr><th>{LABELS[model]}</th>' + ''.join(cell(cells[k], k, model) for k in HEADER) + '</tr>'
-                    for model, cells in status['models'].items())
+    model_order = sorted(status['models'], key=lambda model: model != 'gpt62-astra-native')
+    rows += ''.join((f'<tr class="native-row"><th>{LABELS[model]}<br><span class="small muted">Codex 0.172.0 · high · default</span></th>'
+                     if model == 'gpt62-astra-native' else f'<tr><th>{LABELS[model]}</th>')
+                    + ''.join(cell(status['models'][model][k], k, model) for k in HEADER) + '</tr>'
+                    for model in model_order)
     fvd_rows = ''.join(f'<tr><th>{LABELS[model]}</th>' + ''.join(
         '<td>—</td>' if cells[k].get('fvd') is None else f'<td>{cells[k]["fvd"]:.2f}</td>'
         for k in ('physics_iq', 'pcve')) + '</tr>' for model, cells in status['models'].items()
@@ -567,14 +650,18 @@ def render(status):
                     f"{counts['running']} 运行 · {counts['pending']} 待生成 · {counts['exhausted']} 终止</span></td>")
         phase = {'canary_running':'验收生成中','canary_scoring':'验收评分 / 归档','canary_failed':'验收未通过',
                  'canary_waiting':'验收待核查','registered':'已登记'}[entry['state']]
-        return f'<td>{phase}<br><span class="small muted">未发全量</span></td>'
+        return f'<td>{phase}<br><span class="small muted">{counts["running"]} 运行 · 未发全量</span></td>'
 
     harness = status.get('harness_progress', {})
+    harness_updated = max((entry.get('updated_utc') for entries in harness.values() for entry in entries.values()
+                           if entry.get('updated_utc')), default=None)
+    freshness = f'<p class="small muted">OpenCode 更新：<time datetime="{escape(harness_updated)}">{escape(harness_updated)}</time></p>' if harness_updated else ''
     harness_rows = ''.join(f"<tr><th>{LABELS[model]}</th><td><b>{status['models'][model]['physics_iq']['counts']['complete']} / 198</b></td>" +
                  ''.join(harness_cell(entries.get(k)) for k in ('opencode','claude_code'))+'</tr>'
                  for model,entries in harness.items())
     harness_section = (f'<details id="harness-progress"><summary>Physics-IQ · Harness 对照进度</summary>'
         '<p class="small muted">Vision · 同模型与输入 · 720p / 24 FPS。只显示有效交付，验收样本不是全量分数。</p>'
+        f'{freshness}'
         '<div class="table"><table><thead><tr><th>模型</th><th>Codex 基准</th><th>OpenCode</th><th>Claude Code</th>'
         f'</tr></thead><tbody>{harness_rows}</tbody></table></div></details>' if harness_rows else '')
     def photo_cell(row):
@@ -691,6 +778,8 @@ def render(status):
     study = smoke.get('quota_study', {})
     study_rows = ''
     for row in study.get('samples', []):
+        if row.get('state') not in NATIVE_RUN_STATES:
+            continue
         key, case = row['benchmark'], row['case']
         usage = row.get('token_usage') or {}
         suite = key + '_native_astra62_quota5'
@@ -729,9 +818,14 @@ def render(status):
         '<p class="small muted">目标从原始周剩余额度累计计算，包含前期九条。Tokens 合计仅包含已记录用量，缺失值不按零计；'
         'Cached input 已包含在 Input 中。并行样本共享额度窗口，不向单条分配额度变化；与主表全量结果分开。</p></section>'
         if study else '')
+    if smoke_section:
+        smoke_section = '<details id="native-history"><summary>原生 Astra · 前期运行与额度记录</summary>'+smoke_section+'</details>'
+    if study_section:
+        study_section = (f'<details id="native-budget"><summary>原生 Astra · 额度研究 · 当前周剩余 {smoke_number(study.get("current_remaining_percent"))}%'
+                         f' · 本阶段完成 {smoke_number(study.get("study_completed"))}</summary>'+study_section+'</details>')
     return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="pixelworld-updated" content="{status['updated_utc']}"><meta name="pixelworld-protocol" content="pixelworld-main-suite-20261124">
-<title>PixelWorld · 主实验</title><link rel="stylesheet" href="formal.css"><body><header><nav><strong><a href="index.html">PixelWorld</a></strong>
+<title>PixelWorld · 主实验</title><link rel="stylesheet" href="formal.css"><style>.native-row th,.native-row td{{background:#f1f6ff}}.native-row th{{color:#24538c}}details summary{{font-size:14px}}table td{{min-width:180px}}table th:first-child{{min-width:180px}}</style><body><header><nav><strong><a href="index.html">PixelWorld</a></strong>
 <span><a href="analyses.html">分析进度</a><a href="cost_effects.html">成本与效果</a><a href="pixelworld-index.html">历史总览</a>
 <a href="robojudge.html">RoboJudge · 历史</a><a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld">视频与 Trace</a>
 <a href="https://github.com/SiyuanMaCS/PixelWorld">GitHub</a></span></nav></header>
@@ -740,6 +834,7 @@ def render(status):
 <div class="table"><table><thead><tr><th>模型</th>{heads}</tr></thead><tbody>{rows}</tbody></table></div>
 <p class="small muted">只有评完全部样本才显示总分。RBench 只生成一个候选，使用 GPT-6.1-Sol 的官方 GPT 分支适配，不是 GPT + Qwen 联合榜分。
 PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混排。PCVE 采用 Full 129；PES 校准与论文参照见详情页。</p>
+<p class="small muted">原生 GPT-6.2-Astra 单独标记 Codex 0.172.0 / high / default；其余主队列冻结为 Codex 0.169.0。原生进度按跨批次去重样本计数，未完成官方全套评测时不显示总分。待补齐不代表已发任务，继续生成需在已授权额度内。</p>
 {harness_section}
 {baseline_section}
 {upload_section}

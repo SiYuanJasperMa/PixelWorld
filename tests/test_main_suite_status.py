@@ -6,6 +6,7 @@ from tools.build_main_suite_status import (
     BENCHMARKS, JUDGE, appearance_scores, harness_progress, legacy_score, native_main_smoke,
     native_smoke_additional_samples, native_smoke_cumulative_quota, native_smoke_weekly_deltas,
     native_quota_study, native_sample_totals,
+    native_experiment_cells,
     phygen_score, public_counts, rbench_score, render,
 )
 
@@ -81,6 +82,29 @@ def test_harness_progress_exposes_only_registered_counts(tmp_path):
         harness_progress(tmp_path)
 
 
+def test_opencode_live_counts_override_stale_snapshot_without_changing_claude(tmp_path):
+    config, runs = tmp_path/'claude.json', tmp_path/'runs'
+    runs.mkdir()
+    config.write_text(json.dumps({'runs_root': str(runs)}))
+    entry = {'config': str(config), 'registered_cases': 198, 'full_supervisor_started': True}
+    (tmp_path/'dispatch.json').write_text(json.dumps({'models': {'gpt62-sol': {'opencode': entry, 'claude_code': entry}}}))
+    (runs/'status.json').write_text(json.dumps({'cases': 198, 'groups': {'gpt62-sol/vision-agent': {
+        'model_key': 'gpt62-sol', 'counts': {'complete': 2, 'running': 0, 'pending': 196}}}}))
+    (tmp_path/'opencode_live_status.json').write_text(json.dumps({'updated_utc': '2026-11-24T12:00:00Z',
+        'monitor_pid': 999, 'models': [
+            {'model_key': 'gpt62-sol', 'expected': 198, 'counts': {'complete': 7, 'running': 1, 'pending': 190},
+             'phase': 'full_running', 'full_released': True, 'supervisors': {'private': 'PRIVATE_PATH'}},
+            {'model_key': 'deepseek-v41', 'expected': 198, 'counts': {'complete': 0, 'running': 1, 'pending': 197},
+             'phase': 'canary_running', 'full_released': False, 'active_cases': ['PRIVATE_CASE']}]}))
+    result = harness_progress(tmp_path)
+    assert result['gpt62-sol']['opencode']['counts']['complete'] == 7
+    assert result['gpt62-sol']['claude_code']['counts']['complete'] == 2
+    assert result['deepseek-v41']['opencode']['state'] == 'canary_running'
+    assert result['deepseek-v41']['opencode']['counts']['running'] == 1
+    assert result['gpt62-sol']['opencode']['updated_utc'] == '2026-11-24T12:00:00Z'
+    assert 'PRIVATE' not in json.dumps(result) and 'pid' not in json.dumps(result)
+
+
 def test_dashboard_polls_the_published_snapshot_instead_of_blind_reloads():
     from tools.build_main_suite_status import render
 
@@ -103,11 +127,11 @@ def test_dashboard_restores_benchmark_details_and_keeps_trace_viewers():
                    'expected': total, 'score': None, 'scored': 0, 'metric': metric}
              for key, (_, total, metric) in BENCHMARKS.items()}
     html = render(dashboard_status({'gpt61-sol': cells, 'gpt62-sol': cells}))
-    for page in ('physics_iq_baseline.html', 'phygen_pixelspace.html', 'pcve_rigid.html'):
+    for page in ('physics_iq_baseline.html', 'phygenbench.html', 'pcve_rigid.html'):
         assert f'<a href="{page}">' in html
         assert f'href="{page}?model=gpt61-sol"' in html
-        assert f'href="{page}?model=gpt62-sol"' not in html
-    assert 'href="videos.html?benchmark=rbench"' in html
+        assert f'href="{page}?model=gpt62-sol"' in html
+    assert 'href="rbench_common_manipulation.html"' in html
     assert 'videos.html?index=physics_iq_720p24fps_gpt62%2Fgpt62-sol%2Fvision-agent%2Findex.json' in html
     assert 'videos.html?index=rbench_common_manipulation_gpt61-sol%2Fgpt61-sol%2Fvision-agent%2Findex.json' in html
     assert html.count('视频与 Trace →') == 8
@@ -366,6 +390,41 @@ def test_quota_study_refreshes_closed_manifest_and_keeps_original_nine_in_totals
 
 
 def test_native_token_totals_leave_unreported_usage_unknown():
-    totals = native_sample_totals([{'case': '0001', 'state': 'running', 'token_usage': None}])
+    totals = native_sample_totals([{'case': '0001', 'state': 'running', 'token_usage': None},
+                                   {'case': '0002', 'state': 'pending', 'token_usage': None}])
     assert totals['registered_samples'] == 1 and totals['samples_without_usage'] == 1
     assert all(value is None for value in totals['token_usage'].values())
+
+
+def test_native_formal_row_deduplicates_batches_without_inventing_full_scores():
+    smoke = {'samples': [{'benchmark': 'physics_iq', 'case': '0001', 'state': 'complete'},
+                          {'benchmark': 'physics_iq', 'case': '0002', 'state': 'failed'}],
+             'additional_samples': [{'benchmark': 'physics_iq', 'case': '0003', 'state': 'complete'}],
+             'quota_study': {'samples': [{'benchmark': 'physics_iq', 'case': '0001', 'state': 'failed'},
+                {'benchmark': 'physics_iq', 'case': '0002', 'state': 'running'},
+                {'benchmark': 'physics_iq', 'case': '0004', 'state': 'complete'}]}}
+    cells = native_experiment_cells(smoke)
+    assert cells['physics_iq']['counts'] == {'complete': 3, 'running': 1, 'exhausted': 0, 'pending': 194}
+    assert all(row['score'] is None and row['scored'] == 0 for row in cells.values())
+    assert [cells[key]['expected'] for key in BENCHMARKS] == [198, 50, 160, 129]
+    html = render(dashboard_status({'gpt62-astra-native': cells}, native_main_smoke=smoke))
+    assert 'class="native-row"' in html and 'Codex 0.172.0 · high · default' in html
+    assert 'physics_iq_baseline.html?model=gpt62-astra-native' in html
+    assert '<details id="native-history"><summary>' in html
+    assert '<b>3 / 198</b>' in html
+def test_native_pcve_keeps_the_official_zero_based_case_ids():
+    from tools.build_main_suite_status import native_experiment_cells
+    rows = [{'benchmark':'pcve','case':case,'state':'complete'}
+            for case in ('pcve_0000','pcve_0001','pcve_0128','pcve_0129')]
+    cells = native_experiment_cells({'samples':rows})
+    assert cells['pcve']['counts']['complete'] == 3
+    assert cells['pcve']['counts']['pending'] == 126
+
+
+def test_native_formal_cells_keep_real_completion_time():
+    from tools.build_main_suite_status import native_experiment_cells
+    smoke = {'quota_study': {'samples': [
+        {'benchmark':'physics_iq','case':'0004','state':'complete','completed_unix':1795525000},
+        {'benchmark':'physics_iq','case':'0005','state':'generating','completed_unix':1795526000}]}}
+    cell = native_experiment_cells(smoke)['physics_iq']
+    assert cell['last_delivery_utc'] == '2026-11-24T12:56:40+00:00'

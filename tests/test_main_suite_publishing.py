@@ -56,3 +56,25 @@ def test_dataset_html_polls_the_dataset_and_keeps_space_links():
     assert 'replaceWith(next)' in html
     assert 'location.replace' not in html
     assert 'tree/collaboration/' not in html
+
+
+def test_shared_benchmark_links_use_current_browser_and_keep_model_query():
+    files, _ = pub.payload(status())
+    for filename, benchmark in pub.DETAIL_ALIASES.items():
+        html = files[filename]
+        assert 'data-benchmark="'+benchmark+'"' in html
+        assert 'results_browser.js' in html
+        assert 'results_browser.js?v=' in html
+        assert 'formal.js' not in html
+        assert 'location.replace' not in html
+
+
+def test_detail_page_changes_refresh_the_publish_digest(tmp_path, monkeypatch):
+    _, before = pub.payload(status())
+    original = Path.read_text
+    def changed(path, *args, **kwargs):
+        body = original(path, *args, **kwargs)
+        return body+'\n/* browser update */' if path.name == 'results_browser.js' else body
+    monkeypatch.setattr(Path, 'read_text', changed)
+    _, after = pub.payload(status())
+    assert before != after

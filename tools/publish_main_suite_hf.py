@@ -17,21 +17,39 @@ SPACE = 'HuggingFriends/PixelWorld-dashboard'
 DATASET = 'HuggingFriends/PixelWorld'
 PROTOCOL = 'pixelworld-main-suite-20261124'
 PRIVATE = re.compile(r'/mnt/|/home/tiger/|127\.0\.0\.1|\bhf_[A-Za-z0-9]{20,}|\bghp_[A-Za-z0-9]{20,}')
+DETAIL_ALIASES = {'physics_iq_baseline.html': 'physics_iq',
+                  'rbench_common_manipulation.html': 'rbench',
+                  'phygenbench.html': 'phygenbench',
+                  'phygen_pixelspace.html': 'phygenbench',
+                  'pcve_rigid.html': 'pcve'}
 
 
 def payload(status):
     if status.get('protocol') != PROTOCOL:
         raise ValueError('Refusing to upload the wrong suite')
     assets = Path(__file__).resolve().parents[1]/'pixelworld/assets'
+    browser_script = (assets/'results_browser.js').read_text()
+    browser_revision = hashlib.sha256(browser_script.encode()).hexdigest()[:12]
+    browser = (assets/'results_browser.html').read_text().replace(
+        'src="results_browser.js"', 'src="results_browser.js?v='+browser_revision+'"')
     files = {'index.html': render(status),
              'main_suite_status_v2.json': json.dumps(status, ensure_ascii=False, indent=2),
-             'videos.html': (assets/'results_browser.html').read_text(),
-             'results_browser.js': (assets/'results_browser.js').read_text()}
+             'videos.html': browser,
+             'results_browser.js': browser_script}
+    # Keep existing shared links usable while all case pages read the current
+    # HF catalogue. The model/suite/case query is preserved by using the same
+    # browser in place, rather than forwarding to a stale static dashboard.
+    for filename, benchmark in DETAIL_ALIASES.items():
+        files[filename] = re.sub(r'<body\b', '<body data-benchmark="'+benchmark+'"', browser, count=1)
+    stylesheet = assets/'results_browser.css'
+    if stylesheet.exists():
+        files[stylesheet.name] = stylesheet.read_text()
     if any(PRIVATE.search(body) for body in files.values()):
         raise ValueError('Dashboard snapshot contains private data')
     stable = {key: val for key, val in status.items() if key != 'updated_utc'}
     digest = hashlib.sha256((render({**stable, 'updated_utc': ''}) + json.dumps(stable, sort_keys=True)
-                             + files['videos.html'] + files['results_browser.js']).encode()).hexdigest()
+                             + ''.join(name+body for name,body in sorted(files.items())
+                                       if name not in ('index.html','main_suite_status_v2.json'))).encode()).hexdigest()
     return files, digest
 
 
