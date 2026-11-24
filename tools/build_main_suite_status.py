@@ -7,6 +7,7 @@ from html import escape
 import json
 import math
 from pathlib import Path
+from urllib.parse import quote
 
 from pixelworld.config import load_config
 from pixelworld.supervisor import inspect
@@ -209,6 +210,9 @@ def build(nightly, publication):
                 if detail.get('count') == expected and fvd is not None and detail.get('fvd') == fvd:
                     cells[key]['fvd'] = fvd
         rows[model] = cells
+    from tools.publication_coverage import coverage
+    indexes = {group['path']: read(publication/group['path']) for group in cat.get('groups', [])}
+    upload_coverage = coverage(cat, indexes, read(publication.parent.parent/'state/hf_incremental.json'))
     plan = read(publication / 'experiment_plan.json')
     baseline_keys = {'seedance25': 'seedance25-v1', 'minimax-h3': 'minimax-h3-local'}
     references = {}
@@ -223,12 +227,16 @@ def build(nightly, publication):
                 scores[benchmark] = finite_score(item.get('value'))
         _, scores['phygenbench'] = phygen_score(phygen, baseline_keys[key])
         references[key] = scores
+    baseline_report = read(evaluation/'physics_iq_local_baselines/summary.json')
+    baseline_rechecks = [{k: row.get(k) for k in ('cohort','model','status','partial_done','expected','source_count','selected_count','failed','missing_ids','official_full_score')}
+                         for row in baseline_report.get('cohorts', [])]
     return {'protocol': 'pixelworld-main-suite-20261124', 'updated_utc': utc_now(), 'models': rows,
             'references': references,
             'harness_progress': harness_progress(nightly/'controlled_harness_matrix'),
             'photographic_progress': {key: photo.get(key) for key in ('completed_calls', 'expected_calls')},
             'photographic_scores': appearance_scores(photo),
-            'photographic_judge': JUDGE}
+            'photographic_judge': JUDGE, 'publication_coverage': upload_coverage,
+            'baseline_rechecks': baseline_rechecks}
 
 
 LABELS = {
@@ -253,8 +261,11 @@ def render(status):
         count, total = row['counts'], row['expected']
         _, _, href = HEADER[key]
         progress = f"<b>{count['complete']} / {total}</b>"
-        if href and model != 'gpt62-sol':
-            progress = f'<a href="{href}?model={model}">{progress}</a>'
+        suite = BENCHMARKS[key][0]
+        if key == 'rbench': suite += '_' + model
+        elif model == 'gpt62-sol': suite += '_gpt62'
+        index = quote(f'{suite}/{model}/{TRACK}/index.json', safe='')
+        progress = f'<a href="videos.html?index={index}">{progress}</a>'
         if row['score'] is None:
             evaluation = f"评分 {row['scored']} / {total}"
         else:
@@ -322,18 +333,35 @@ def render(status):
                    'RBench 当前只有 1 题验收；各 benchmark 内容和条件不同，不据此推断输入条件的因果效应。</p>'
                    if photo_rows else '')
     photo = status['photographic_progress']
+    baseline_rows = ''.join(f'<tr><th>{escape(str(row.get("model","")))}</th><td>{escape(str(row.get("cohort","")))}</td>'
+                            f'<td>{row.get("source_count") or 0} / {row.get("expected") or 198}</td>'
+                            f'<td>{row.get("partial_done") or 0} / {row.get("selected_count") or 0} · {escape(str(row.get("status","")))}</td></tr>'
+                            for row in status.get('baseline_rechecks', []))
+    baseline_section = ('<details id="baseline-rechecks"><summary>Physics-IQ · 本地 VideoGen 复评</summary>'
+                        '<div class="table"><table><tr><th>模型</th><th>组</th><th>本地视频</th><th>本组评分进度</th></tr>'+baseline_rows+'</table></div>'
+                        '<p class="small muted">不完整集合只作子集复评，不覆盖主表中的已发表参考分。Seedance 本地片段保留含首帧的前 120 帧，与已发表四次运行的帧对齐不同。</p></details>'
+                        if baseline_rows else '')
+    upload = status.get('publication_coverage', {}).get('totals', {})
+    upload_section = (f'<details id="publication-status"><summary>HF 视频与 Trace 同步进度</summary>'
+                      f'<p>已关闭运行记录 {upload.get("closed_records",0)} · 详情已上传 {upload.get("details_uploaded",0)} · '
+                      f'Trace 已上传 {upload.get("traces_uploaded",0)} · 待上传 Trace {upload.get("traces_pending",0)}</p>'
+                      '<p class="small muted">包括失败与 infra 记录；统计匹配当前详情哈希的上传回执。生成完成和上传完成分别记录。</p>'
+                      '<a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/metadata/publication_coverage.json">各模型覆盖记录 →</a></details>'
+                      if upload else '')
     return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="pixelworld-updated" content="{status['updated_utc']}"><meta name="pixelworld-protocol" content="pixelworld-main-suite-20261124">
 <title>PixelWorld · 主实验</title><link rel="stylesheet" href="formal.css"><body><header><nav><strong><a href="index.html">PixelWorld</a></strong>
 <span><a href="analyses.html">分析进度</a><a href="cost_effects.html">成本与效果</a><a href="pixelworld-index.html">历史总览</a>
-<a href="robojudge.html">RoboJudge</a><a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld">视频与 Trace</a>
-<a href="https://github.com/SiyuanMaCS/PixelWorld/tree/collaboration/20261123-harness-evaluation-sync">GitHub</a></span></nav></header>
+<a href="robojudge.html">RoboJudge · 历史</a><a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld">视频与 Trace</a>
+<a href="https://github.com/SiyuanMaCS/PixelWorld">GitHub</a></span></nav></header>
 <main><p class="eyebrow">CODING AGENTS AS PIXEL WORLD MODELS</p><h1>主实验</h1>
 <p class="muted">Vision · 720p / 24 FPS · 数据快照 <time datetime="{escape(status['updated_utc'])}">{escape(status['updated_utc'])}</time></p>
 <div class="table"><table><thead><tr><th>模型</th>{heads}</tr></thead><tbody>{rows}</tbody></table></div>
 <p class="small muted">只有评完全部样本才显示总分。RBench 只生成一个候选，使用 GPT-6.1-Sol 的官方 GPT 分支适配，不是 GPT + Qwen 联合榜分。
 PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混排。PCVE 采用 Full 129；PES 校准与论文参照见详情页。</p>
 {harness_section}
+{baseline_section}
+{upload_section}
 <h2>视频质量 · 独立于物理分</h2><p>GPT-6.1-Sol 画质判分进度：{photo.get('completed_calls') or 0} / {photo.get('expected_calls') or 0} 次调用。</p>
 {photo_table}
 <h3>FVD（越低越好）</h3>
@@ -354,22 +382,37 @@ function refreshAges() {{
 }}
 refreshAges();
 setInterval(refreshAges, 15000);
-const published = document.querySelector('meta[name="pixelworld-updated"]').content;
-let reloading = false;
+let published = document.querySelector('meta[name="pixelworld-updated"]').content;
+let polling = false;
+const datasetBase = 'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/';
 async function checkSnapshot() {{
-  if (reloading) return;
+  if (polling) return;
+  polling = true;
   try {{
-    const reply = await fetch('main_suite_status_v2.json?_=' + Date.now(), {{cache: 'no-store'}});
-    if (!reply.ok) return;
+    const query = '?_=' + Date.now();
+    const reply = await fetch(datasetBase + 'metadata/main_suite_status.json' + query, {{cache: 'no-store'}});
+    if (!reply.ok) throw new Error('snapshot unavailable');
     const data = await reply.json();
-    if (data.updated_utc && data.updated_utc !== published) {{
-      reloading = true;
-      location.replace(location.pathname + '?v=' + encodeURIComponent(data.updated_utc));
+    if (data.protocol !== 'pixelworld-main-suite-20261124' || !data.updated_utc) throw new Error('unexpected snapshot');
+    if (data.updated_utc !== published) {{
+      const page = await fetch(datasetBase + 'dashboard/index.html' + query, {{cache: 'no-store'}});
+      if (!page.ok) throw new Error('dashboard unavailable');
+      const parsed = new DOMParser().parseFromString(await page.text(), 'text/html');
+      if (parsed.querySelector('meta[name="pixelworld-updated"]')?.content !== data.updated_utc) throw new Error('snapshot still propagating');
+      const next = parsed.querySelector('main');
+      if (!next) throw new Error('dashboard incomplete');
+      document.querySelector('main').replaceWith(next);
+      published = data.updated_utc;
+      document.querySelector('meta[name="pixelworld-updated"]').content = published;
+      refreshAges();
     }}
-  }} catch (error) {{}}
+    document.documentElement.dataset.sync = 'ok';
+  }} catch (error) {{ document.documentElement.dataset.sync = 'retrying'; }}
+  finally {{ polling = false; }}
 }}
 checkSnapshot();
 setInterval(checkSnapshot, 60000);
+document.addEventListener('visibilitychange', () => {{ if (!document.hidden) checkSnapshot(); }});
 </script></body></html>'''
 
 

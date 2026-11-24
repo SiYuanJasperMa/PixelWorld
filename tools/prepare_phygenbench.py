@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 
-SOURCE = Path("/mnt/bn/embodied-lf3/masiyuan/PhysFix-workspace/phygenbench/phygen_prompts.json")
+SOURCE = Path("data/phygenbench/phygen_prompts.json")
 REPORTING = {
     "Force": "Mechanics",
     "Light": "Optics",

@@ -137,7 +137,7 @@ It is managed in the background by:
 ```bash
 python -u tools/manage_matrix.py \
   --config runs/bench_codex_20261109/physics_iq_512w24fps_gpt_native_full.json \
-  --code-root /mnt/bn/embodied-lf3/masiyuan/PixelWorld \
+  --code-root "$PIXELWORLD_REPO" \
   --state runs/bench_codex_20261109/managed_baseline/physics_iq_512w24fps_gpt_native.json
 ```
 

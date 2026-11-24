@@ -31,7 +31,7 @@ print(json.dumps({'hostname':socket.gethostname(),'gpus':rows}))
     try:
         result=subprocess.run(['ssh','-p','22222','-o','BatchMode=yes','-o','ConnectTimeout=10',
             worker+'.worker_0.job.masiyuan-jasper@merlin-ssh-proxy-cn.byted.org',
-            'cd /mnt/bn/embodied-lf3/masiyuan/PixelWorld && python -c '+shlex.quote(script)],
+            'cd '+shlex.quote(str(Path(__file__).resolve().parents[1]))+' && python -c '+shlex.quote(script)],
             capture_output=True,text=True,timeout=40,check=True)
         return {'worker':worker,'verified':True,**json.loads(result.stdout)}
     except(subprocess.SubprocessError,ValueError)as error:

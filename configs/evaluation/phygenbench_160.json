@@ -1,6 +1,6 @@
 {
   "schema": "pixelworld-phygenbench-v1",
-  "source": "/mnt/bn/embodied-lf3/masiyuan/PhysFix-workspace/phygenbench/phygen_prompts.json",
+  "source": "data/phygenbench/phygen_prompts.json",
   "prompt_count": 160,
   "raw_category_counts": {
     "Force": 40,

@@ -22,3 +22,7 @@ build/
 # local research downloads and clones
 research/**/*.pdf
 research/**/official_repo/
+# Local downloaded research evidence; retain on shared storage.
+research/phaselock_phygen_audit/
+research/vbench_i2v_t2v_audit/
+research/video_editing_benchmarks/

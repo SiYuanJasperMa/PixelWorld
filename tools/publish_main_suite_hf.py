@@ -14,6 +14,7 @@ from pixelworld.util import atomic_json, utc_now
 from tools.build_main_suite_status import build, render
 
 SPACE = 'HuggingFriends/PixelWorld-dashboard'
+DATASET = 'HuggingFriends/PixelWorld'
 PROTOCOL = 'pixelworld-main-suite-20261124'
 PRIVATE = re.compile(r'/mnt/|/home/tiger/|127\.0\.0\.1|\bhf_[A-Za-z0-9]{20,}|\bghp_[A-Za-z0-9]{20,}')
 
@@ -21,13 +22,55 @@ PRIVATE = re.compile(r'/mnt/|/home/tiger/|127\.0\.0\.1|\bhf_[A-Za-z0-9]{20,}|\bg
 def payload(status):
     if status.get('protocol') != PROTOCOL:
         raise ValueError('Refusing to upload the wrong suite')
+    assets = Path(__file__).resolve().parents[1]/'pixelworld/assets'
     files = {'index.html': render(status),
-             'main_suite_status_v2.json': json.dumps(status, ensure_ascii=False, indent=2)}
+             'main_suite_status_v2.json': json.dumps(status, ensure_ascii=False, indent=2),
+             'videos.html': (assets/'results_browser.html').read_text(),
+             'results_browser.js': (assets/'results_browser.js').read_text()}
     if any(PRIVATE.search(body) for body in files.values()):
         raise ValueError('Dashboard snapshot contains private data')
     stable = {key: val for key, val in status.items() if key != 'updated_utc'}
-    digest = hashlib.sha256((render({**stable, 'updated_utc': ''}) + json.dumps(stable, sort_keys=True)).encode()).hexdigest()
+    digest = hashlib.sha256((render({**stable, 'updated_utc': ''}) + json.dumps(stable, sort_keys=True)
+                             + files['videos.html'] + files['results_browser.js']).encode()).hexdigest()
     return files, digest
+
+
+def dataset_payload(status):
+    files, digest = payload(status)
+    index = {
+        'schema': 'pixelworld-experiment-index-v1', 'protocol': status['protocol'],
+        'snapshot_utc': status['updated_utc'], 'benchmarks': ['physics_iq', 'rbench', 'phygenbench', 'pcve'],
+        'models': status['models'], 'harness_progress': status.get('harness_progress', {}),
+        'links': {'catalogue': 'live/catalogue.json', 'coverage': 'metadata/publication_coverage.json',
+                  'dashboard': 'dashboard/index.html', 'legacy': 'data/catalogue.json'},
+    }
+    return {'metadata/main_suite_status.json': files['main_suite_status_v2.json'],
+            'metadata/experiment_index.json': json.dumps(index, ensure_ascii=False, indent=2),
+            'dashboard/index.html': files['index.html']}, digest
+
+
+def publish_dataset(api, status, state):
+    from huggingface_hub import CommitOperationAdd, hf_hub_download
+    from tools.hf_commit_budget import commit
+    files, digest = dataset_payload(status)
+    receipt = state.with_name(state.stem + '_dataset.json')
+    prior = json.loads(receipt.read_text()) if receipt.exists() else {}
+    if prior.get('digest') == digest:
+        return prior
+    info = api.dataset_info(DATASET, timeout=12)
+    if info.private:
+        raise ValueError('Expected the existing public result dataset')
+    result = commit(api, repo_id=DATASET, repo_type='dataset',
+        operations=[CommitOperationAdd(path_in_repo=name, path_or_fileobj=body.encode()) for name, body in files.items()],
+        commit_message='Refresh current experiment index and dashboard snapshot')
+    # Verify the new commit rather than a cached main-branch response.
+    for name, body in files.items():
+        local = hf_hub_download(DATASET, name, repo_type='dataset', revision=result.oid, token=api.token)
+        if Path(local).read_bytes() != body.encode():
+            raise ValueError('Published dataset snapshot failed readback')
+    proof = {'commit': result.oid, 'digest': digest, 'published_utc': utc_now(), 'protocol': PROTOCOL}
+    atomic_json(receipt, proof)
+    return proof
 
 
 def read_public(revision, path):
@@ -39,6 +82,7 @@ def read_public(revision, path):
 def publish(api, status, state):
     from huggingface_hub import CommitOperationAdd
 
+    dataset_proof = publish_dataset(api, status, state)
     files, digest = payload(status)
     info = api.space_info(SPACE, timeout=12)
     if info.private or not info.sha:
@@ -56,7 +100,7 @@ def publish(api, status, state):
         operations=[CommitOperationAdd(path_in_repo=name, path_or_fileobj=body.encode())
                     for name, body in files.items()],
         commit_message='Refresh PixelWorld main suite progress')
-    proof = {'commit': result.oid, 'digest': digest, 'published_utc': utc_now(), 'protocol': PROTOCOL}
+    proof = {'commit': result.oid, 'dataset_commit': dataset_proof['commit'], 'digest': digest, 'published_utc': utc_now(), 'protocol': PROTOCOL}
     atomic_json(state, proof)
     return proof
 
@@ -74,6 +118,7 @@ def main():
     if args.watch_seconds is not None and args.watch_seconds < 300:
         parser.error('Use at least five minutes between publication checks')
     state = args.state
+    state.parent.mkdir(parents=True, exist_ok=True)
     with state.with_suffix('.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         while True:
@@ -83,7 +128,9 @@ def main():
                     files, digest = payload(status)
                     print(json.dumps({'files': sorted(files), 'digest': digest, 'dry_run': True}), flush=True)
                     break
-                print(json.dumps(publish(HfApi(), status, state)), flush=True)
+                proof = publish(HfApi(), status, state)
+                atomic_json(args.nightly/'main_suite_status_v2.json', status)
+                print(json.dumps(proof), flush=True)
             except Exception as error:
                 if args.watch_seconds is None:
                     raise

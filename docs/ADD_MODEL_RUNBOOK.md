@@ -1,34 +1,33 @@
-# Add a new model
+# Add a main-suite model
 
-This runbook is for collaborators who already have their own Codex
-installation and model/API access. PixelWorld does not vendor Codex or API
-keys; it launches the user's `codex` executable in clean per-case workspaces.
+Run one exact model version with the frozen Codex harness and supplied
+per-benchmark configs. The current suite is specified in
+[MAIN_SUITE_20261124.md](MAIN_SUITE_20261124.md); the portable launch command is
+`pixelworld matrix run`. `tools/final_experiments.py` still maps the older
+RoboJudge suite and does not launch the current four-benchmark protocol.
 
-## 1. Install and verify Codex
+## 1. Pin the runtime and model route
 
-Use Codex CLI **0.169.0** for the frozen main experiment. Do not silently
-upgrade within a cohort. Another version requires a separately named protocol
-and a new smoke; it cannot be pooled into the current main table.
+Use **Codex CLI 0.169.0**, Python 3.11+, `git`, `ffmpeg`, `uv` and the case
+sandbox. Record the exact repository commit and executable version. Set
+`PIXELWORLD_CODEX` to the pinned executable, visible to the sandbox runtime:
 
 ```bash
 codex --version
 export PIXELWORLD_CODEX="$(command -v codex)"
-python -m pixelworld.cli doctor --config configs/benchmark.example.json
 ```
 
-If your model is available in the local Codex catalog, use a `builtin`
-provider. If it is exposed through an OpenAI Responses-compatible gateway, use
-`provider.type="responses"`. PixelWorld passes the environment-variable name to
-Codex; never put secrets in JSON.
+Use a built-in Codex provider or a Responses-compatible gateway. Export the
+API key privately in the parent environment. Store only its variable name in
+an ignored local config. Use the provider's exact versioned model ID rather
+than a family alias.
 
-```bash
-export MY_MODEL_API_KEY='...'
-```
+Example model entry inside a supplied benchmark config:
 
 ```json
 {
   "key": "my-model",
-  "model": "provider/model-id",
+  "model": "provider/exact-versioned-model-id",
   "reasoning_effort": "high",
   "cli_backend": "codex",
   "tracks": ["vision-agent"],
@@ -42,188 +41,101 @@ export MY_MODEL_API_KEY='...'
 }
 ```
 
-For Kimi, GLM, Qwen or another collaborator model, use the provider's exact
-versioned API model ID. Do not replace a requested version by a family alias.
-The model may use a built-in Codex provider or an explicit Responses-compatible
-provider; other wire protocols need a Codex-compatible adapter first. Do not
-change benchmark instructions to make a specific model submit successfully.
+[collaborator-model.example.json](../configs/collaborator-model.example.json)
+is a model/route roster template, not a runnable current-suite benchmark
+config. The eight-model roster already includes GPT-6.2-Sol; adding another
+version requires a distinct model key and provenance.
 
-## 2. Choose the benchmark config
+## 2. Obtain the four frozen configs
 
-Start from the closest template:
+The owner supplies the benchmark configs, permitted inputs, exact case IDs,
+input hashes and evaluator pins through private storage. Licensed benchmark
+inputs are not distributed through the code repository. Copy configs to
+ignored `*.local.json` files, preserving their protocol, inputs and case list;
+set the new model/provider and a separate run root for that model/batch.
 
-| Benchmark | Template | Notes |
-|---|---|---|
-| Physics-IQ Verified | frozen 720p adapter config | 198 I2V cases; 1280x720, 24 FPS, 120 frames / 5 s. |
-| RoboJudge shared-50 | frozen 720-short-edge adapter config | 50 I2V cases; aspect preserved, 24 FPS, 120 frames / 5 s. |
-| PCVE-RigidBench | frozen standard adapter config | 129 video-editing cases; source-native 1280x720, 24 FPS, 96 frames / 4 s. |
-| PhyGenBench T2V | frozen photographic pixel-space adapter config | 160 official prompts; 1280x720, 24 FPS, 120 frames / 5 s. |
+| Benchmark | Required scope | Output | Real-attempt allowance |
+|---|---|---|---|
+| Physics-IQ Verified | 198 I2V cases | 1280×720, 24 FPS, 120 frames / 5 s | At most 5 |
+| RBench Common Manipulation | 50 I2V cases | Native aspect, 720-pixel short edge, 24 FPS, 120 frames / 5 s | One real candidate; no quality rerolls |
+| PhyGenBench | 160 official T2V prompts | Photographic pixel-space target, 1280×720, 24 FPS, 120 frames / 5 s | At most 5 |
+| PCVE-RigidBench | Full 129-case V2V set | 1280×720, 24 FPS, 96 frames / 4 s | At most 5 |
 
-Use a new output root for every new model/batch. Do not write into another
-model's completed directory.
+Keep `case-only-v1` isolation and a **1,000,000 reported output-token budget
+per real attempt**. Usage received in an in-flight response is charged in
+full, including any overshoot. Budget exhaustion is a real failed attempt.
+Recorded infrastructure failures, including credential, rate-limit, storage
+and transport failures, are quarantined and do not consume model attempts.
 
-```json
-{
-  "runs_root": "runs/my_benchmark_my_model_YYYYMMDD",
-  "max_concurrency": 2,
-  "max_per_config": 1,
-  "max_attempts": 2,
-  "max_total_attempts": 5,
-  "output_token_budget": 1000000
-}
-```
+The supplied RBench config uses `max_attempts: 1` and `max_total_attempts: 1`.
+Later record ordinals are permitted only when every earlier same-case/model
+record failed with a positively identified infrastructure error. Directory
+ordinals are permanent provenance; an ordinal above one does not itself mean
+a second real candidate. RBench stops after its one real attempt and preserves
+failure rather than rerolling for quality. The other benchmarks retain a
+five-real-attempt cap; do not apply that recovery policy to RBench.
 
-The current public budget is **1,000,000 reported output tokens per real
-attempt**, with at most **5 total model attempts** per case.
-`token_budget_exhausted` counts as a model failed attempt. Infrastructure
-failures such as missing keys, 429/rate limits, provider payload errors, mux
-errors or stream transport failures should be quarantined and retried without
-counting as model attempts.
+## 3. Admit one real smoke per benchmark
 
-## 3. Run a smoke
-
-Run one representative case in the main `vision-agent` track before launching
-the full matrix. The paper-facing name is **Vision**. Text is a separate
-analysis condition and is not required for a new main-table model.
+Set `$BENCHMARK_CONFIG` to one of the four local configs and `$SMOKE_CASE` to
+its supplied representative case ID:
 
 ```bash
-python -m pixelworld.cli run-case \
-  --config configs/my-model.local.json \
-  --model my-model \
-  --track vision-agent \
-  --case 0001
+pixelworld doctor --config "$BENCHMARK_CONFIG" --require-sandbox
+pixelworld run-case --config "$BENCHMARK_CONFIG" \
+  --model my-model --track vision-agent --case "$SMOKE_CASE"
 ```
 
-Inspect:
+Inspect the manifest, exact model route, permitted image attachment, native
+events/tool results, runnable code, RGB/frame validation, token accounting,
+budget enforcement and filesystem/network isolation. Check the relevant
+pinned evaluator smoke separately; technical admission does not depend on a
+favorable physics score. Preserve all attempts and private raw recordings.
 
-- `run_manifest.json`: validation pass/fail, token usage, stop reason;
-- `workspace/generate.py`: rerunnable generator;
-- `workspace/pixels.npz`: RGB tensor;
-- `workspace/index.html`: local playback page;
-- `logs/events.jsonl` and `logs/events.raw.jsonl`: actual Codex events and
-  tool evidence.
+Use the same config/run root for smoke and full matrix so an accepted smoke
+is reused. For a separately staged smoke, the owner must supply an explicit
+provenance-checked reuse mapping. **Do not regenerate an accepted RBench smoke.**
+Record admission results for all four adapters before dispatching full cohorts.
 
-## 4. Launch the full matrix
+## 4. Launch and monitor each matrix
 
 ```bash
-python -m pixelworld.cli matrix run --config configs/my-model.local.json
-python -m pixelworld.cli matrix status --config configs/my-model.local.json
+pixelworld matrix run --config "$BENCHMARK_CONFIG"
+pixelworld matrix status --config "$BENCHMARK_CONFIG"
 ```
 
-For durable background operation, use the service/watchdog pattern under your
-own run root. The current long-running run uses:
+Repeat for each benchmark config under a supervised service with durable
+logs. Keep concurrency within the agreed resource budget. No single legacy
+launcher should infer the new suite or overwrite completed directories.
+Text controls and the Codex/OpenCode/Claude Code
+[harness analysis](HARNESS_COMPARISON.md) require their separate frozen
+configs and admission checks; they are not default new-model runs. Pi is
+historical.
 
-```text
-runs/bench_codex_20261109/benchmark_services.json
-tools/watch_benchmark_services.py
-tools/watch_failed_retries.py --max-total-attempts 5
-```
+## 5. Evaluate complete scopes
 
-The recommended portable entrypoint is `tools/final_experiments.py`. Copy
-`configs/collaborator-model.example.json` to an ignored local roster and replace
-only its exact model/provider fields. The frozen benchmark input
-config root is distributed separately because licensed benchmark inputs are not
-stored in Git.
+A full benchmark score requires all 198 Physics-IQ, 50 RBench, 160 PhyGenBench
+or 129 PCVE accepted outputs, plus matching evaluator provenance. Missing
+outputs block a full score. Preserve failed cases; do not duplicate outputs,
+drop them from the denominator or invent aggregate scores. Acceptance smokes
+and incremental judgments remain labeled as partial evidence.
 
-```bash
-cp configs/collaborator-model.example.json configs/my-model-roster.local.json
-# Set one exact model/version; do not put the API key in this file.
-python tools/final_experiments.py prepare \
-  --input-config-root /path/to/frozen-720p-adapter-configs \
-  --bundle runs/final_my_model_YYYYMMDD \
-  --roster configs/my-model-roster.local.json
+Follow [AUTOMATIC_EVALUATION.md](AUTOMATIC_EVALUATION.md) and the current suite
+for evaluator setup. RBench uses the pinned GPT branch with GPT-6.1-Sol;
+PhyGenBench uses the GPT-6.1-Sol three-stage ordinal MCQ adaptation. Retained
+older judge versions stay separate. PCVE retains the full native 129-case
+editing evaluator. Reference-pool video quality is a separate analysis.
 
-pixelworld doctor \
-  --config runs/final_my_model_YYYYMMDD/configs/physics_iq_smoke.json
-python tools/final_experiments.py start \
-  --bundle runs/final_my_model_YYYYMMDD
-```
+## 6. Return and publish the run
 
-Review all four smoke deliveries before enabling the reviewed full launch. A
-collaborator should not edit `READINESS.json` to bypass a failing runtime,
-filesystem or usage-accounting check.
+Return a credential-free handoff manifest with repository commit, executable
+version/hash, exact model/provider, config/input hashes, case status, recorded
+usage and retry provenance, artifact-store URI, evaluation provenance when
+complete, and dashboard URL. Preserve private originals and archive receipts
+in durable storage.
 
-After those generation gates are recorded as passed, the full Vision matrix is:
-
-```bash
-python tools/final_experiments.py start \
-  --bundle runs/final_my_model_YYYYMMDD \
-  --full --review-approved --generation-only
-```
-
-## 5. Evaluate
-
-Only evaluate complete cohorts:
-
-- Physics-IQ: all 198 valid videos for one model/track;
-- RoboJudge: all 50 valid videos for one model/track;
-- PCVE-RigidBench: all 129 valid videos for one model/track;
-- PhyGenBench T2V: all 160 official prompts for one model/track.
-
-Missing videos block official scoring. Do not duplicate outputs, drop failed
-cases or invent zero-score rows unless a separate protocol explicitly says so.
-
-## 6. Publish monitoring pages
-
-Raw run directories are large and should not be committed to the source repo.
-The repository should contain code, configs, docs and small provenance files
-only.
-
-For the live project site:
-
-- source repository: `SiyuanMaCS/PixelWorld`;
-- public site branch/repo path: `SiyuanMaCS.github.io/pixelworld/`;
-- public entry: <https://siyuanmacs.github.io/pixelworld/index.html>.
-
-Use `tools/sync_stable_pixelworld_pages.py` to publish dashboards and bounded
-case previews. Large generated videos/tensors stay in the run root or an
-artifact store; GitHub Pages receives lightweight HTML, posters and selected
-preview assets.
-
-```bash
-python -u tools/sync_stable_pixelworld_pages.py \
-  --run-root runs/bench_codex_20261109 \
-  --heavy-web /path/to/heavy/web \
-  --stable-repo /path/to/SiyuanMaCS.github.io \
-  --status runs/bench_codex_20261109/stable_pixelworld_refresh_status.json \
-  --core-only \
-  --delivery-repo /tmp/pixelworld-pages-delivery
-```
-
-After publication, verify the public page with a cache-busting query:
-
-```bash
-curl -L 'https://siyuanmacs.github.io/pixelworld/index.html?refresh=manual' | head
-```
-
-## 7. What to upload
-
-Commit to GitHub:
-
-- benchmark config templates;
-- protocol docs;
-- evaluator setup notes;
-- small JSON provenance summaries;
-- code changes and tests.
-
-Do not commit:
-
-- API keys or Codex auth files;
-- full generated tensors/videos;
-- Physics-IQ reference videos/masks;
-- PCVE target videos or evaluator-only ground truth;
-- per-case raw traces unless explicitly sampled and size-bounded.
-
-For returning a finished Kimi/GLM/Qwen run to the benchmark owner, package a
-manifest with:
-
-- config JSON and git commit;
-- model id/provider id;
-- run root path or artifact-store URI;
-- status JSON;
-- evaluation result JSON;
-- dashboard URL.
-
-Generated tensors and videos belong in the agreed artifact store, not a pull
-request. The owner adds the exact model key to the same dashboard registry;
-model rows are not special-cased in page code.
+Use [HF_PUBLISHING.md](HF_PUBLISHING.md) for the sanitized exporter, resumable
+case/trace uploader, progress coverage and dataset-first dashboard publisher.
+GitHub receives code, templates and protocol/provenance notes. Generated
+videos/tensors, benchmark inputs/references, scores, credentials and raw API
+archives belong in the designated artifact stores.

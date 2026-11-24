@@ -43,7 +43,7 @@
       "task_type": "t2v",
       "scope": "160 prompts covering mechanics/optics/thermal/material physical concepts.",
       "status": "running",
-      "source": "/mnt/bn/embodied-lf3/masiyuan/PhysFix-workspace/phygenbench/phygen_prompts.json",
+      "source": "data/phygenbench/phygen_prompts.json",
       "category_mapping": {
         "Force": "Mechanics",
         "Light": "Optics",

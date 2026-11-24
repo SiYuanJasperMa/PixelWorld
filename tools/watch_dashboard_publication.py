@@ -83,6 +83,7 @@ def hf_progress(source, token_file):
     ledger_path=bundle/'state/hf_incremental.json'
     ledger=json.loads(ledger_path.read_text()).get('ready',{}) if ledger_path.is_file() else {}
     items=[]
+    indexes={}
     for group in catalogue['groups']:
         payload=sanitize(json.loads((source / group['path']).read_text()))
         synced=0
@@ -98,6 +99,7 @@ def hf_progress(source, token_file):
                     ready.get('trace_format_version',0)>=TRACE_FORMAT_VERSION)
                 current_traces+=attempt['hf_trace_current_format']
                 synced+=attempt['hf_detail_ready']
+        indexes[group['path']]=payload
         payload['publication']={'hf_synced_details':synced,'hf_current_format_traces':current_traces,
                                 'required_trace_format':TRACE_FORMAT_VERSION}
         group['publication']=payload['publication']
@@ -118,6 +120,10 @@ def hf_progress(source, token_file):
         analysis_source=bundle/'live_preview/pixelworld/analysis_progress.json'
     if analysis_source.is_file():
         items.append(('live/analysis_progress.json',sanitize(json.loads(analysis_source.read_text()))))
+    from tools.publication_coverage import coverage
+    upload_coverage=coverage(catalogue,indexes,{'ready':ledger})
+    items.extend([('live/publication_coverage.json',upload_coverage),
+                  ('metadata/publication_coverage.json',upload_coverage)])
     # Completed groups are re-exported with fresh poll timestamps even when no
     # status, token usage, score or media readiness changed. Do not resend them.
     state_path=bundle/'state/hf_progress_ack.json'

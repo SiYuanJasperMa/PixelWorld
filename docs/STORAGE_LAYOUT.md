@@ -1,89 +1,79 @@
-# Storage layout and ownership
+# Storage layout
 
-All permanent artifacts live on shared BN storage. A `/mnt/bn` path must resolve
-to BN storage; a symlink to a local disk is not acceptable for permanent data.
-Generated media, traces and scores are never committed to the code repository.
+Choose durable shared-storage roots before launching. Permanent paths must
+resolve to shared storage, including symlink targets. The local operator map is
+kept beside the private run archive; machine-specific paths are not part of this
+repository.
 
-## Code and frozen main experiment
-
-```text
-/mnt/bn/embodied-lf3/masiyuan/PixelWorld/
-  pixelworld/                         harness code (tracked)
-  tools/ tests/ docs/ configs/        code, tests, protocol docs (tracked)
-  runs/bench_codex_20261109/
-    inputs/                           prepared benchmark inputs (pinned)
-    runtime_main_worker_20261116/     packaged Python + codex + bwrap + ffmpeg
-    queue_proxy_logs*/                historical proxy wire logs
-  runs/final_release_candidate_20261117/
-    configs/                          frozen 7-model configs and limits
-    code_snapshot_runtime_fix/        harness snapshot used by legacy cohorts
-    formal_generations/{physics_iq,phygenbench,pcve,robojudge}/
-    publication/pixelworld/           sanitized live bundle consumed by HF
-    state/                            retry ledgers, HF incremental ledger, publisher state
-  vendor/                             evaluator sources and checkpoints (ignored)
-```
-
-The `runtime_main_worker_20261116/bin/python` is the required interpreter for
-matrix supervisors: the bwrap profile derives its read roots from
-`sys.executable`, and the sandboxed agent must be able to exec the pinned Codex
-binary from the runtime `bin/` directory. Running supervisors with the system
-Python produces `bwrap: execvp .../codex: No such file or directory` and every
-attempt fails before writing frames.
-
-## Current four-benchmark suite
+| Root | Purpose | Public? |
+|---|---|---|
+| `$PIXELWORLD_REPO` | GitHub code checkout and portable config templates | Code only |
+| `$PIXELWORLD_RUNTIME` | Frozen Python, Codex 0.169.0, ffmpeg and sandbox tools | Version/hash metadata |
+| `$BUNDLE` | Frozen configs, generation attempts, publication staging and service state | Sanitized exports |
+| `$NIGHTLY_ROOT` | Current GPT-6.2, RBench and harness cohorts, evaluations | Sanitized exports |
+| `$PRIVATE_ARCHIVE_ROOT` | Full original input/output, native traces, numbered run index and readback receipts | Private |
+| `$PROXY_RECORD_ROOT` | Exact API request/response bodies and in-flight markers | Private |
 
 ```text
-/mnt/bn/embodied-lf3-data/masiyuan/pixelworld-nightly-20261124/
-  gpt62_cohorts/                      GPT-6.2-Sol main cohorts + analysis cohorts
-  rbench_full_dispatch/               RBench 8-model generation and roster queue
-  controlled_harness_matrix/          Codex / OpenCode / Claude Code comparison
-  acceptance/                         benchmark acceptance and canaries
-  harness_acceptance/                 native harness executable locks and probes
-  evaluation/                         Physics-IQ, PhyGenBench, PCVE, RBench, appearance, FVD
-  verified_runs/ verified_*           private per-attempt archives with readback receipts
-  main_suite_status_v2.json           dashboard snapshot
-  main_suite_hf_publisher.json        Space publisher proof
-  restart_20261124/                   current service launcher, logs and ledgers
+$BUNDLE/
+  configs/                 benchmark/model configs and limits
+  formal_generations/      benchmark/model/track/case_ID_attempt_NN/
+  publication/pixelworld/   sanitized catalogue, details and media
+  state/                   upload/retry ledgers and service ownership
+$NIGHTLY_ROOT/
+  gpt62_cohorts/            main and analysis configs/runs
+  rbench_full_dispatch/    one real candidate per sample; infra retries separate
+  controlled_harness_matrix/
+  evaluation/              objective scores, appearance scores and FVD
+  verified_*/              verified private archives
+$PRIVATE_ARCHIVE_ROOT/
+  benchmark/model/run_NNNN/ original provenance, calls, usage and receipts
 ```
 
-## Proxy wire logs
+Each attempt keeps its input snapshot, task/rules, generator and candidates,
+manifest, native events and token counters. `logs/` and archives are external to
+the model-visible workspace. Keep all attempts used in the paper, including
+failed and infrastructure-invalidated records. Retry directory ordinals never
+change. See [RETRY_POLICY.md](RETRY_POLICY.md).
 
-`/mnt/bn/embodied-lf3/masiyuan/traex_api_proxy/proxy_logs*` holds request,
-response and event bodies. `local.key` is a private loopback credential; never
-print, commit or publish it. The paper-run full-text archive is
-`/mnt/bn/embodied-lf3-data/masiyuan/pixelworld-formal-fulltext-20261123/` with
-the run index at `/mnt/bn/embodied-lf3-data/masiyuan/pixelworld-paper-by-run-20261123/`.
+On our packaged runtime, launch matrices with `$PIXELWORLD_RUNTIME/bin/python`
+and set `PIXELWORLD_CODEX` to the real, pinned executable under that runtime.
+The filesystem profile derives library roots from the interpreter. A symlink to
+a binary hidden from the sandbox can pass `--version` but fail when tools run.
+Verify tool execution and isolation in the one-case smoke; `doctor` alone does
+not certify the complete workflow.
 
-## Ownership
+The publication exporter owns `publication/pixelworld/`. The incremental HF
+uploader owns its `hf_incremental.json` receipt ledger. The main-suite publisher
+owns dataset `metadata/main_suite_status.json`, `metadata/experiment_index.json`
+and `dashboard/index.html`, plus the Space homepage. Exactly one process owns
+each ledger. Commands are in [HF_PUBLISHING.md](HF_PUBLISHING.md).
 
-| Path | Writer |
-|---|---|
-| `formal_generations/`, `gpt62_cohorts/runs/`, `rbench_full_dispatch/generations/` | matrix supervisors |
-| `publication/pixelworld/` | `tools.live_benchmark_data --local-only` |
-| `state/hf_incremental.json` | `tools.publish_hf_incremental` |
-| `state/hf_progress_watcher.json` | `tools.watch_hf_dataset_progress` |
-| `main_suite_hf_publisher.json` | `tools.publish_main_suite_hf` |
-| `restart_20261124/launched.json` | `restart_20261124/launch.py` |
+Cleanup uses archive readback receipts. Preserve original paper runs and active
+proxy records. Reproducible upload packages can be removed after their HF
+commit and local receipt are durable; tensor intermediates require the stronger
+checks in [STORAGE_POLICY.md](STORAGE_POLICY.md). Never scan frame directories
+just to inventory attempt manifests: use the registered model/track roots.
 
-## Retention rules
+## Recovery backfill
 
-- Never delete a successful submission, a run manifest, a token ledger, a trace
-  archive, or an evaluator receipt.
-- Prune only reproducible intermediates (`pixels.packing.npy`,
-  `pixels.npz.partial`) after the verified archive readback proves byte
-  identity. See `docs/STORAGE_POLICY.md`.
-- Keep the frozen inputs under `runs/bench_codex_20261109/inputs/`; every run
-  manifest hashes them.
-- Move finished non-paper experiments out of the active nightly root only after
-  their records are archived; do not renumber attempt directories.
-
-## Verification
+For a frozen runner without an archive hook, use the bounded external worker.
+A registry names exact configs and a unique archive scope per condition:
 
 ```bash
-du -sh /mnt/bn/embodied-lf3-data/masiyuan/pixelworld-nightly-20261124 \
-       /mnt/bn/embodied-lf3/masiyuan/PixelWorld/runs/final_release_candidate_20261117
-find /mnt/bn/embodied-lf3-data/masiyuan/pixelworld-nightly-20261124 -name run_manifest.json | wc -l
+python -m tools.archive_recent_registered_runs \
+  --registry "$ARCHIVE_CONFIG_REGISTRY" \
+  --archive-root "$PRIVATE_ARCHIVE_ROOT" \
+  --proxy-route "$RESPONSES_BASE_URL=$PROXY_RECORD_ROOT" \
+  --report "$NIGHTLY_ROOT/state/archive_watch.json" \
+  --limit 4 --apply --watch --poll-seconds 120
 ```
 
-The dashboard snapshot's `updated_utc` and the HF dataset
-`metadata/main_suite_status.json` must agree after a publication cycle.
+The worker verifies archives on readback and never prunes the source. Its
+per-cycle limit deliberately prevents a full backlog census. `known_requests=0`
+or zero matched raw pairs does not establish complete API coverage; preserve
+the native trace and original logs and inspect the separate wire receipts.
+Future runners with the archive hook can set `PIXELWORLD_VERIFIED_ARCHIVE_ROOT`,
+`PIXELWORLD_PROXY_RECORD_ROOT`, and a unique `PIXELWORLD_ARCHIVE_BENCHMARK` in the
+parent environment. Do not embed those private paths or credentials in public
+config templates.

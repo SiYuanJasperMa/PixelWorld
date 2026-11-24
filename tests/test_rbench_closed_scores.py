@@ -33,3 +33,24 @@ def test_official_score_rejects_nonfinite_value():
     scorer=SimpleNamespace(compute_final_score=lambda r:r['score'])
     with pytest.raises(ValueError,match='finite'):
         numeric_score(scorer,{'score':float('inf')})
+
+
+def test_rbench_accepts_only_infra_predecessors(tmp_path):
+    from tools.watch_rbench_common_scores import manifest_info
+    root=tmp_path/'m'/'vision-agent'
+    prior=root/'case_0001_attempt_01';prior.mkdir(parents=True)
+    run=root/'case_0001_attempt_02';run.mkdir()
+    original={'status':'failed','case_id':'0001','model_key':'m','attempt':1,
+              'validation':{'infra_error':'missing_runtime'}}
+    (prior/'run_manifest.json').write_text(json.dumps(original))
+    final={'status':'complete','case_id':'0001','model_key':'m','attempt':2,
+           'validation':{'pass':True},'media_contract':{'frames':120,'fps':24,'task_type':'i2v'}}
+    (run/'run_manifest.json').write_text(json.dumps(final))
+    assert manifest_info(run,'0001','m')['attempt']==2
+    original['validation']={}
+    (prior/'run_manifest.json').write_text(json.dumps(original))
+    with pytest.raises(ValueError,match='reroll'):
+        manifest_info(run,'0001','m')
+    (prior/'run_manifest.json').unlink()
+    with pytest.raises(ValueError,match='Missing predecessor'):
+        manifest_info(run,'0001','m')

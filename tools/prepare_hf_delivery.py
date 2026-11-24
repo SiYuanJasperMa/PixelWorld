@@ -82,7 +82,8 @@ def freeze(bundle, destination):
 
 TRACE_FORMAT_VERSION = 3
 
-TRACE_FILES = ('run_manifest.json', 'media_contract.json', 'task_prompt.txt',
+TRACE_FILES = ('logs/native/events.native.jsonl', 'logs/native/stderr.log',
+    'logs/native_delivery.json', 'logs/native_launch.json', 'run_manifest.json', 'media_contract.json', 'task_prompt.txt',
     'logs/native_events.jsonl','logs/native_session.jsonl','logs/native_launch.json',
     'input_snapshot/prompt.txt', 'logs/events.jsonl', 'logs/events.raw.jsonl',
     'logs/token_budget.json', 'logs/full_rollout.jsonl', 'workspace/generate.py',

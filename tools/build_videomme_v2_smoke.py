@@ -5,8 +5,8 @@ from pathlib import Path
 import requests
 from PIL import Image
 
-ROOT = Path('/mnt/bn/embodied-lf3/masiyuan/PixelWorld')
-CASES = Path('/mnt/bn/embodied-lf3/masiyuan/videomme_v2/cases')
+ROOT = Path(__file__).resolve().parents[1]
+CASES = ROOT.parent / 'videomme_v2/cases'
 OUT = ROOT / 'runs/bench_codex_20261109/videomme_v2_smoke_site'
 LABELS = {'1': 'L1', '2': 'L2', '3': 'L3'}
 

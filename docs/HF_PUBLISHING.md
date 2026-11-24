@@ -1,54 +1,74 @@
 # Hugging Face publishing
 
-PixelWorld publishes to two public Hugging Face repositories and keeps the
-GitHub code repository free of generated media and private traces.
+[HuggingFriends/PixelWorld](https://huggingface.co/datasets/HuggingFriends/PixelWorld)
+is the durable public dataset. The
+[PixelWorld dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html)
+is served by the static Space
+[HuggingFriends/PixelWorld-dashboard](https://huggingface.co/spaces/HuggingFriends/PixelWorld-dashboard).
+GitHub holds reproducible code and protocol/configuration templates.
 
-| Repository | Type | Contents |
-|---|---|---|
-| `HuggingFriends/PixelWorld` | dataset | progress JSON, per-case details, preview MP4/posters, sanitized trace archives, baseline evidence |
-| `HuggingFriends/PixelWorld-dashboard` | static Space | dashboard HTML/CSS/JS, `main_suite_status_v2.json`, charts |
+The current suite is Physics-IQ Verified 198, RBench Common Manipulation 50,
+PhyGenBench T2V 160 and PCVE-RigidBench full 129. RoboJudge is historical.
+See [the current protocol](MAIN_SUITE_20261124.md).
 
-## Credentials
+## Credentials and private storage
 
-Use a Hugging Face token with write access to both repositories. Accepted
-sources, in order: `HF_TOKEN`, `~/.cache/huggingface/token`, or an explicit
-`--token-file`. Never commit the token, a private endpoint or a local absolute
-path. The repository `.gitignore` and the publishers reject `/mnt/`, `/home/`,
-`hf_*` and `ghp_*` strings in public payloads.
+Use a private HF token file with write access to both public repositories.
+The case/progress uploaders require `--token-file`. The main-suite publisher
+uses the standard HF authentication (`HF_TOKEN` or a locally cached login).
+Never place a credential in a public payload or checked-in config.
+
+Original raw API requests/responses and run artifacts belong in the private
+LF3data archive described by [STORAGE_LAYOUT.md](STORAGE_LAYOUT.md). Public
+trace bundles preserve the recorded native events, tool arguments/results,
+returned images, code revisions and input/output text after removing secrets
+and private paths. They exclude licensed standalone benchmark source files,
+evaluator references/masks, ground truth and full generated RGB tensors.
+Public exports accompany the originals; they do not replace private archives.
 
 ## Dataset layout
 
 ```text
-README.md                       dataset entry point and protocol summary
-metadata/protocol.json          frozen protocol snapshot
-metadata/catalogue.json         model x benchmark progress and token means
-metadata/main_suite_status.json current four-benchmark status mirror
-live/catalogue.json             live progress used by the dashboard
-live/<suite>/<model>/<track>/index.json
-live/<suite>/<model>/<track>/<case>.json
-live/evaluation.json            completed cohort scores
-data/catalogue.json             entry point for case details
-data/<suite>/<model>/<track>/index.json
-data/<suite>/<model>/<track>/<case>.json
-data/assets/<hash>/preview.mp4  compressed playable candidate
-data/assets/<hash>/poster.jpg   480px thumbnail
-traces/                         per-benchmark/model sanitized trace archives
-baselines/                      baseline evidence
+README.md                                  dataset entry point
+metadata/protocol.json                     protocol provenance
+metadata/experiment_index.json             current suite/model/analysis index
+metadata/main_suite_status.json            current main-suite snapshot
+metadata/publication_coverage.json         current hashes vs upload receipts
+dashboard/index.html                       HTML paired with the main snapshot
+live/catalogue.json                        live case/group progress
+live/publication_coverage.json             same publication coverage
+live/<suite>/<model>/<track>/index.json     case and attempt index
+live/<suite>/<model>/<track>/<case>.json    sanitized case/attempt detail
+live/<suite>/<model>/<track>/<case>.trace.tar.gz
+live/evaluation.json                       available evaluation records
+data/assets/<hash>/preview.mp4             playable generated candidate
+data/assets/<hash>/poster.jpg              preview poster
+data/                                      retained bulk snapshots
+traces/                                    legacy benchmark/model archives
+baselines/                                 baseline evidence
 ```
 
-Each case JSON contains the prompt, task instruction, token usage, validation
-summary, cleaned textual tool events, runnable `generate.py`, and candidate
-media paths. Failed attempts keep their manifest and trace but never receive a
-fabricated video.
+Use the detail path recorded in the index: the case basename can identify an
+attempt. Each closed case keeps its manifest, recorded usage, cleaned tool
+events and runnable code. Failed attempts retain their trace without a
+fabricated final video. New individual traces use the `live/` path above;
+`traces/` is the older bulk archive layout.
 
-Excluded by design: API keys, credentials, local absolute paths, benchmark
-input first frames/source videos, Physics-IQ reference videos and masks, PCVE
-target videos, evaluator ground truth, raw RGB tensors and per-frame PNG dumps.
+## Export and publish
 
-## Publication chain
+Set `$BUNDLE` to the durable run/publication bundle containing the owner's
+`live_sources.json` registry, and `$NIGHTLY_ROOT` to the current main-suite
+control root. These may differ. `$HF_TOKEN_FILE` identifies a private token
+file. Create the ledger directory before starting the workers:
 
-Run these three stages in order. Each stage is idempotent and resumes from its
-own ledger.
+```bash
+mkdir -p "$BUNDLE/state"
+export PUBLICATION_SOURCE="$BUNDLE/publication/pixelworld"
+```
+
+Run the following long-running commands as separate supervised services, with
+logs and ledgers on durable storage. Start the exporter first; the other
+workers consume its output as it becomes ready.
 
 ### 1. Refresh the sanitized publication bundle
 
@@ -59,84 +79,98 @@ python -m tools.live_benchmark_data \
   --local-only --interval 60
 ```
 
-This scans the frozen run roots in `$BUNDLE/live_sources.json`, writes
-`$BUNDLE/publication/pixelworld/{catalogue.json,<suite>/<model>/...}` and
-renders previews/posters. `--local-only` keeps generated data out of Git.
-Use `--once` for a single pass.
+The exporter reads `$BUNDLE/live_sources.json` and writes
+`$PUBLICATION_SOURCE/catalogue.json`, group details and previews/posters.
+`--local-only` prevents Git publication. Use `--once` for one export pass.
 
 ### 2. Upload closed cases, media and traces
 
 ```bash
 python -m tools.publish_hf_incremental \
-  --source "$BUNDLE/publication/pixelworld" \
+  --source "$PUBLICATION_SOURCE" \
   --state "$BUNDLE/state/hf_incremental.json" \
   --token-file "$HF_TOKEN_FILE" \
-  --interval 60 --batch-size 2
+  --batch-size 8 --interval 60
 ```
 
-Each cycle packages at most `--batch-size` closed cases and commits their
-detail JSON, preview media and sanitized trace in one atomic dataset commit.
-The ledger `state/hf_incremental.json` records what is already public.
+Each cycle packages up to eight ready closed records and publishes case JSON,
+its playable media and sanitized trace in an atomic dataset commit. A case
+waits while its preview or required export is unavailable. The local ledger
+records content hashes, trace format and commit receipts; matching records are
+not uploaded again. Running attempts remain on the progress channel.
 
-### 3. Mirror progress JSON
+### 3. Mirror progress and publication coverage
 
 ```bash
 python -m tools.watch_hf_dataset_progress \
-  --source "$BUNDLE/publication/pixelworld" \
-  --token-file "$HF_TOKEN_FILE" \
+  --source "$PUBLICATION_SOURCE" \
   --state "$BUNDLE/state/hf_progress_watcher.json" \
+  --token-file "$HF_TOKEN_FILE" \
   --interval 180
 ```
 
-This updates only `live/` progress JSON. It deliberately does not touch the
-Space or the legacy frontend.
+This updates the dataset's live progress and coverage JSON independently of
+media uploads. Coverage joins the current indexed detail hashes to completed
+HF upload receipts, including the required trace format. It is **not a full
+remote byte audit**. Pending uploads, missing traces and generation progress
+remain distinguishable.
 
-### 4. Publish the dashboard Space
+### 4. Publish the main-suite snapshot, then the Space
+
+Authenticate the main publisher without copying a credential into the bundle:
 
 ```bash
+export HF_TOKEN="$(cat "$HF_TOKEN_FILE")"
 python -m tools.publish_main_suite_hf \
   --nightly "$NIGHTLY_ROOT" \
-  --publication "$BUNDLE/publication/pixelworld" \
+  --publication "$PUBLICATION_SOURCE" \
   --state "$NIGHTLY_ROOT/main_suite_hf_publisher.json" \
   --watch-seconds 300
 ```
 
-Only when the content digest changes does it commit `index.html` and
-`main_suite_status_v2.json` to `HuggingFriends/PixelWorld-dashboard`.
+The publisher first commits `metadata/main_suite_status.json`,
+`metadata/experiment_index.json` and `dashboard/index.html` to the dataset
+atomically, then reads back their exact bytes at the returned commit revision.
+After successful dataset readback, it updates the Space's `index.html` and
+`main_suite_status_v2.json`. Separate dataset/Space receipts record the commit
+identities. The watcher checks every five minutes and uploads changed content
+only. Omit `--watch-seconds` for one pass; `--dry-run` validates a snapshot
+without uploading it.
 
-## Dashboard refresh behavior
+## Open-tab refresh behavior
 
-- The publisher rebuilds the snapshot every `--watch-seconds` (minimum 300) and
-  commits only on a content change.
-- The page embeds the snapshot's `updated_utc` in
-  `<meta name="pixelworld-updated">` and polls `main_suite_status_v2.json`
-  every 60 seconds. When the published snapshot changes, it reloads with a
-  cache-busting query, so an open tab converges to the latest HF data without
-  manual refreshes.
-- The page does not poll the dataset directly; the Space is the HF-hosted
-  dashboard origin. The dataset is the durable media/trace store.
+The dashboard polls the **dataset** `metadata/main_suite_status.json` every
+60 seconds. On a newer `updated_utc`, it fetches the paired dataset
+`dashboard/index.html` and replaces the page's `<main>` content in place.
+It waits for the HTML timestamp to match the status timestamp if propagation
+is delayed. This does not reload the whole browser tab. Relative-time labels
+refresh every 15 seconds. Space build propagation and media upload progress
+have their own timing; a fresh snapshot does not imply every trace is public.
 
-## Verify
+## Verify and recover
 
-```python
-from huggingface_hub import HfApi
-api = HfApi()
-print(len(api.list_repo_files('HuggingFriends/PixelWorld', repo_type='dataset')))
-print(len(api.list_repo_files('HuggingFriends/PixelWorld-dashboard', repo_type='space')))
-```
+Check the public dataset
+[status](https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/metadata/main_suite_status.json),
+[index](https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/metadata/experiment_index.json)
+and [coverage](https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/metadata/publication_coverage.json).
+The index's `snapshot_utc` and the paired HTML timestamp should match the
+status's `updated_utc`. After Space publication catches up,
+[its status](https://huggingface.co/spaces/HuggingFriends/PixelWorld-dashboard/resolve/main/main_suite_status_v2.json)
+should carry that timestamp too. Revision-specific dataset readback is the
+publisher's snapshot proof; coverage is the case-upload ledger view.
 
-Check `main_suite_status_v2.json` in the Space and the dataset
-`metadata/main_suite_status.json` for the same `updated_utc`.
+Inspect a case index, then open its recorded video and `.trace.tar.gz` links.
+Check pending counts and a sample archive's contents before declaring an
+entire model published. Repository file counts alone cannot prove coverage.
 
-## Troubleshooting
+- **429/rate limits:** retain the ledgers and let bounded workers resume. Dataset
+  writers use the shared commit budget in `tools/hf_commit_budget.py`.
+- **Stale table:** compare the public timestamp with the local catalogue and
+  publisher receipts; check exporter and main-suite publisher health.
+- **Missing media or trace:** inspect the case's export state and incremental
+  upload ledger. Restore the source/export first, then resume uploads.
+- **Dataset updated but Space pending:** resume the main-suite publisher from
+  its receipts; it verifies the dataset before retrying Space publication.
 
-- **Rate limits / 429**: the publishers use bounded batches and a shared commit
-  budget (`tools/hf_commit_budget.py`). Leave the watcher running; it resumes
-  from the ledger.
-- **Stale dashboard**: confirm the Space publisher is alive and that the
-  publication bundle `catalogue.json` is fresh. A stale bundle produces a stale
-  dashboard even if the Space commit succeeds.
-- **Missing media**: `publish_hf_incremental` skips a case until its preview is
-  rendered. Re-run stage 1, then the incremental publisher.
-- **Never** rewrite or delete already published case paths; collaborators and
-  the dashboard link to them. Add new snapshots instead.
+Preserve established public paths and private originals. Storage reclamation
+requires the verification rules in [STORAGE_POLICY.md](STORAGE_POLICY.md).

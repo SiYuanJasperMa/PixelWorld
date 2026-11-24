@@ -1,0 +1,58 @@
+import json
+from pathlib import Path
+from types import SimpleNamespace
+import pytest
+from tools import publish_main_suite_hf as pub
+
+
+def status():
+    return {'protocol':pub.PROTOCOL,'updated_utc':'2026-11-24T00:00:00+00:00','models':{},'references':{},
+            'photographic_progress':{},'photographic_scores':{},'harness_progress':{}}
+
+
+def test_dataset_readback_precedes_space_commit(tmp_path,monkeypatch):
+    calls=[];cache={}
+    class API:
+        token=None
+        def dataset_info(self,*a,**k):return SimpleNamespace(private=False)
+        def space_info(self,*a,**k):return SimpleNamespace(private=False,sha='space-old')
+        def create_commit(self,repo_id,**kwargs):
+            calls.append(('commit',repo_id))
+            for op in kwargs['operations']:cache[op.path_in_repo]=op.path_or_fileobj
+            return SimpleNamespace(oid='dataset-new' if repo_id==pub.DATASET else 'space-new')
+    def download(repo,name,**kwargs):
+        calls.append(('readback',name))
+        assert kwargs['revision']=='dataset-new'
+        p=tmp_path/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(cache[name]);return str(p)
+    monkeypatch.setattr('tools.hf_commit_budget.commit',lambda api,**kw:api.create_commit(**kw))
+    monkeypatch.setattr('huggingface_hub.hf_hub_download',download)
+    monkeypatch.setattr(pub,'read_public',lambda *a:f'<meta content="{pub.PROTOCOL}">')
+    proof=pub.publish(API(),status(),tmp_path/'proof.json')
+    assert calls[0]==('commit',pub.DATASET)
+    assert calls[-1]==('commit',pub.SPACE)
+    assert sum(c[0]=='readback' for c in calls)==3
+    assert proof['dataset_commit']=='dataset-new'
+    assert json.loads((tmp_path/'proof_dataset.json').read_text())['commit']=='dataset-new'
+
+
+def test_failed_dataset_readback_does_not_publish_space(tmp_path,monkeypatch):
+    calls=[]
+    api=SimpleNamespace(token=None,dataset_info=lambda *a,**k:SimpleNamespace(private=False))
+    monkeypatch.setattr('tools.hf_commit_budget.commit',lambda *a,**k:SimpleNamespace(oid='bad'))
+    p=tmp_path/'corrupt';p.write_bytes(b'wrong')
+    monkeypatch.setattr('huggingface_hub.hf_hub_download',lambda *a,**k:str(p))
+    monkeypatch.setattr(pub,'read_public',lambda *a:calls.append('space'))
+    with pytest.raises(ValueError,match='readback'):
+        pub.publish(api,status(),tmp_path/'proof.json')
+    assert not calls
+    assert not (tmp_path/'proof_dataset.json').exists()
+
+
+def test_dataset_html_polls_the_dataset_and_keeps_space_links():
+    files,_=pub.dataset_payload(status())
+    html=files['dashboard/index.html']
+    assert "metadata/main_suite_status.json" in html
+    assert "dashboard/index.html" in html
+    assert 'replaceWith(next)' in html
+    assert 'location.replace' not in html
+    assert 'tree/collaboration/' not in html

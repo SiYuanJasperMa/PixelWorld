@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import time
 
-from tools.prepare_hf_delivery import public_case,export_trace_run,TRACE_FORMAT_VERSION
+from tools.prepare_hf_delivery import public_case,export_trace_run,TRACE_FORMAT_VERSION,sanitize
 
 DATA_BASE = 'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/data/'
 
@@ -44,6 +44,12 @@ def package_case(source, relative):
                 raise ValueError('Unexpected media format')
             media['data/' + name] = asset
             candidate[field] = DATA_BASE + name
+    for candidate in data.get('candidates', []):
+        name = candidate.get('code')
+        if name and isinstance(name, str) and not name.startswith(('http:', 'https:')):
+            code_path = (source/name).resolve()
+            if code_path.is_relative_to(source.resolve()) and code_path.suffix == '.py' and code_path.is_file():
+                candidate['code_text'] = sanitize(code_path.read_text())
     data['publication'] = {'backend': 'huggingface', 'media_ready': True}
     bundle=source.parent.parent
     registry=read(bundle/'live_sources.json')

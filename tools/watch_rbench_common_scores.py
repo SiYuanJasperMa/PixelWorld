@@ -13,6 +13,7 @@ import time
 
 from pixelworld.config import load_config
 from pixelworld.supervisor import inspect
+from pixelworld.retries import infrastructure_failure
 from pixelworld.util import atomic_json, sha256, utc_now
 from tools.evaluate_rbench_common_gpt61 import GPT61_JUDGE, UPSTREAM, OfficialGPTTransport, load_official
 
@@ -23,9 +24,17 @@ def manifest_info(run: Path, case: str, key: str) -> dict:
     m = json.loads((run/'run_manifest.json').read_text())
     spec = m['media_contract']
     if not (m.get('status')=='complete' and m['validation'].get('pass') is True and
-            m['case_id']==case and m['model_key']==key and m['attempt']==1 and
+            m['case_id']==case and m['model_key']==key and type(m['attempt']) is int and m['attempt']>=1 and
             spec['frames']==120 and spec['fps']==24 and spec['task_type']=='i2v'):
         raise ValueError('Not the verified first-and-only RBench candidate')
+    for ordinal in range(1, m['attempt']):
+        prior = run.parent / f'case_{case}_attempt_{ordinal:02d}' / 'run_manifest.json'
+        if not prior.is_file():
+            raise ValueError('Missing predecessor for an infrastructure retry')
+        record = json.loads(prior.read_text())
+        if (record.get('case_id') != case or record.get('model_key') != key
+                or record.get('status') != 'failed' or not infrastructure_failure(record)):
+            raise ValueError('RBench cannot reroll a real model attempt')
     return m
 
 

@@ -1,172 +1,59 @@
 # PixelWorld
 
-PixelWorld evaluates a **coding agent as a direct RGB pixel world model**. The
-agent receives a benchmark prompt (and, for I2V/editing tasks, the permitted
-source pixels), writes runnable Python, and emits every output frame itself. The
-generation path does not call an image/video generator, learned renderer,
-physics engine, or reference continuation.
+PixelWorld evaluates a **coding agent as a direct RGB pixel world model**.
+Given a benchmark prompt and the permitted source pixels for I2V or editing,
+the agent writes runnable Python and emits every output frame. The generation
+path uses no image/video generator, learned renderer, physics engine or
+reference continuation.
 
-The harness is built around **OpenAI Codex CLI**. Model identity and API routing
-are configuration, so the same cleanroom can run any model exposed by a Codex
-installation or an OpenAI Responses-compatible gateway. PixelWorld does not
-install, vendor, or replace Codex; it invokes the user's own executable.
+[Code](https://github.com/SiyuanMaCS/PixelWorld) ·
+[HF dataset](https://huggingface.co/datasets/HuggingFriends/PixelWorld) ·
+[Live dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html) ·
+[Documentation](docs/INDEX.md)
 
-## Main-suite protocol update
+## Current main suite
 
-The new study uses **Physics-IQ, RBench Common Manipulation, PhyGenBench,
-and PCVE-RigidBench**. See the [updated protocol and collaborator runbook](docs/MAIN_SUITE_20261124.md)
-for the pinned subset, judge adaptations, and admission gates. Existing
-RoboJudge results remain in the historical freeze below.
+The authoritative current protocol is
+[Main suite, November 24](docs/MAIN_SUITE_20261124.md).
 
-## November 17 historical main-experiment freeze
+| Benchmark | Scope | Output contract |
+|---|---|---|
+| Physics-IQ Verified | 198 I2V cases | 1280×720, 24 FPS, 120 frames / 5 s |
+| RBench Common Manipulation | 50 I2V cases | Native aspect ratio, 720-pixel short edge, 24 FPS, 120 frames / 5 s |
+| PhyGenBench | 160 official T2V prompts | 1280×720, 24 FPS, 120 frames / 5 s; photographic pixel-space target |
+| PCVE-RigidBench | Full 129-case V2V editing set | 1280×720, 24 FPS, 96 frames / 4 s; official editing timeline |
 
-| Item | Frozen setting |
-|---|---|
-| Benchmarks | Physics-IQ Verified (198), RoboJudge shared-50 (50), PCVE-RigidBench (129), PhyGenBench T2V (160) |
-| Main track | `vision-agent` (paper-facing name: **Vision**) |
-| Text track | Separate analysis control for selected models; not required for a main-table row |
-| Physics-IQ / PhyGenBench output | 1280×720, 24 FPS, 120 frames / 5 s |
-| RoboJudge output | Preserve aspect ratio, 720-pixel short edge, 24 FPS, 120 frames / 5 s |
-| PCVE output | 1280×720, 24 FPS, 96 frames / 4 s; official editing timeline |
-| Codex | 0.169.0, pinned per cohort |
-| Filesystem policy | `case-only-v1` |
-| Output-token budget | **1,000,000** reported output tokens per real attempt |
-| Attempt cap | At most 5 real model attempts per case |
-| Infrastructure failures | Quarantined separately; do not consume model attempts |
-| PhyGenBench scoring | GPT-5.5 three-stage MCQ adaptation; VLMs and probability scoring replaced explicitly, not the original PhyGenEval score |
+The main track is `vision-agent` (paper name: **Vision**). Text is a separate
+analysis control; Vision-Input is retained for explicit legacy configurations.
+Codex CLI **0.169.0**, `case-only-v1` isolation and requested high reasoning
+effort are pinned. Each real attempt has a **1,000,000 reported output-token**
+budget. The general cap is five real attempts per case; **RBench permits one
+real candidate per sample, with no quality rerolls or Best-of-N**.
+Infrastructure retries are recorded separately and do not spend these caps.
 
-The 1M budget is a 2026-11-17 amendment. Earlier completed deliveries retain
-their recorded 100k budget and are reused without regeneration; analyses must
-separate attempts by the per-run `output_token_budget` value.
-
-Current confirmed models: GPT-6.1-Sol, GPT-6-Astra, GPT-5.6-Sol,
+The eight-model roster is GPT-6.2-Sol, GPT-6.1-Sol, GPT-6-Astra, GPT-5.6-Sol,
 GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash and Seed-2.1-Pro-0915.
-The five analysis models are Sol 6.1, Sol/Terra/Luna 5.6 and DeepSeek.
-Additional exact-version models such as Kimi,
-GLM or Qwen are appended under the same protocol by changing only the model and
-provider configuration.
+Inclusion in the roster does not imply a completed cohort. The dashboard
+reports generation, evaluation and publication progress separately.
 
-The authoritative specification is
-[docs/FINAL_EXPERIMENT_PROTOCOL.md](docs/FINAL_EXPERIMENT_PROTOCOL.md). The
-public benchmark reference is
-[docs/MAIN_EXPERIMENT_PROTOCOL.md](docs/MAIN_EXPERIMENT_PROTOCOL.md).
+RBench uses the pinned upstream Common Manipulation GPT branch adapted to
+GPT-6.1-Sol. PhyGenBench uses the three-stage ordinal MCQ adaptation with
+GPT-6.1-Sol; older GPT-5.5 judgments remain separate. Complete benchmark scopes
+and matching evaluator provenance are required for full scores. Video-quality
+analysis is separate from physical QA.
 
-## Start here
+The [harness analysis](docs/HARNESS_COMPARISON.md) compares Codex 0.169.0,
+OpenCode 1.19.6 and Claude Code 2.1.304 under the same controlled generation
+boundary. Adapter admission and cohort completion are recorded independently.
+Pi evidence and RoboJudge cohorts are historical. The
+[November 17 freeze](docs/FINAL_EXPERIMENT_PROTOCOL.md) documents earlier
+settings, including retained 100k-budget deliveries; it is not the current
+four-benchmark launch specification.
 
-- [Current main-suite update and collaborator runbook](docs/MAIN_SUITE_20261124.md)
-- [Documentation index](docs/INDEX.md)
-- [Historical experiment freeze and analysis settings](docs/FINAL_EXPERIMENT_PROTOCOL.md)
-- [Main benchmark reference](docs/MAIN_EXPERIMENT_PROTOCOL.md)
-- [Automatic scoring and GPU dispatch](docs/AUTOMATIC_EVALUATION.md)
-- [Retained-result provenance and configuration audits](docs/RESULT_PROVENANCE.md)
-- [Add a model](docs/ADD_MODEL_RUNBOOK.md)
-- [Copy-paste collaborator handoff](docs/COLLABORATOR_HANDOFF.md)
-- [Codex integration](docs/CODEX.md)
-- [Codex / OpenCode / Claude Code harness comparison and readiness](docs/HARNESS_COMPARISON.md)
-- [Filesystem isolation](docs/FILESYSTEM_ISOLATION.md)
-- [Agent workspace and task contract](docs/WORKSPACE_AND_TASK.md)
-- [Paper framework](docs/FRAMEWORK_FOR_PAPER.md)
+## Run or add a model
 
-## Results and monitoring
-
-Generated videos and RGB tensors are **not** stored in this code repository.
-They are published separately:
-
-- Hugging Face dataset:
-  [HuggingFriends/PixelWorld](https://huggingface.co/datasets/HuggingFriends/PixelWorld)
-  — public catalogue, per-case JSON, tool events, runnable code, token records,
-  previews and posters.
-- Live dashboard:
-  [PixelWorld dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html)
-  — live progress, per-model counts and playable candidates.
-- Full sanitized trace bundles:
-  [Dataset traces](https://huggingface.co/datasets/HuggingFriends/PixelWorld/tree/main/traces)
-  — per-benchmark/model archives; uploads continue separately from inference.
-- [Analysis progress](https://huggingfriends-pixelworld-dashboard.static.hf.space/analyses.html)
-- [Agent → Qwen → I2V smoke](https://huggingfriends-pixelworld-dashboard.static.hf.space/phygen_firstframe_smoke.html)
-- Dashboard source: `tools/build_formal_dashboard.py` and
-  `tools/build_analysis_dashboard.py`. Scores and generated assets are read
-  from external results rather than embedded in code.
-
-The live exporter refreshes independently of uploads. HF `live/` holds current
-metadata and per-case details; `data/` retains shared media and bulk snapshots.
-Closed case details, their videos and complete sanitized trace archives are
-committed together. Unsynced cases use a clearly labeled live preview fallback.
-Attempt status and token accounting update independently of transcoding. HF
-receives progress in separate background jobs; GitHub holds reproducible code
-and protocol/configuration templates. A snapshot timestamp
-describes the exported data; it does not certify that every media upload has
-finished.
-
-Each published case keeps its playable candidate, poster, `run_manifest.json`,
-token accounting, tool events and runnable `generate.py`. Failed attempts keep
-their manifest and trace but have no fabricated video.
-
-## Publishing to Hugging Face and dashboard refresh
-
-Full workflow, repository layout and troubleshooting:
-[docs/HF_PUBLISHING.md](docs/HF_PUBLISHING.md).
-
-Two independent destinations, both authenticated with a Hugging Face token
-(`HF_TOKEN`, `~/.cache/huggingface/token`, or `--token-file`). Never commit the
-token or a private endpoint.
-
-**Dashboard (Space `HuggingFriends/PixelWorld-dashboard`).** The publisher
-rebuilds the main-suite snapshot from the nightly root and the sanitized
-publication bundle, then commits `index.html` and
-`main_suite_status_v2.json` only when the content digest changes:
-
-```bash
-python -m tools.publish_main_suite_hf \
-  --nightly "$NIGHTLY_ROOT" \
-  --publication "$PUBLICATION_BUNDLE" \
-  --state "$NIGHTLY_ROOT/main_suite_hf_publisher.json" \
-  --watch-seconds 300
-```
-
-`--watch-seconds` must be at least 300; the publisher is a long-running watcher,
-so start it detached. The snapshot's `updated_utc` field is the authoritative
-data timestamp. An already-open browser tab keeps its rendered table; it updates
-in place only for relative-time labels (every 15 s). Reload the tab to see a
-newly published snapshot. Set `--dry-run` to build and validate the payload
-without uploading.
-
-**Dataset (`HuggingFriends/PixelWorld`).** Media and traces are frozen first,
-then uploaded separately so progress publishing keeps its API budget:
-
-```bash
-python -m tools.prepare_hf_delivery --bundle "$BUNDLE" --destination "$HF_SNAPSHOT" \
-  [--upload --token-file "$HF_TOKEN_FILE"]
-python -m tools.upload_hf_results --folder "$HF_SNAPSHOT" \
-  --token-file "$HF_TOKEN_FILE" --workers 8
-```
-
-`prepare_hf_delivery` writes only sanitized previews, complete traces, per-case
-JSON and runnable code; it never includes credentials, local absolute paths,
-reference videos/masks or evaluator ground truth. Uploads are resumable and
-rate-limited independently of inference. A dataset upload does not change the
-dashboard: the dashboard reads the nightly snapshot, not the dataset.
-
-## Repository layout
-
-```text
-pixelworld/            harness, validation, scheduling, media contract
-configs/               current model templates and frozen example configs
-docs/                  current protocol and operations documentation
-docs/archive/2026-11/  superseded protocols and historical experiments
-baselines/             frozen native baseline provenance
-tools/                 matrix managers, dashboard builders, audit utilities
-tests/                 harness regression tests
-```
-
-Generated `data/`, `vendor/`, `runs/`, `site/` and `evaluation_outputs/` are
-ignored. Benchmark inputs, reference videos, masks and generated outputs are not
-committed.
-
-## Quick start
-
-Requirements: Linux, Python 3.11+, Codex CLI 0.169.0, `git`, `ffmpeg`, and `uv`
-for official evaluation.
+Requirements: Linux, Python 3.11+, Codex CLI 0.169.0, `git`, `ffmpeg`, `uv`,
+and a working case sandbox.
 
 ```bash
 git clone https://github.com/SiyuanMaCS/PixelWorld.git
@@ -174,70 +61,87 @@ cd PixelWorld
 uv venv --python 3.11 .venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
-export PIXELWORLD_CODEX=/absolute/path/to/codex
-pixelworld doctor --config configs/benchmark.example.json
+export PIXELWORLD_CODEX="$(command -v codex)"
 ```
 
-Run one real Vision case before a matrix:
+Obtain the frozen per-benchmark configs and licensed input manifests from the
+benchmark owner. Set `$BENCHMARK_CONFIG` to an ignored local config and
+`$SMOKE_CASE` to an actual case ID in that config. Generic example configs are
+interface examples and do not freeze the current suite.
 
 ```bash
-pixelworld run-case \
-  --config configs/benchmark.example.json \
-  --model my-model \
-  --track vision-agent \
-  --case 0001
+pixelworld doctor --config "$BENCHMARK_CONFIG" --require-sandbox
+pixelworld run-case --config "$BENCHMARK_CONFIG" \
+  --model my-model --track vision-agent --case "$SMOKE_CASE"
+# After checking the delivery and recording the admission gates:
+pixelworld matrix run --config "$BENCHMARK_CONFIG"
+pixelworld matrix status --config "$BENCHMARK_CONFIG"
 ```
 
-Then launch the restart-safe matrix:
+Repeat with each of the four frozen configs. Keep the accepted smoke under the
+same configuration/run root so the matrix reuses it, especially for RBench.
+The current launch workflow is in [Add a model](docs/ADD_MODEL_RUNBOOK.md) and
+the [copy-paste handoff](docs/COLLABORATOR_HANDOFF.md).
+`tools/final_experiments.py` retains the older RoboJudge suite mapping and must
+not be used to launch this four-benchmark suite.
 
-```bash
-pixelworld matrix run --config configs/benchmark.local.json
-pixelworld matrix status --config configs/benchmark.local.json
+## Results and publication
+
+GitHub holds code, protocol documents, config templates and small provenance
+records. Generated outputs are published to
+[HuggingFriends/PixelWorld](https://huggingface.co/datasets/HuggingFriends/PixelWorld).
+The [dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html)
+shows playable candidates and progress. See also
+[analysis progress](https://huggingfriends-pixelworld-dashboard.static.hf.space/analyses.html).
+
+The dataset's `metadata/experiment_index.json` indexes the current suite;
+`metadata/main_suite_status.json` and `dashboard/index.html` are published in
+one commit and verified at that revision before the Space snapshot is updated.
+An open dashboard tab polls the dataset every 60 seconds and replaces its main
+content when a matching newer snapshot is available. The snapshot publisher
+checks for content changes every five minutes.
+
+Per-case details and sanitized full traces live under
+`live/<suite>/<model>/<track>/`; preview media lives under `data/assets/`.
+Older `data/` snapshots and `traces/` archives remain available for provenance.
+Public traces retain recorded native events, images, code and input/output
+text after sanitization. Licensed standalone benchmark inputs, evaluator
+references and private raw API archives are excluded.
+
+Publication coverage at `metadata/publication_coverage.json` compares current
+case hashes with completed upload receipts. It does not certify a full remote
+byte audit. Generation completion, a fresh status timestamp and complete media
+publication are different states. See [HF publishing](docs/HF_PUBLISHING.md)
+for the exporter, resumable uploader, progress watcher and verification steps.
+
+## Repository layout
+
+```text
+pixelworld/            harness, validation, scheduling, media contract
+configs/               model templates and frozen example configs
+docs/                  protocols and operational documentation
+docs/archive/          superseded experiments and provenance
+baselines/             native baseline provenance
+tools/                 dashboard, publication, evaluation and audit utilities
+tests/                 harness regression tests
 ```
 
-## Add a model
-
-1. Copy [configs/collaborator-model.example.json](configs/collaborator-model.example.json)
-   to an ignored `configs/*.local.json`.
-2. Set the exact versioned model ID and Responses-compatible provider route.
-3. Export the API key in the parent shell; never put the value in JSON.
-4. Run `pixelworld doctor` and one real Vision smoke per benchmark, checking
-   image input, code execution, saving and reported input/output usage.
-5. Send the smoke bundle to the benchmark owner for review.
-6. Launch the full matrix with `tools/final_experiments.py` only after the
-   generation readiness gates are approved.
-
-Do not change benchmark prompts, generation rules, output specifications,
-attempt accounting or evaluators to make a particular model submit. Full
-instructions: [docs/ADD_MODEL_RUNBOOK.md](docs/ADD_MODEL_RUNBOOK.md).
-
-## What belongs in Git
-
-Evaluator and chart utilities can use `uv pip install -e ".[evaluation]"` in a
-separate evaluation environment. Original RoboJudge/PCVE code and checkpoints
-remain evaluator-side. `tools/run_gpu_evaluation.py` coordinates free-memory
-claims between PixelWorld evaluators without stopping other workloads.
-
-Commit: harness code, tests, protocol documents, config templates and small
-provenance records.
-
-Do not commit: API keys or auth files, local absolute paths, generated videos or
-RGB tensors, Physics-IQ reference videos/masks, PCVE target videos or evaluator
-ground truth, and per-case raw traces unless a bounded sample is explicitly
-agreed.
-
-## Legacy
-
-Earlier 256×144/4 FPS protocols, the withdrawn 15-minute wall-clock budget,
-superseded smoke reports and historical benchmark plans are retained under
-[docs/archive/2026-11/](docs/archive/2026-11/). They are provenance, not current
-instructions.
+Generated `data/`, `vendor/`, `runs/`, `site/` and `evaluation_outputs/` are
+ignored. Keep credentials, private endpoints, local absolute paths, generated
+videos/tensors, benchmark inputs, references/masks and scores out of Git.
+Durable private storage holds original run artifacts and raw API recordings;
+see [storage layout](docs/STORAGE_LAYOUT.md),
+[storage policy](docs/STORAGE_POLICY.md) and
+[recording contract](docs/DATA_RECORDING_CONTRACT.md).
 
 ## Upstream attribution
 
-PixelWorld does not redistribute Physics-IQ code or data. Follow the licenses
-and terms of:
+Follow the upstream licenses and data terms:
 
-- [Physics-IQ and Physics-IQ Verified](https://github.com/google-deepmind/physics-IQ-benchmark)
-- [Physics-IQ Verified dataset](https://huggingface.co/datasets/Anates-Labs-Research/Physics-IQ-Verified)
+- [Physics-IQ](https://github.com/google-deepmind/physics-IQ-benchmark) and
+  [Verified dataset](https://huggingface.co/datasets/Anates-Labs-Research/Physics-IQ-Verified)
+- [RBench](https://huggingface.co/datasets/DAGroup-PKU/RBench) and
+  [ReVidgen](https://github.com/DAGroup-PKU/ReVidgen)
+- [PhyGenBench](https://github.com/OpenGVLab/PhyGenBench)
+- [PCVE-RigidBench dataset](https://huggingface.co/datasets/ccmoony/PCVE-RigidBench)
 - [OpenAI Codex CLI](https://github.com/openai/codex)
