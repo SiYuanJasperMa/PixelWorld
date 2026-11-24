@@ -11,7 +11,7 @@ import time
 from urllib.request import urlopen
 
 from pixelworld.util import atomic_json, utc_now
-from tools.build_main_suite_status import build, render
+from tools.build_main_suite_status import build, render, project_all_video_evaluation_progress
 
 SPACE = 'HuggingFriends/PixelWorld-dashboard'
 DATASET = 'HuggingFriends/PixelWorld'
@@ -27,6 +27,9 @@ DETAIL_ALIASES = {'physics_iq_baseline.html': 'physics_iq',
 def payload(status):
     if status.get('protocol') != PROTOCOL:
         raise ValueError('Refusing to upload the wrong suite')
+    if 'all_video_evaluation_progress' in status:
+        status = {**status, 'all_video_evaluation_progress': project_all_video_evaluation_progress(
+            status['all_video_evaluation_progress'])}
     assets = Path(__file__).resolve().parents[1]/'pixelworld/assets'
     browser_script = (assets/'results_browser.js').read_text()
     browser_revision = hashlib.sha256(browser_script.encode()).hexdigest()[:12]
@@ -60,10 +63,13 @@ def dataset_payload(status):
         'snapshot_utc': status['updated_utc'], 'benchmarks': ['physics_iq', 'rbench', 'phygenbench', 'pcve'],
         'models': status['models'], 'harness_progress': status.get('harness_progress', {}),
         'links': {'catalogue': 'live/catalogue.json', 'coverage': 'metadata/publication_coverage.json',
-                  'dashboard': 'dashboard/index.html', 'legacy': 'data/catalogue.json'},
+                  'dashboard': 'dashboard/index.html', 'legacy': 'data/catalogue.json',
+                  'all_video_evaluation_progress': 'metadata/all_video_evaluation_progress.json'},
     }
     return {'metadata/main_suite_status.json': files['main_suite_status_v2.json'],
             'metadata/experiment_index.json': json.dumps(index, ensure_ascii=False, indent=2),
+            'metadata/all_video_evaluation_progress.json': json.dumps(project_all_video_evaluation_progress(
+                status.get('all_video_evaluation_progress')), ensure_ascii=False, indent=2),
             'dashboard/index.html': files['index.html']}, digest
 
 

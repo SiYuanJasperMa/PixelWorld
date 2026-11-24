@@ -454,3 +454,61 @@ def test_parallel_main_counts_worker_pids_on_the_worker_and_keeps_master_cases(t
     mappings = {'main':{'source_config':str(original.source),'canonical_config':str(worker.source)}}
     result = mod.count_parallel_config(original, model, 3, mappings)
     assert result['counts'] == {'complete':1,'running':2,'pending':0,'exhausted':0}
+
+
+def test_harness_worker_sidecar_overrides_only_its_verified_models(tmp_path):
+    from tools.build_main_suite_status import harness_progress
+    (tmp_path/'harness_worker_live_status.json').write_text(json.dumps({
+        'schema_version':'pixelworld-harness-worker-live-v1','models':[
+            {'model':'gpt62-sol','cli_backend':'claude_code','expected':198,
+             'counts':{'complete':11,'running':2,'pending':185,'exhausted':0},
+             'phase':'full_running','updated_utc':'2026-11-25T02:00:00+00:00',
+             'pid':123,'private_path':'/private/example'}]}))
+    result = harness_progress(tmp_path)['gpt62-sol']['claude_code']
+    assert result['counts']['running'] == 2
+    assert result['full_released'] is True
+    assert 'pid' not in result and 'private_path' not in result
+
+
+def test_migrated_harness_does_not_read_retired_master_counters(tmp_path):
+    from tools.build_main_suite_status import harness_progress
+    (tmp_path/'opencode_live_status.json').write_text(json.dumps({'models':[
+        {'model_key':'gpt62-sol','expected':198,'counts':{
+            'complete':17,'running':1,'pending':180,'exhausted':1}}]}))
+    current = {'complete':24,'running':2,'pending':172,'exhausted':0}
+    (tmp_path/'harness_worker_live_status.json').write_text(json.dumps({
+        'schema_version':'pixelworld-harness-worker-live-v1','models':[
+            {'model':'gpt62-sol','cli_backend':'opencode','expected':198,
+             'counts':current,'phase':'full_running'}]}))
+    assert harness_progress(tmp_path)['gpt62-sol']['opencode']['counts'] == current
+
+
+def test_all_video_progress_keeps_record_hash_and_binding_units_separate():
+    from tools.build_main_suite_status import project_all_video_evaluation_progress
+    report = {'schema_version':1,'updated_utc':'2026-11-25T02:00:00Z','collection_complete':False,
+        'available_video_records':14000,'registered_new_score_bindings':3363,'pid':123,'path':'/private/producer',
+        'services':[{'kind':'appearance','phase':'judging','workers':32,'rated_video_hashes':3310,
+                     'unique_complete_videos':5301,'pid':99,'source_path':'/private/score'},
+                    {'kind':'phygen_physical','workers':32,'completed':1197,'pending':1062}],
+        'groups':[{'benchmark':'physics_iq','model_key':'gpt62-sol','condition':'main','candidate_type':'accepted',
+                   'available_videos':41,'unique_video_hashes':40,'expected_samples':198,
+                   'physical_bindings':20,'appearance_bindings':41,'path':'/private/inputs','score':9.9}],
+        'native41':{'accepted_videos':41,'retained_candidate_videos':99,'unique_video_hashes':77,
+                    'appearance_bindings':140,'physical_bindings':75,'account':'PRIVATE_ACCOUNT'}}
+    progress = project_all_video_evaluation_progress(report)
+    assert 'PRIVATE' not in json.dumps(progress) and '/private' not in json.dumps(progress)
+    assert 'pid' not in json.dumps(progress) and 'score' not in progress['groups'][0]
+    assert progress['available_video_records'] == 14000
+    assert progress['services'][0]['unique_complete_videos'] == 5301
+    assert progress['native41']['appearance_bindings'] == 140
+    old_photo = {'gpt61-sol':{'physics_iq':{'score':4.42,'cases':198,'expected':198,'no_evidence':0}}}
+    data = dashboard_status(all_video_evaluation_progress=progress, photographic_scores=old_photo,
+                            photographic_progress={'completed_calls':976,'expected_calls':976})
+    html = render(data)
+    panel = html.split('<section id="all-video-evaluation-progress">')[1].split('</section>')[0]
+    assert '已发现视频记录 14,000' in panel and '画质队列独立视频 5,301' in panel
+    assert '新增评分绑定 3,363' in panel and '已评级独立哈希 3,310 / 5,301' in panel
+    assert '尚非全库完成' in panel and '条候选记录' in panel and '99' in panel
+    assert '画质评分绑定 140' in panel and '物理评分绑定 75' in panel
+    assert 'metadata/all_video_evaluation_progress.json' in panel and '<details>' in panel
+    assert '<b>4.42</b>' in html and '976 / 976' in html

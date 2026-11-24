@@ -341,6 +341,45 @@ def finite_score(value):
     return value if type(value) in (int, float) and math.isfinite(value) else None
 
 
+def project_all_video_evaluation_progress(report):
+    """Keep record/hash/binding counters without copying process or path metadata."""
+    if not isinstance(report, dict) or type(report.get('schema_version')) is not int or report['schema_version'] != 1:
+        return {}
+    def identifier(value):
+        return value if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_.+-]{1,120}', value) else None
+    def timestamp(value):
+        return value if isinstance(value, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}T[0-9:.+Z-]+', value) else None
+    def counter(value):
+        return value if type(value) is int and value >= 0 else None
+    result = {'schema_version': 1, 'updated_utc': timestamp(report.get('updated_utc')),
+        'collection_complete': report.get('collection_complete') is True,
+        'available_video_records': counter(report.get('available_video_records')),
+        'registered_new_score_bindings': counter(report.get('registered_new_score_bindings')),
+        'services': [], 'groups': [], 'native41': {}}
+    for service in report.get('services', []):
+        if not isinstance(service, dict) or not identifier(service.get('kind')):
+            continue
+        result['services'].append({'kind': identifier(service['kind']), 'phase': identifier(service.get('phase')),
+            'updated_utc': timestamp(service.get('updated_utc')),
+            **{field: counter(service.get(field)) for field in ('workers', 'rated_video_hashes',
+                'unique_complete_videos', 'completed', 'pending')}})
+    for group in report.get('groups', []):
+        if not isinstance(group, dict):
+            continue
+        entry = {field: identifier(group.get(field)) for field in ('benchmark', 'model_key', 'condition', 'candidate_type')}
+        entry.update({field: counter(group.get(field)) for field in ('available_videos', 'unique_video_hashes',
+            'expected_samples', 'physical_bindings', 'appearance_bindings')})
+        for field in ('complete_main_score_claim', 'context_versions_must_remain_distinct'):
+            if type(group.get(field)) is bool:
+                entry[field] = group[field]
+        result['groups'].append(entry)
+    native = report.get('native41') or {}
+    if isinstance(native, dict):
+        result['native41'] = {field: counter(native.get(field)) for field in ('accepted_videos',
+            'retained_candidate_videos', 'unique_video_hashes', 'appearance_bindings', 'physical_bindings')}
+    return result
+
+
 def count_config(config, model, expected):
     if len(config.case_ids) != expected or len(set(config.case_ids)) != expected:
         raise ValueError(f'Configured scope does not contain exactly {expected} unique cases')
@@ -454,6 +493,15 @@ def appearance_scores(report):
 def harness_progress(root):
     """Project only model labels, case counts, and launch state from private runs."""
     joined = {}
+    worker_source = read(root/'harness_worker_live_status.json')
+    worker_keys = set()
+    if worker_source.get('schema_version') == 'pixelworld-harness-worker-live-v1':
+        for row in worker_source.get('models', []):
+            if row.get('expected') == 198 and row.get('cli_backend') in ('opencode','claude_code'):
+                # Only a validated current worker row can replace a retired
+                # master's counters. Do not read both as one active cohort.
+                public_counts(row, 198)
+                worker_keys.add((row.get('model'), row['cli_backend']))
     live_source = read(root/'opencode_live_status.json')
     live = {}
     updated = live_source.get('updated_utc')
@@ -461,6 +509,8 @@ def harness_progress(root):
     for row in live_source.get('models', []):
         model, expected = row.get('model_key'), row.get('expected')
         if model not in ROSTER:
+            continue
+        if (model, 'opencode') in worker_keys:
             continue
         if expected != BENCHMARKS['physics_iq'][1]:
             raise ValueError('Unexpected OpenCode live scope')
@@ -523,6 +573,21 @@ def harness_progress(root):
         joined[model] = matrix
     for model, entry in live.items():
         joined.setdefault(model, {})['opencode'] = entry
+    # This sidecar verifies worker owners on their actual machine. Reading a
+    # remote PID against the dashboard host would discard live native runs.
+    if worker_source.get('schema_version') == 'pixelworld-harness-worker-live-v1':
+        for row in worker_source.get('models', []):
+            model, backend = row.get('model'), row.get('cli_backend')
+            if model not in ROSTER or backend not in ('opencode','claude_code'):
+                continue
+            if row.get('expected') != 198:
+                raise ValueError('Unexpected worker harness scope')
+            counts = public_counts(row, 198)['counts']
+            timestamp = row.get('updated_utc')
+            timestamp = timestamp if isinstance(timestamp,str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}T[0-9:.+Z-]+',timestamp) else None
+            joined.setdefault(model,{})[backend] = {
+                'state':'full_released','phase':row.get('phase'), 'counts':counts,
+                'expected':198,'full_released':True,'updated_utc':timestamp}
     return joined
 
 
@@ -605,7 +670,9 @@ def build(nightly, publication):
             'photographic_scores': appearance_scores(photo),
             'photographic_judge': JUDGE, 'publication_coverage': upload_coverage,
             'baseline_rechecks': baseline_rechecks,
-            'native_main_smoke': native}
+            'native_main_smoke': native,
+            'all_video_evaluation_progress': project_all_video_evaluation_progress(
+                read(evaluation/'maintenance_20261125/progress_summary.json'))}
 
 
 LABELS = {
@@ -860,6 +927,46 @@ def render(status):
     if study_section:
         study_section = (f'<details id="native-budget"><summary>原生 Astra · 额度研究 · 当前周剩余 {smoke_number(study.get("current_remaining_percent"))}%'
                          f' · 本阶段完成 {smoke_number(study.get("study_completed"))}</summary>'+study_section+'</details>')
+    video_progress = project_all_video_evaluation_progress(status.get('all_video_evaluation_progress'))
+    service_names = {'appearance': '独立视频画质', 'phygen_physical': 'PhyGenBench 物理判分',
+                     'rbench_physical': 'RBench 物理判分', 'physics_iq_physical': 'Physics-IQ 官方评测',
+                     'pcve_physical': 'PCVE 官方评测'}
+    service_phases = {'judging': '评分中', 'watching_new_deliveries': '等待新交付',
+                      'official_native_sam2_physics': '官方物理评测中'}
+    service_rows = ''
+    independent = next((row.get('unique_complete_videos') for row in video_progress.get('services', [])
+                        if row['kind'] == 'appearance'), None)
+    for row in video_progress.get('services', []):
+        appearance = row['kind'] == 'appearance'
+        progress = (f"已评级独立哈希 {smoke_number(row.get('rated_video_hashes'))} / {smoke_number(row.get('unique_complete_videos'))}"
+                    if appearance else f"已完成评分绑定 {smoke_number(row['completed'])}" if row.get('completed') is not None
+                    else '评分绑定待汇总')
+        if not appearance and row.get('pending') is not None:
+            progress += f" · 待处理绑定 {smoke_number(row['pending'])}"
+        phase = service_phases.get(row.get('phase'), row.get('phase') or '进度按绑定记录更新')
+        updated = row.get('updated_utc')
+        stamp = f'<time datetime="{escape(updated)}">{escape(updated)}</time>' if updated else '待更新'
+        service_rows += (f'<tr><th>{escape(service_names.get(row["kind"], row["kind"]))}</th>'
+                         f'<td>{smoke_number(row.get("workers"))}</td><td>{progress}<br>'
+                         f'<span class="small muted">{escape(phase)}</span></td><td class="small muted">{stamp}</td></tr>')
+    native_video = video_progress.get('native41', {})
+    collected = '当前收集快照已闭合，评分仍按绑定更新' if video_progress.get('collection_complete') else '仍在收集新记录，尚非全库完成'
+    video_progress_section = ('<section id="all-video-evaluation-progress"><h2>所有视频 · 评测进度</h2>'
+        f'<p><b>已发现视频记录 {smoke_number(video_progress.get("available_video_records"))}</b>'
+        f' · 画质队列独立视频 {smoke_number(independent)}'
+        f' · 新增评分绑定 {smoke_number(video_progress.get("registered_new_score_bindings"))}</p>'
+        f'<p class="small muted">{collected}。记录、独立视频哈希与评分绑定分别统计，记录数不等于独立视频数或帧数。</p>'
+        '<div class="table"><table><thead><tr><th>服务</th><th>并发</th><th>评分进度</th><th>源更新时间</th></tr></thead>'
+        f'<tbody>{service_rows}</tbody></table></div>'
+        f'<p>原生 Astra：{smoke_number(native_video.get("accepted_videos"))} 条接受记录'
+        f' + {smoke_number(native_video.get("retained_candidate_videos"))} 条候选记录'
+        f' · 独立视频哈希 {smoke_number(native_video.get("unique_video_hashes"))}'
+        f' · 画质评分绑定 {smoke_number(native_video.get("appearance_bindings"))}'
+        f' · 物理评分绑定 {smoke_number(native_video.get("physical_bindings"))}</p>'
+        '<p class="small muted">新增评测版本与旧 976 条 appearance 均值分开记录，不覆盖既有均值或主表物理分。</p>'
+        f'<details><summary>{len(video_progress.get("groups", []))} 组模型 / 条件 / 候选绑定明细</summary>'
+        '<a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/metadata/all_video_evaluation_progress.json">查看完整进度 JSON →</a>'
+        '</details></section>' if video_progress else '')
     return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="pixelworld-updated" content="{status['updated_utc']}"><meta name="pixelworld-protocol" content="pixelworld-main-suite-20261124">
 <title>PixelWorld · 主实验</title><link rel="stylesheet" href="formal.css"><style>.native-row th,.native-row td{{background:#f1f6ff}}.native-row th{{color:#24538c}}details summary{{font-size:14px}}table td{{min-width:180px}}table th:first-child{{min-width:180px}}</style><body><header><nav><strong><a href="index.html">PixelWorld</a></strong>
@@ -877,6 +984,7 @@ PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混�
 {upload_section}
 {smoke_section}
 {study_section}
+{video_progress_section}
 <h2>视频质量 · 独立于物理分</h2><p>GPT-6.1-Sol 画质判分进度：{photo.get('completed_calls') or 0} / {photo.get('expected_calls') or 0} 次调用。</p>
 {photo_table}
 <h3>FVD（越低越好）</h3>
