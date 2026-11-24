@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from decimal import Decimal, InvalidOperation
 from html import escape
 import json
 import math
@@ -28,6 +29,73 @@ JUDGE = 'traex/GPT-6.1-Sol'
 TRACK = 'vision-agent'
 SMOKE_TOKEN_FIELDS = ('input_tokens', 'cached_input_tokens', 'cache_write_input_tokens',
                       'output_tokens', 'reasoning_output_tokens', 'total_tokens')
+SMOKE_STATES = ('pending', 'waiting', 'generating', 'running', 'validating',
+                'complete', 'finished', 'failed', 'blocked', 'skipped')
+
+
+def native_smoke_tokens(usage):
+    return ({field: value for field in SMOKE_TOKEN_FIELDS
+             if (value := finite_score(usage.get(field))) is not None and value >= 0}
+            if isinstance(usage, dict) else None)
+
+
+def native_smoke_additional_samples(source_path):
+    source = read(source_path)
+    if not isinstance(source.get('root'), str):
+        return []
+    root = Path(source['root']).resolve()
+    entries = read(root/'extra_samples.json').get('samples', [])
+    if len(entries) > 1:
+        raise ValueError('Only one additional Physics-IQ smoke is registered')
+    result = []
+    for entry in entries:
+        case, name = entry.get('case'), entry.get('root')
+        if (entry.get('benchmark') != 'physics_iq' or not isinstance(case, str)
+            or not re.fullmatch(r'[0-9]{4}', case) or not isinstance(name, str)):
+            continue
+        extra = Path(name).resolve()
+        if not extra.is_relative_to(root) or extra == root:
+            continue
+        records = [row for row in read(extra/'progress.json').get('samples', [])
+                   if (row.get('benchmark'), row.get('case')) == ('physics_iq', case)]
+        if len(records) > 1:
+            raise ValueError('Duplicate additional Physics-IQ smoke')
+        row = records[0] if records else {}
+        result.append({'benchmark': 'physics_iq', 'case': case,
+            'state': row.get('state') if row.get('state') in SMOKE_STATES else None,
+            'token_usage': native_smoke_tokens(row.get('token_usage')),
+            'duration_seconds': finite_score(row.get('duration_seconds')),
+            'quota_attribution': 'shared_parallel_window',
+            'quota_weekly_consumed': None, 'credits_consumed': None,
+            'credits_estimated': None, 'usd_estimated': None})
+    return result
+
+
+def native_smoke_cumulative_quota(source_path):
+    source = read(source_path)
+    if not isinstance(source.get('root'), str):
+        return {}
+    telemetry = Path(source['root']).resolve()/'telemetry'
+    snapshots = [(read(telemetry/name).get('rate_limits') or {}).get('rateLimits') or {}
+                 for name in ('physics_iq_before.json', 'quota_live_now.json')]
+    if not all(snapshots):
+        return {}
+    before, latest = [(row.get('primary') or {}) for row in snapshots]
+    start, end = finite_score(before.get('usedPercent')), finite_score(latest.get('usedPercent'))
+    start = start if start is not None and 0 <= start <= 100 else None
+    end = end if end is not None and 0 <= end <= 100 else None
+    same_window = (before.get('windowDurationMins') == latest.get('windowDurationMins') == 10080
+                   and before.get('resetsAt') is not None and before.get('resetsAt') == latest.get('resetsAt'))
+    credits = None
+    try:
+        credits = finite_score(float(Decimal(str((snapshots[0].get('credits') or {}).get('balance')))
+                                    - Decimal(str((snapshots[1].get('credits') or {}).get('balance')))))
+    except (InvalidOperation, ValueError, OverflowError):
+        pass
+    return {'remaining_before': 100-start if start is not None else None,
+            'remaining_latest': 100-end if end is not None else None,
+            'observed_change_pp': end-start if same_window and start is not None and end is not None and end >= start else None,
+            'credits_change': credits}
 
 
 def native_smoke_weekly_deltas(source_path):
@@ -89,7 +157,9 @@ def native_main_smoke(path, source_path=None):
               'reasoning_effort': choice(source.get('reasoning_effort'), ('low', 'medium', 'high', 'xhigh')),
               'service_tier': choice(source.get('service_tier'), ('default', 'fast', 'flex', 'priority')),
               'status': choice(source.get('status'), ('pending', 'running', 'complete', 'finished', 'failed', 'blocked')),
-              'samples': [], 'round_summaries': []}
+              'samples': [], 'round_summaries': [],
+              'additional_samples': native_smoke_additional_samples(source_path) if source_path else [],
+              'cumulative_quota': native_smoke_cumulative_quota(source_path) if source_path else {}}
     summaries = {}
     for row in source.get('round_summaries', []):
         round_no = row.get('round', 1)
@@ -121,13 +191,9 @@ def native_main_smoke(path, source_path=None):
         row = samples.get((round_no, key), {})
         case = row.get('case')
         case = case if isinstance(case, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,64}', case) and not case.startswith(('hf_', 'ghp_')) else None
-        usage = row.get('token_usage')
-        usage = ({field: value for field in SMOKE_TOKEN_FIELDS
-                  if (value := finite_score(usage.get(field))) is not None and value >= 0}
-                 if isinstance(usage, dict) else None)
+        usage = native_smoke_tokens(row.get('token_usage'))
         sample = {'round': round_no, 'benchmark': key, 'case': case,
-            'state': choice(row.get('state'), ('pending', 'waiting', 'generating', 'running', 'validating',
-                                              'complete', 'finished', 'failed', 'blocked', 'skipped')),
+            'state': choice(row.get('state'), SMOKE_STATES),
             'duration_seconds': finite_score(row.get('duration_seconds')), 'token_usage': usage,
             'quota_attribution': choice(row.get('quota_attribution'), ('shared_parallel_window', 'individual_serial_window')),
             **{field: finite_score(row.get(field)) for field in ('quota_weekly_consumed', 'credits_consumed', 'credits_estimated', 'usd_estimated')}}
@@ -471,6 +537,7 @@ def render(status):
                       '<a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/metadata/publication_coverage.json">各模型覆盖记录 →</a></details>'
                       if upload else '')
     smoke = status.get('native_main_smoke', {})
+    additions = smoke.get('additional_samples', [])
     def smoke_number(value, digits=None):
         value = finite_score(value)
         if value is None:
@@ -501,23 +568,48 @@ def render(status):
             + ''.join(f'<td>{"整轮看汇总" if shared_quota and field == "credits_consumed" else "接口未提供" if field != "credits_consumed" and row.get("state") in ("complete","failed") and row.get(field) is None else smoke_number(row.get(field), 4)}</td>' for field in ('credits_consumed', 'credits_estimated', 'usd_estimated'))
             + '</tr>')
     round_summary = ''.join(
-        f'<p><b>第 {row["round"]} 轮 · { {"serial": "串行", "parallel": "并行"}.get(row.get("execution_mode"), "执行方式待记录")}</b>'
-        f' · 整轮周额度变化 {smoke_number(row.get("weekly_change"), 2)} 百分点'
+        f'<p><b>第 {row["round"]} 轮 · {"并行阶段合计（含追加样本重叠）" if additions and row.get("execution_mode") == "parallel" else {"serial": "串行", "parallel": "并行"}.get(row.get("execution_mode"), "执行方式待记录")}</b>'
+        f' · {"阶段" if additions and row.get("execution_mode") == "parallel" else "整轮"}周额度变化 {smoke_number(row.get("weekly_change"), 2)} 百分点'
         f' · Credits 余额差 {smoke_number(row.get("credits_change"), 4)}</p>'
         for row in smoke.get('round_summaries', []))
     round_summary = (f'<div id="native-smoke-round-summaries">{round_summary}'
         '<p class="small muted">并行样本共享整轮额度窗口，额度变化不分摊到单个样本；各自 Tokens 与耗时分别记录。</p></div>'
         if round_summary else '')
+    cumulative = smoke.get('cumulative_quota', {})
+    cumulative_section = (f'<p id="native-smoke-cumulative-quota"><b>累计额度 · 最近读取</b>'
+        f' · 周剩余 {smoke_number(cumulative.get("remaining_before"))}% → {smoke_number(cumulative.get("remaining_latest"))}%'
+        f' · 观测变化 {smoke_number(cumulative.get("observed_change_pp"), 2)} 百分点'
+        f' · Credits 余额差 {smoke_number(cumulative.get("credits_change"), 4)}</p>'
+        '<p class="small muted">累计变化包含当前运行中的并行与追加样本，不能归因到单个样本或第二轮四个样本。</p>'
+        if cumulative else '')
+    additional_rows = ''
+    for row in additions:
+        case = row['case']
+        usage = row.get('token_usage') or {}
+        suite = f'physics_iq_native_astra62_extra_{case}'
+        viewer = 'videos.html?index=' + quote(f'{suite}/gpt62-astra-native/{TRACK}/index.json', safe='')
+        additional_rows += (f'<tr><th>Physics-IQ 追加 {escape(case)}<br><a class="small" href="{viewer}">运行 / 视频 / Trace →</a></th>'
+            f'<td>{smoke_states.get(row.get("state"), "待运行")}</td>'
+            + ''.join(f'<td>{smoke_number(usage.get(field))}</td>' for field in ('input_tokens', 'cached_input_tokens', 'output_tokens'))
+            + f'<td>{smoke_number(row.get("duration_seconds"), 1)}{" 秒" if row.get("duration_seconds") is not None else ""}</td></tr>')
+    additional_section = ('<div id="native-smoke-additional"><h3>追加样本</h3>'
+        '<div class="table"><table><thead><tr><th>样本</th><th>状态</th><th>Input tokens</th><th>Cached input</th>'
+        f'<th>Output tokens</th><th>耗时</th></tr></thead><tbody>{additional_rows}</tbody></table></div>'
+        '<p class="small muted">追加样本单列，不计作第三轮；与并行阶段共享额度窗口，额度变化看累计汇总。</p></div>'
+        if additions else '')
     smoke_section = ('<section id="native-main-smoke"><h2>GPT-6.2-Astra · 主实验配置 smoke</h2>'
         f'<p class="muted">{escape(smoke.get("cli_version") or "CLI 版本待记录")} · reasoning {escape(smoke.get("reasoning_effort") or "待记录")} · '
         f'service tier {escape(smoke.get("service_tier") or "待记录")}</p>'
         f'<p class="small muted">已安排 {smoke_rounds} 轮，每轮每个 benchmark 一个标准样本，最多两轮八个样本。'
+        + (f'另有 {len(additions)} 个追加样本，单独列示。' if additions else '') +
         '原生 Codex 0.172.0，独立于主表冻结的 0.169.0 队列，不代表全量结果。</p>'
         f'{round_summary}'
+        f'{cumulative_section}'
         '<div class="table"><table><thead><tr><th>轮次 / Benchmark / Case</th><th>状态</th><th>Input tokens</th>'
         '<th>Cached input</th><th>Output tokens</th><th>耗时</th><th>周额度 · 实测消耗（百分点）</th><th>Credits · 余额差</th>'
         '<th>Credits · 估算</th><th>USD · 估算</th></tr></thead>'
         f'<tbody>{smoke_rows}</tbody></table></div>'
+        f'{additional_section}'
         '<p class="small muted">Tokens 来自实际运行记录；周额度为同一重置窗口内的使用率变化，实测 Credits 为余额变化，估算值单独列示。'
         '周额度显示整数百分比，0 变化不代表零计算消耗；接口未返回估算值时不按零计。Cached input 已包含在 Input 中。</p></section>' if smoke else '')
     return f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

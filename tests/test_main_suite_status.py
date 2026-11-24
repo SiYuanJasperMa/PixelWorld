@@ -3,7 +3,8 @@ import json
 import pytest
 
 from tools.build_main_suite_status import (
-    BENCHMARKS, JUDGE, appearance_scores, harness_progress, legacy_score, native_main_smoke, native_smoke_weekly_deltas,
+    BENCHMARKS, JUDGE, appearance_scores, harness_progress, legacy_score, native_main_smoke,
+    native_smoke_additional_samples, native_smoke_cumulative_quota, native_smoke_weekly_deltas,
     phygen_score, public_counts, rbench_score, render,
 )
 
@@ -255,3 +256,50 @@ def test_native_parallel_round_uses_shared_summary_without_individual_quota(tmp_
     assert panel.count('整轮看汇总') == 8
     assert '2,345' in panel and '123.0 秒' in panel
     assert '999' not in panel and 'PRIVATE' not in panel
+
+
+def test_extra_physics_smoke_is_separate_from_two_rounds_and_only_cumulative_quota_is_public(tmp_path):
+    root, extra = tmp_path/'run', tmp_path/'run/extra_physics_0003'
+    extra.mkdir(parents=True)
+    telemetry = root/'telemetry'
+    telemetry.mkdir()
+    source_path = tmp_path/'source.json'
+    source_path.write_text(json.dumps({'root': str(root)}))
+    (root/'extra_samples.json').write_text(json.dumps({'samples': [
+        {'benchmark': 'physics_iq', 'case': '0003', 'root': str(extra), 'pid': 123}]}))
+    (extra/'progress.json').write_text(json.dumps({'samples': [
+        {'benchmark': 'physics_iq', 'case': '0003', 'state': 'generating', 'duration_seconds': 42,
+         'token_usage': {'input_tokens': 1234, 'cached_input_tokens': 1000, 'output_tokens': 234,
+                         'private': 'PRIVATE_TOKEN_DATA'},
+         'credits_consumed': 99, 'quota_weekly_consumed': 99, 'account': 'PRIVATE_ACCOUNT'}]}))
+    for name, percent in (('physics_iq_before.json', 69), ('quota_live_now.json', 70)):
+        (telemetry/name).write_text(json.dumps({'rate_limits': {'rateLimits': {
+            'primary': {'usedPercent': percent, 'windowDurationMins': 10080, 'resetsAt': 123},
+            'credits': {'balance': '100.0000'}}, 'accountId': 'PRIVATE_ACCOUNT'}}))
+    sidecar = tmp_path/'smoke.json'
+    sidecar.write_text(json.dumps({'model': 'gpt-6.2-astra', 'expected_rounds': 2, 'samples': [],
+        'round_summaries': [{'round': 2, 'execution_mode': 'parallel', 'weekly_change': 1, 'credits_change': 0}]}))
+    smoke = native_main_smoke(sidecar, source_path)
+    assert smoke['expected_rounds'] == 2 and len(smoke['samples']) == 8
+    assert len(smoke['additional_samples']) == 1
+    sample = smoke['additional_samples'][0]
+    assert sample['case'] == '0003' and 'round' not in sample
+    assert sample['state'] == 'generating' and sample['token_usage']['output_tokens'] == 234
+    assert sample['quota_weekly_consumed'] is sample['credits_consumed'] is None
+    assert smoke['cumulative_quota'] == {'remaining_before': 31, 'remaining_latest': 30,
+                                        'observed_change_pp': 1, 'credits_change': 0}
+    encoded = json.dumps(smoke)
+    assert 'PRIVATE' not in encoded and 'balance' not in encoded and str(root) not in encoded
+    panel = render(dashboard_status(native_main_smoke=smoke)).split('<section id="native-main-smoke">')[1].split('</section>')[0]
+    assert 'Physics-IQ 追加 0003' in panel and '并行阶段合计（含追加样本重叠）' in panel
+    assert '周剩余 31% → 30%' in panel and '观测变化 1.00 百分点' in panel
+    assert 'physics_iq_native_astra62_extra_0003%2Fgpt62-astra-native%2Fvision-agent%2Findex.json' in panel
+    assert panel.count('<tbody>') == 2 and panel.count('<tr>') == 11
+    (telemetry/'quota_live_now.json').write_text(json.dumps({'rate_limits': {'rateLimits': {
+        'primary': {'usedPercent': 1, 'windowDurationMins': 10080, 'resetsAt': 456}}}}))
+    assert native_smoke_cumulative_quota(source_path)['observed_change_pp'] is None
+    outside = tmp_path/'outside'
+    outside.mkdir()
+    (root/'extra_samples.json').write_text(json.dumps({'samples': [
+        {'benchmark': 'physics_iq', 'case': '0003', 'root': str(outside)}]}))
+    assert native_smoke_additional_samples(source_path) == []
