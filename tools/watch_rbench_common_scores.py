@@ -34,8 +34,16 @@ def manifest_info(run: Path, case: str, key: str, track: str = 'vision-agent') -
             raise ValueError('Missing predecessor for an infrastructure retry')
         record = json.loads(prior.read_text())
         authorization=m.get('retry_authorization')or{}
+        # Older owner-authorized near-complete rescues were bounded intervals;
+        # they predate the until_first_delivery field. They still select the
+        # first valid delivery, never a higher-scoring successful reroll.
+        start, end = authorization.get('start_attempt'), authorization.get('end_attempt')
+        bounded_rescue = (type(start) is int and type(end) is int and start <= m['attempt'] <= end
+                          and isinstance(authorization.get('authorized_utc'), str)
+                          and type(authorization.get('model_attempt_cap')) is int
+                          and authorization['model_attempt_cap'] > 0)
         owner_recovery=(authorization.get('exception')=='near_complete_rescue'
-                        and authorization.get('until_first_delivery') is True)
+                        and (authorization.get('until_first_delivery') is True or bounded_rescue))
         if (record.get('case_id') != case or record.get('model_key') != key
                 or record.get('status') != 'failed'
                 or not (infrastructure_failure(record) or owner_recovery)):

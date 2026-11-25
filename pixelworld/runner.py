@@ -376,7 +376,7 @@ def run_path(config: Benchmark, model: Model, track: str, case_id: str, attempt:
 
 def _prior_attempt_usage(config: Benchmark, model: Model, track: str, case_id: str,
                          attempt: int) -> tuple[int, bool, list[dict]]:
-    from .retries import budget_window
+    from .retries import budget_window, infrastructure_failure
     window = budget_window(config, model, track, case_id, attempt)
     floor = window["start_attempt"] if window else 1
     prior_output, prior_unknown = 0, False
@@ -392,6 +392,13 @@ def _prior_attempt_usage(config: Benchmark, model: Model, track: str, case_id: s
             prior_output += amount
             continue
         lower_bound = usage.get('reported_completed_request_output_tokens')
+        if infrastructure_failure(previous):
+            counted=lower_bound if type(lower_bound) is int else 0
+            prior_output+=counted
+            ignored.append({'attempt':index,'previous_status':previous.get('status'),
+                'usage_status':usage.get('status'),'counted_lower_bound_output_tokens':counted,
+                'reason':'receipt-proven infrastructure interruption; unknown usage retained in the original record'})
+            continue
         budget_terminal = previous.get('stop_reason') in (
             'output_token_budget_exhausted', 'token_usage_unavailable')
         if isinstance(lower_bound, int) and not isinstance(lower_bound, bool) and not budget_terminal:

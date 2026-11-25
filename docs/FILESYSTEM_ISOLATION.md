@@ -38,3 +38,17 @@ Run `pytest -q`, `pixelworld doctor --config CONFIG --require-sandbox`, and a
 single real generation smoke before applying the policy to a matrix. A config
 being accepted is not evidence that every tool or dependency works. API usage
 and output artifacts remain recorded by the external harness.
+# Temporary files
+
+The standard case-only profile grants writable scratch storage at workspace
+`.tmp/`; the runner sets `TMPDIR` and library cache paths there. It does not
+grant the host's shared `/tmp`. Creating an empty host directory alone does not
+make it private: an independent mount or namespace is needed before `/tmp`
+could safely become an allowed scratch path.
+
+`tools.verify_case_isolation` checks writable workspace scratch, blocked shared
+`/tmp` writes, blocked neighbor reads and symlink escapes, and disabled direct
+network access with the pinned Codex sandbox. The audit accepts workspace
+`.tmp` paths. Proven failed writes to nonexistent `/tmp` scratch targets are
+warnings; successful outside reads remain violations. Historical permissions
+are preserved when revalidating old outputs.

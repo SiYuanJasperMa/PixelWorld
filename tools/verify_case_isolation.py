@@ -13,6 +13,8 @@ from pixelworld.permissions import case_permissions, permission_args
 def verify(root: Path, codex: str):
     workspace = root/'workspace'; sub = workspace/'subdir'
     sub.mkdir(parents=True, exist_ok=True)
+    scratch = workspace / '.tmp'
+    scratch.mkdir(exist_ok=True)
     (workspace/'inside.txt').write_text('inside-ok')
     outside = root/'outside-canary.txt'; outside.write_text('synthetic-test-canary')
     link = workspace/'outside-link'; link.unlink(missing_ok=True); link.symlink_to(outside)
@@ -23,6 +25,14 @@ def verify(root: Path, codex: str):
 from pathlib import Path
 checks={}
 checks['internal_relative_read']=Path('../inside.txt').read_text()=='inside-ok'
+scratch=Path('../.tmp')/'isolation-probe.txt'
+scratch.write_text('scratch-ok')
+checks['workspace_scratch_read_write']=scratch.read_text()=='scratch-ok'
+try:
+ Path('/tmp/pixelworld-isolation-probe.txt').write_text('probe')
+ checks['shared_tmp_write']={'blocked':False}
+except OSError as e:
+ checks['shared_tmp_write']={'blocked':True,'errno':e.errno}
 for name,path in %r.items():
  try:
   Path(path).read_text();checks[name]={'blocked':False}
@@ -44,7 +54,8 @@ print(json.dumps(checks))
     result=subprocess.run(command,env=env,text=True,capture_output=True,timeout=90)
     if result.returncode:raise RuntimeError(result.stderr[-2000:])
     checks=json.loads(result.stdout.strip().splitlines()[-1])
-    passed=checks['internal_relative_read'] and all(x['blocked']for k,x in checks.items()if k!='internal_relative_read')
+    positive = ('internal_relative_read', 'workspace_scratch_read_write')
+    passed=all(checks[k] for k in positive) and all(x['blocked']for k,x in checks.items()if k not in positive)
     report={'pass':passed,'codex_version':subprocess.check_output([codex,'--version'],text=True).strip(),
             'profile':'case-only-v1','checks':checks,'scope':'synthetic native sandbox filesystem and direct-network probes; no agent API calls'}
     (root/'report.json').write_text(json.dumps(report,indent=2)+'\n')

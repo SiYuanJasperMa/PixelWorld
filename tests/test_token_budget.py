@@ -24,6 +24,27 @@ def cfg(tmp_path, **changes):
     return load_config(path)
 
 
+def test_proven_transport_interruption_does_not_block_recovery_budget(tmp_path):
+    from pixelworld.runner import _prior_attempt_usage
+    config=cfg(tmp_path,output_token_budget=1000000)
+    run=config.runs_root/'fake/text/case_0001_attempt_01';run.mkdir(parents=True)
+    original={'status':'failed','stop_reason':'token_usage_unavailable',
+              'cli_backend':'opencode','model':'fixture','reasoning_effort':'high',
+              'full_trace':{'transport_failure':{'schema':'pixelworld-transport-failure-v1',
+                 'model':'fixture','reasoning_effort':'high','wire_directory':'logs/native/responses_wire',
+                 'failures':[{'type':'ConnectionResetError','request_directory':'1',
+                              'request_sha256':'a'*64,'receipt_sha256':'b'*64,
+                              'transport_error_sha256':'c'*64}]}},
+              'validation':{'infra_error':'provider_connection_failed'},
+              'token_usage':{'status':'missing','output_tokens':None,'usage_events':0}}
+    path=run/'run_manifest.json';path.write_text(json.dumps(original));before=path.read_bytes()
+    used,unknown,ignored=_prior_attempt_usage(config,config.models[0],'text','0001',2)
+    assert used==0 and unknown is False and len(ignored)==1
+    assert path.read_bytes()==before
+    original['validation']={};original['full_trace']={};path.write_text(json.dumps(original))
+    assert _prior_attempt_usage(config,config.models[0],'text','0001',2)[1] is True
+
+
 def event(output, stamp, response='r', delta=None):
     return {'type': 'token_usage_record', 'timestamp': stamp,
             'payload': {'session_id': 's', 'turn_id': 't', 'response_id': response,

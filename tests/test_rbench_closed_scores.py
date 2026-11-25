@@ -79,3 +79,23 @@ def test_rbench_accepts_only_infra_predecessors(tmp_path):
     (prior/'run_manifest.json').unlink()
     with pytest.raises(ValueError,match='Missing predecessor'):
         manifest_info(run,'0001','m')
+
+
+def test_bounded_owner_rescue_accepts_first_delivery_but_not_successful_reroll(tmp_path):
+    from tools.watch_rbench_common_scores import manifest_info
+    root = tmp_path / 'm/vision-agent'
+    prior = root / 'case_0001_attempt_01'; prior.mkdir(parents=True)
+    run = root / 'case_0001_attempt_02'; run.mkdir()
+    original = {'status': 'failed', 'case_id': '0001', 'model_key': 'm', 'attempt': 1}
+    final = {'status': 'complete', 'case_id': '0001', 'model_key': 'm', 'attempt': 2,
+             'validation': {'pass': True}, 'media_contract': {'frames': 120, 'fps': 24, 'task_type': 'i2v'},
+             'retry_authorization': {'exception': 'near_complete_rescue', 'start_attempt': 2,
+                                     'end_attempt': 3, 'model_attempt_cap': 3,
+                                     'authorized_utc': '2026-11-25T09:12:44+00:00'}}
+    (prior / 'run_manifest.json').write_text(json.dumps(original))
+    (run / 'run_manifest.json').write_text(json.dumps(final))
+    assert manifest_info(run, '0001', 'm')['attempt'] == 2
+    original['status'] = 'complete'
+    (prior / 'run_manifest.json').write_text(json.dumps(original))
+    with pytest.raises(ValueError, match='reroll'):
+        manifest_info(run, '0001', 'm')

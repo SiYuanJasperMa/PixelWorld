@@ -1068,6 +1068,15 @@ PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混�
 {smoke_section}
 {study_section}
 {video_progress_section}
+<h2>成本与物理分 · 主实验和分析设置</h2>
+<p><a href="cost_score_plots.html">查看四个 benchmark 的成本—分数图及数据 →</a></p>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+<img style="width:100%" loading="lazy" src="cost_score_charts/physics_iq_scale.svg" alt="Physics-IQ cost versus score">
+<img style="width:100%" loading="lazy" src="cost_score_charts/rbench_scale.svg" alt="RBench cost versus score">
+<img style="width:100%" loading="lazy" src="cost_score_charts/phygenbench_scale.svg" alt="PhyGenBench cost versus score">
+<img style="width:100%" loading="lazy" src="cost_score_charts/pcve_scale.svg" alt="PCVE cost versus score">
+</div>
+<p class="small muted">横轴为单视频 API 成本估计，纵轴为当前物理分；70% 缓存为统一假设。只画全量评分与用量齐全的条件，不外推缺失分数。</p>
 <h2>视频质量 · 独立于物理分</h2><p>GPT-6.1-Sol 画质判分进度：{photo.get('completed_calls') or 0} / {photo.get('expected_calls') or 0} 次调用。</p>
 {photo_table}
 <h3>FVD（越低越好）</h3>
