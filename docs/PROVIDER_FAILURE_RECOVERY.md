@@ -16,10 +16,20 @@ python -m pixelworld.traex_responses_proxy \
   --port 9593 \
   --default-max-output-tokens 128000 \
   --lossless-input-images \
+  --spool-max-bytes 68719476736 \
+  --min-free-bytes 21474836480 \
   --queue-retry-delay 30
 ```
 
 Supply these paths privately. Credentials, model-catalog snapshots, raw API payloads, and run artifacts belong in cloud storage and must not be committed. Configure the fallback for the actual provider's capabilities; accepting the parameter in a short API probe does not prove a long response can reach that limit. Lossless input tiling addresses per-image byte limits without resizing or removing pixels.
+
+All standard bridge launches retain up to 64 GiB of durable logs and reserve 20 GiB of free disk space by default, including when these flags are omitted. The constants are shared across models in `pixelworld/log_storage.py`. This directory budget includes completed request logs; releasing an active request reservation does not remove its input/output files. A small directory budget can block inference even when the filesystem has free space. Copy and independently verify records before reclaiming closed logs.
+
+Check `/ready` before dispatching: it returns HTTP 503 when durable storage cannot admit a request of the configured maximum size. `/health` remains a liveness check and can return HTTP 200 with `ready=false`. These capacity checks are snapshots and do not reserve a slot or prove upstream availability. Follow them with a real admission probe and the unchanged one-case smoke; preserve and exempt explicit storage rejections as infrastructure failures.
+
+GLM-5.4's official model page advertises a 128K maximum output. The inspected gateway route still ended a response at 32,000 reasoning tokens after receiving `max_tokens=128000`, `reasoning_effort=high`, and the non-preset selector. This establishes an observed route limit, not its cause. Keep deployment limits, upstream parameter handling, and any intrinsic thinking cap unresolved until there is direct evidence; do not label all such truncations infrastructure failures. An adapter that reports native `length` as normal completion is a separate verified defect.
+
+A separate live control requested `max_tokens=1` with the non-preset selector and received 216 output tokens, including 17 reasoning tokens. The inspected native request retained the value `1`. Thus this route does not enforce that request field as an output ceiling; a successful HTTP response does not establish parameter support. This does not identify the upstream component responsible or prove that the 32,000-token stop has the same cause. Verify effective parameter behavior before changing a production configuration.
 
 Some backends still apply a smaller limit despite the requested value. Keep these provider limits separate from voluntary model completion and from an adapter that incorrectly claims completion. The optional `--use-request-parameters` flag changes the native preset selector; it requires an unchanged one-case smoke and is not a general solution to backend limits. Provide the standard shell tools, including `rg`, in the frozen runtime's permitted `bin` directory rather than relying on an unrelated host PATH.
 

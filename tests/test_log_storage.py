@@ -19,6 +19,30 @@ from pixelworld.retries import infrastructure_failure
 from tools.spool_api_logs import copy_record, prune_record
 
 
+def test_standard_capacity_is_shared_64gib_without_a_launcher_override():
+    import argparse
+    from pixelworld.log_storage import add_storage_arguments, resolve_storage_arguments
+    parser=argparse.ArgumentParser()
+    add_storage_arguments(parser)
+    args=resolve_storage_arguments(parser.parse_args([]),parser)
+    assert args.spool_max_bytes==64*1024**3
+    assert args.min_free_bytes==20*1024**3
+
+
+def test_explicit_legacy_async_does_not_silently_enable_both_storage_modes():
+    import argparse
+    from pixelworld.log_storage import add_storage_arguments, resolve_storage_arguments
+    parser=argparse.ArgumentParser()
+    add_storage_arguments(parser)
+    args=resolve_storage_arguments(parser.parse_args(['--async-cloud-logs']),parser)
+    assert args.spool_max_bytes==0
+    with pytest.raises(SystemExit):
+        resolve_storage_arguments(parser.parse_args([
+            '--async-cloud-logs','--spool-max-bytes',str(64*1024**3)]),parser)
+    with pytest.raises(SystemExit):
+        resolve_storage_arguments(parser.parse_args(['--spool-max-bytes','-1']),parser)
+
+
 def test_admission_reserves_capacity_across_concurrent_requests(tmp_path):
     budget=SpoolBudget(tmp_path,150*1024**2)
     budget.acquire('one',100,timeout=0)
@@ -26,6 +50,33 @@ def test_admission_reserves_capacity_across_concurrent_requests(tmp_path):
     with pytest.raises(StorageBackpressure):budget.acquire('three',100,timeout=0)
     budget.release('one')
     budget.acquire('three',100,timeout=0)
+
+
+def test_readiness_includes_retained_logs_and_active_reservations(tmp_path):
+    budget=SpoolBudget(tmp_path,100*1024**2)
+    assert budget.capacity_status(100)['ready']
+    budget.acquire('one',100,timeout=0)
+    status=budget.capacity_status(100)
+    assert not status['ready'] and status['active_reservations']==1
+    budget.release('one')
+    assert budget.capacity_status(100)['ready']
+    with (tmp_path/'retained.input.json').open('wb') as stream:
+        stream.truncate(40*1024**2)
+    status=budget.capacity_status(100)
+    assert not status['ready'] and status['used_bytes']==40*1024**2
+    with pytest.raises(StorageBackpressure):budget.acquire('two',100,timeout=0)
+    assert not budget.reservations
+
+
+def test_readiness_checks_free_disk_space_without_exposing_path(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    import pixelworld.log_storage as storage
+    budget=SpoolBudget(tmp_path,1024**3,min_free_bytes=100)
+    monkeypatch.setattr(storage.shutil,'disk_usage',lambda root:SimpleNamespace(free=64*1024**2))
+    status=budget.capacity_status()
+    assert not status['ready'] and status['snapshot_only']
+    assert str(tmp_path) not in json.dumps(status)
+    with pytest.raises(ValueError):budget.capacity_status(-1)
 
 
 def test_exact_logged_bytes_and_oversized_record_is_rejected(tmp_path):

@@ -91,6 +91,12 @@ reused. See [harness comparison](docs/HARNESS_COMPARISON.md) and
 
 ## Results, storage and publishing
 
+Standard TRAE API bridges share a 64 GiB log-directory capacity and a 20 GiB
+filesystem reserve across models, including when startup flags are omitted.
+Check `/ready` before dispatch; `/health` alone proves only that the listener is
+alive. See the [storage policy](docs/STORAGE_POLICY.md) and
+[provider recovery guide](docs/PROVIDER_FAILURE_RECOVERY.md).
+
 | Location | Contents |
 |---|---|
 | [GitHub](https://github.com/SiYuanJasperMa/PixelWorld) | Code, protocol documents and portable templates; all future source updates use this repository |

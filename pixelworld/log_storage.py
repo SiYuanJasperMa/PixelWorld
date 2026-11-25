@@ -9,6 +9,29 @@ import threading
 import time
 import uuid
 
+DEFAULT_PROXY_LOG_MAX_BYTES = 64 * 1024**3
+DEFAULT_PROXY_MIN_FREE_BYTES = 20 * 1024**3
+
+
+def add_storage_arguments(parser):
+    """One model-independent storage policy for standard bridge launches."""
+    parser.add_argument('--spool-max-bytes', type=int, default=None,
+                        help='Durable log directory capacity; standard default: 64 GiB')
+    parser.add_argument('--min-free-bytes', type=int, default=DEFAULT_PROXY_MIN_FREE_BYTES,
+                        help='Filesystem free-space reserve; default: 20 GiB')
+    parser.add_argument('--async-cloud-logs', action='store_true',
+                        help='Explicit legacy asynchronous diagnostics mode')
+
+
+def resolve_storage_arguments(args, parser):
+    if args.spool_max_bytes is None:
+        args.spool_max_bytes = 0 if args.async_cloud_logs else DEFAULT_PROXY_LOG_MAX_BYTES
+    if args.spool_max_bytes < 0 or args.min_free_bytes < 0:
+        parser.error('Storage capacity and free-space reserve must be nonnegative')
+    if args.async_cloud_logs and args.spool_max_bytes:
+        parser.error('Do not combine asynchronous diagnostics with durable spool admission')
+    return args
+
 
 class StorageBackpressure(RuntimeError):
     pass
@@ -32,6 +55,27 @@ class SpoolBudget:
             except FileNotFoundError:
                 continue  # The verified archival worker can remove a closed file.
         return total
+
+    def capacity_status(self, request_bytes: int = 0) -> dict:
+        """Inspect admission capacity without leasing it or starting inference.
+
+        Completed log files still occupy capacity after a request releases its
+        reservation. This is a snapshot; concurrent requests can change it.
+        """
+        if request_bytes < 0:
+            raise ValueError('Request size must be nonnegative')
+        reserve = request_bytes * 4 + 64 * 1024**2
+        with self.lock:
+            used = self.used_bytes()
+            reserved = sum(self.reservations.values())
+            free = shutil.disk_usage(self.root).free
+            return {'ready': used + reserved + reserve <= self.max_bytes - 1024**2
+                    and free >= self.min_free_bytes + reserve,
+                    'used_bytes': used, 'reserved_bytes': reserved,
+                    'max_bytes': self.max_bytes, 'free_bytes': free,
+                    'min_free_bytes': self.min_free_bytes,
+                    'request_bytes': request_bytes, 'required_reservation_bytes': reserve,
+                    'active_reservations': len(self.reservations), 'snapshot_only': True}
 
     def acquire(self, request: str, request_bytes: int, timeout: float = 60):
         # Cover both request encodings, response/events and atomic-write peaks.

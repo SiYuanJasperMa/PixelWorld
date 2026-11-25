@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from threading import Lock, Thread
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 import pytest
 
@@ -103,3 +104,23 @@ def test_native_parameter_override_is_explicit_and_preserves_requested_effort(tm
         assert seen[0]['is_preset'] is False
         assert seen[0]['reasoning_effort'] == 'high'
         assert seen[0]['max_tokens'] == 128000
+
+
+def test_health_does_not_confuse_storage_backpressure_with_request_readiness(tmp_path, monkeypatch):
+    from pixelworld.log_storage import SpoolBudget
+    with bridge(tmp_path, monkeypatch, 'stop') as (server, seen):
+        server.max_request_bytes=1024
+        server.spool_budget=SpoolBudget(tmp_path,100*1024**2)
+        url=f'http://127.0.0.1:{server.server_port}'
+        with urlopen(url+'/ready',timeout=5) as reply:
+            assert json.load(reply)['ready']
+        with (tmp_path/'retained.input.json').open('wb') as stream:
+            stream.truncate(40*1024**2)
+        with urlopen(url+'/health',timeout=5) as reply:
+            health=json.load(reply)
+            assert health['ok'] and not health['ready']
+        with pytest.raises(HTTPError) as rejected:
+            urlopen(url+'/ready',timeout=5)
+        assert rejected.value.code==503
+        assert not json.load(rejected.value)['ready']
+        assert not seen  # Neither endpoint starts upstream sampling.

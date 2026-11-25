@@ -6,6 +6,7 @@ import requests
 
 ROOT = Path(__file__).resolve().parent
 from pixelworld.provider_completion import native_output_limit, terminal_status
+from pixelworld.log_storage import add_storage_arguments, resolve_storage_arguments
 MODEL_CONFIG = {}
 MODELS = {}
 
@@ -157,7 +158,19 @@ class Bridge(BaseHTTPRequestHandler):
     def authorized(self):
         return secrets.compare_digest(self.headers.get('Authorization',''),'Bearer '+self.server.local_key)
     def do_GET(self):
-        if self.path=='/health':return self.json_reply(200,{'ok':True,'adapter':'trae-raw-chat-v1'})
+        if self.path in ('/health','/ready'):
+            budget=getattr(self.server,'spool_budget',None)
+            storage=None;ready=True
+            if budget is not None:
+                try:
+                    storage=budget.capacity_status(self.server.max_request_bytes)
+                    ready=storage['ready']
+                except OSError:
+                    storage={'ready':False,'error':'storage_status_unavailable'};ready=False
+            # Liveness alone must not imply that a model request can be admitted.
+            return self.json_reply(200 if self.path=='/health' or ready else 503,
+                {'ok':True if self.path=='/health' else ready,'adapter':'trae-raw-chat-v1',
+                 'ready':ready,'storage':storage})
         if not self.authorized():return self.json_reply(401,{'error':{'message':'Local proxy authentication required'}})
         if self.path in ('/v1/models','/models'):
             return self.json_reply(200,{'object':'list','data':[{'id':'traex/'+m,'object':'model','owned_by':'trae-custom-proxy',
@@ -387,10 +400,8 @@ def main():
     p.add_argument('--queue-retry-delay',type=float,default=0)
     p.add_argument('--max-request-bytes',type=int,default=30_000_000)
     p.add_argument('--default-max-output-tokens',type=int,default=32000)
-    p.add_argument('--spool-max-bytes',type=int,default=0)
-    p.add_argument('--min-free-bytes',type=int,default=0)
-    p.add_argument('--async-cloud-logs',action='store_true')
-    args=p.parse_args()
+    add_storage_arguments(p)
+    args=resolve_storage_arguments(p.parse_args(),p)
     global MODEL_CONFIG, MODELS
     MODEL_CONFIG={m['slug']:m for m in json.loads(args.model_catalog.read_text())['models']}
     MODELS={name:m['config_name'] for name,m in MODEL_CONFIG.items()}

@@ -5,28 +5,36 @@ evaluation results, rendering caches and publication checkouts belong on shared
 BN storage. A path under `/mnt/bn` must also resolve there: a symlink to a local
 disk does not satisfy this policy for permanent artifacts.
 
-The current API proxy logging mode uses a bounded asynchronous queue and writes
-proxy diagnostics directly to cloud storage. The native Codex archive is the
-primary full trajectory record; an interrupted proxy writer reports its pending
-state and cannot claim that duplicate diagnostics are complete. A separate
-worker compresses closed records, reads them back, checks SHA256, and only then
-removes unchanged sources. In-flight records are never pruned.
+All standard TRAE Responses bridge launches use the same model-independent
+storage defaults: **64 GiB per proxy log directory** and **20 GiB of filesystem
+free space reserved**. These defaults are defined once in
+`pixelworld/log_storage.py`; omitting launcher flags still applies them. A log
+directory can serve many runs. This is neither a per-run memory allocation nor
+an input/output token limit. Old 2 GiB launcher overrides must not be carried
+into new standard services.
 
-For this mode, use `--async-cloud-logs` with a cloud log directory. Do not also
-enable the old `--spool-max-bytes` admission mechanism: it tracks durable spool
-files but does not account for the asynchronous writer's pending cloud records.
-An observed 3.7 MiB request was rejected while writing its small active marker
-because both mechanisms were enabled. This is an infrastructure configuration
-failure, not a video or context-budget failure. The isolated Flash recovery
-retains the existing 256 MiB queue and 128 MiB request limit; it changes no model
-input, pixel task, output budget or official evaluator.
+The standard synchronous writer reserves request/response capacity before
+upstream sampling and records original API inputs, native requests, events and
+responses on cloud storage. Completed files occupy the directory budget until
+verified reclamation. Full native CLI trajectories and per-run verified archives
+are retained as well. A separate worker compresses closed records, reads them
+back, checks SHA256, and only then removes unchanged sources. In-flight records
+are never pruned.
 
-Historical synchronous durable-spool configurations remain supported separately.
-They reserve request/response capacity before upstream sampling, cap the local
-spool at 2 GiB, and require 20 GiB free root-disk space. Their independent worker
-archives and verifies bytes on cloud storage before reclamation. Do not change a
-live generation route by restarting its busy proxy; validate the isolated route
-first and arrange any later restart at an idle boundary.
+Check `/ready` before dispatch: HTTP 503 indicates insufficient durable log
+admission capacity. `/health` proves the listener is alive and may still return
+HTTP 200 with `ready=false`. A capacity snapshot is not a reservation or proof
+of upstream model availability. Read back a real API request and its usage after
+startup. A running older process does not acquire new defaults merely because
+source files changed; record its effective configuration and update it at an
+idle boundary after isolated validation.
+
+Explicit legacy `--async-cloud-logs` remains supported with its separate bounded
+queue. The CLI rejects combining this mode with durable spool admission: the
+spool does not account for pending asynchronous cloud records. An interrupted
+legacy writer reports its pending state and cannot claim the raw diagnostics
+are complete. Historical modes and receipts remain available; the standard
+launch policy uses synchronous durable logging.
 
 Storage backpressure and positively recorded `No space left on device` errors
 are infrastructure interruptions, excluded from the five-model-attempt limit.
