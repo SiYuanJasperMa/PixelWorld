@@ -114,12 +114,19 @@ def test_active_or_changed_records_are_never_pruned(tmp_path):
 def test_disk_exhaustion_and_backpressure_do_not_consume_model_attempts(tmp_path):
     events=tmp_path/'events.jsonl'
     for message in ['502 Bad Gateway: [Errno 28] No space left on device',
+                    '502 Bad Gateway: [Errno 122] Disk quota exceeded',
                     '503 storage_backpressure: durable log buffer full']:
         events.write_text(json.dumps({'type':'error','message':message}))
         reason=_provider_infra_failure(events)
         assert reason=='storage_infrastructure_failure'
         assert infrastructure_failure({'stop_reason':reason})
         assert not infrastructure_failure({'stop_reason':'output_token_budget_exhausted'})
+
+
+def test_quota_error_requires_a_real_error_event(tmp_path):
+    events=tmp_path/'events.jsonl'
+    events.write_text(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'Disk quota exceeded'}}))
+    assert _provider_infra_failure(events) is None
 
 
 def test_large_local_proxy_request_is_infrastructure_not_model_failure(tmp_path):

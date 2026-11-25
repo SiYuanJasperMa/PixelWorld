@@ -229,6 +229,8 @@ def _provider_infra_failure(events: Path) -> str | None:
         if event.get('type') not in ('error', 'turn.failed'):
             continue
         error = json.dumps(event, ensure_ascii=False).lower()
+        if 'disk quota exceeded' in error:
+            return 'storage_infrastructure_failure'
         if 'code 4055' in error or 'too many requests were sent in a short period' in error:
             return 'provider_rate_limited'
     if "request queue size is exceed" in text or "Code 4050" in text or '"code": 4050' in text:

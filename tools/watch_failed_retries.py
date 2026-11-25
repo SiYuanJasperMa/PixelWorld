@@ -76,9 +76,16 @@ def recover_audit_before_retry(config, apply):
     """Defer grants when a valid historical artifact needs writable-host repair."""
     from tools.revalidate_audit_failures import recover
     restored=[];pending=[]
+    try:groups=json.loads((config.runs_root/'status.json').read_text()).get('groups',{})
+    except (OSError,ValueError):groups={}
     for model in config.models:
         for track in model.tracks:
-            for path in (config.runs_root/model.key/track).glob('case_*/run_manifest.json'):
+            leaf=config.runs_root/model.key/track
+            group=groups.get(f'{model.key}/{track}',{})
+            if 'exhausted_cases' in group:
+                paths=[p for case in group['exhausted_cases'] for p in leaf.glob(f'case_{case}_attempt_*/run_manifest.json')]
+            else:paths=leaf.glob('case_*/run_manifest.json')
+            for path in paths:
                 try:
                     m=json.loads(path.read_text());v=m.get('validation') or {}
                     if m.get('status')!='failed' or not v.get('outside_workspace_command_paths'):continue
@@ -140,7 +147,7 @@ def main():
                 reports.append({"config": str(path), "phase": "explicitly_stopped"})
                 continue
             if args.audit_revalidate:
-                audit=recover_audit_before_retry(config,args.apply)
+                audit=recover_audit_before_retry(unfinished_retry_scope(config),args.apply)
                 if audit['pending_writable_host']:
                     reports.append({'config':str(path),'phase':'awaiting_audit_revalidation','audit_recovery':audit})
                     continue

@@ -70,3 +70,17 @@ def test_paused_harness_counts_documented_infrastructure_retries_as_pending(tmp_
     assert condition['paused'] is True
     assert condition['counts'] == {'complete': 1, 'running': 0, 'pending': 196, 'exhausted': 1}
     assert result['totals'] == {'complete': 1, 'running': 0, 'pending': 196, 'exhausted': 1, 'total': 198}
+
+
+def test_current_worker_source_is_joined_without_exposing_private_paths(tmp_path):
+    bundle=tmp_path/'bundle';web=tmp_path/'web';web.mkdir();(bundle/'configs').mkdir(parents=True)
+    (bundle/'bundle.json').write_text(json.dumps({'models':[{'key':'m','model':'model','analysis':True}]}))
+    (bundle/'configs/physics_iq_text_analysis.json').write_text('{}')
+    worker=tmp_path/'worker';worker.mkdir();cfg=tmp_path/'worker.json'
+    cfg.write_text(json.dumps({'runs_root':str(worker),'case_ids':[str(i) for i in range(198)],'models':[{'key':'gpt62-sol','tracks':['text']}]}))
+    (worker/'status.json').write_text(json.dumps({'updated_utc':'2026-11-26T00:00:00+00:00','groups':{'gpt62-sol/text':{'counts':{'complete':35,'running':1,'pending':162}}}}))
+    (bundle/'analysis_runtime_sources.json').write_text(json.dumps({'model_labels':{'gpt62-sol':'GPT-6.2-Sol'},'sources':[{'condition':'physics_iq_text','model_key':'gpt62-sol','config':str(cfg)}]}))
+    result=build(web,bundle);row=next(r for r in result['conditions'][0]['models'] if r['key']=='gpt62-sol')
+    assert row['complete']==35 and row['running']==1
+    assert result['conditions'][0]['updated_utc']=='2026-11-26T00:00:00+00:00'
+    assert str(worker) not in json.dumps(result)
