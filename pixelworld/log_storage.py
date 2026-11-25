@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import os
 from pathlib import Path
 import shutil
+import stat
 import threading
 import time
 import uuid
@@ -45,18 +47,66 @@ class SpoolBudget:
         self.min_free_bytes = min_free_bytes
         self.reservations: dict[str, int] = {}
         self.lock = threading.RLock()
+        # One process owns mutable records. Archived removals are conservative
+        # until explicit reconciliation or an admission needs reclaimed space.
+        self._owner = (self.root / '.spool_writer.lock').open('a')
+        try:
+            fcntl.flock(self._owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            self._owner.close()
+            raise RuntimeError('A durable log writer already owns this directory')
+        self._used = None
+        self._directory_stamp = None
+        self._known_names = set()
 
     def used_bytes(self):
-        total = 0
-        for p in self.root.iterdir():
-            try:
-                if p.is_file() and not p.is_symlink():
-                    total += p.stat().st_size
-            except FileNotFoundError:
-                continue  # The verified archival worker can remove a closed file.
-        return total
+        """Explicit reconciliation; ordinary managed writes update the ledger."""
+        with self.lock:
+            total = 0
+            names = set()
+            for entry in os.scandir(self.root):
+                names.add(entry.name)
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                    if stat.S_ISREG(info.st_mode):
+                        total += info.st_size
+                except FileNotFoundError:
+                    continue
+            self._used = total
+            self._known_names = names
+            self._directory_stamp = self.root.stat().st_mtime_ns
+            return total
 
-    def capacity_status(self, request_bytes: int = 0) -> dict:
+    def _current_usage(self, *, check_namespace=False):
+        if self._used is None:
+            return self.used_bytes()
+        if check_namespace and {entry.name for entry in os.scandir(self.root)} != self._known_names:
+            return self.used_bytes()
+        return self._used
+
+    def _record_change(self, difference, *, created=None, removed=None):
+        self._used += difference
+        if created is not None:
+            self._known_names.add(created)
+        if removed is not None:
+            self._known_names.discard(removed)
+        self._directory_stamp = self.root.stat().st_mtime_ns
+
+    def remove_record(self, name):
+        """Remove a managed transient marker, maintaining exact capacity."""
+        if Path(name).name != name:
+            raise ValueError('Log record must be a basename')
+        with self.lock:
+            self._current_usage()
+            target = self.root / name
+            try:
+                size = target.stat().st_size
+                target.unlink()
+            except FileNotFoundError:
+                return
+            self._record_change(-size, removed=name)
+
+    def capacity_status(self, request_bytes: int = 0, *, refresh: bool = True) -> dict:
         """Inspect admission capacity without leasing it or starting inference.
 
         Completed log files still occupy capacity after a request releases its
@@ -66,7 +116,7 @@ class SpoolBudget:
             raise ValueError('Request size must be nonnegative')
         reserve = request_bytes * 4 + 64 * 1024**2
         with self.lock:
-            used = self.used_bytes()
+            used = self.used_bytes() if refresh else self._current_usage(check_namespace=True)
             reserved = sum(self.reservations.values())
             free = shutil.disk_usage(self.root).free
             return {'ready': used + reserved + reserve <= self.max_bytes - 1024**2
@@ -75,7 +125,8 @@ class SpoolBudget:
                     'max_bytes': self.max_bytes, 'free_bytes': free,
                     'min_free_bytes': self.min_free_bytes,
                     'request_bytes': request_bytes, 'required_reservation_bytes': reserve,
-                    'active_reservations': len(self.reservations), 'snapshot_only': True}
+                    'active_reservations': len(self.reservations), 'snapshot_only': True,
+                    'accounting': 'reconciled' if refresh else 'single-writer-ledger'}
 
     def acquire(self, request: str, request_bytes: int, timeout: float = 60):
         # Cover both request encodings, response/events and atomic-write peaks.
@@ -83,8 +134,12 @@ class SpoolBudget:
         deadline = time.monotonic() + timeout
         while True:
             with self.lock:
-                used = self.used_bytes()
+                used = self._current_usage(check_namespace=True)
                 free = shutil.disk_usage(self.root).free
+                if used + sum(self.reservations.values()) + reserve > self.max_bytes - 1024**2:
+                    # Closed immutable logs may have been archived and removed.
+                    # Reconcile only at the boundary, never on every write.
+                    used = self.used_bytes()
                 if (used + sum(self.reservations.values()) + reserve
                         <= self.max_bytes - 1024**2
                         and free >= self.min_free_bytes + reserve):
@@ -106,7 +161,7 @@ class SpoolBudget:
             previous = target.stat().st_size if target.exists() else 0
             remaining = self.reservations[request]
             other = sum(self.reservations.values()) - remaining
-            if (len(data) > remaining or self.used_bytes() + len(data) + other
+            if (len(data) > remaining or self._current_usage() + len(data) + other
                     > self.max_bytes - 1024**2):
                 raise StorageBackpressure('storage_backpressure: record exceeds durable log reservation')
             temporary = target.with_name(target.name + '.' + uuid.uuid4().hex + '.tmp')
@@ -117,6 +172,10 @@ class SpoolBudget:
                     os.fsync(stream.fileno())
                 temporary.chmod(0o600)
                 temporary.replace(target)
+                self._record_change(len(data) - previous, created=name)
+            except BaseException:
+                self._used = None
+                raise
             finally:
                 temporary.unlink(missing_ok=True)
             self.reservations[request] -= max(0, len(data) - previous)
@@ -126,13 +185,21 @@ class SpoolBudget:
         with self.lock:
             target = self.root / 'requests.jsonl'
             if target.exists() and target.stat().st_size >= 8 * 1024**2:
-                target.rename(self.root / ('requests_' + uuid.uuid4().hex + '.jsonl'))
+                rotated = self.root / ('requests_' + uuid.uuid4().hex + '.jsonl')
+                target.rename(rotated)
+                self._known_names.discard(target.name)
+                self._known_names.add(rotated.name)
             remaining = self.reservations[request]
-            if len(data) > remaining or self.used_bytes() + len(data) > self.max_bytes:
+            if len(data) > remaining or self._current_usage() + len(data) > self.max_bytes:
                 raise StorageBackpressure('storage_backpressure: summary exceeds log reservation')
-            with target.open('ab') as stream:
-                stream.write(data)
-                stream.flush()
-                os.fsync(stream.fileno())
+            try:
+                with target.open('ab') as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except BaseException:
+                self._used = None
+                raise
+            self._record_change(len(data), created=target.name)
             self.reservations[request] -= len(data)
 

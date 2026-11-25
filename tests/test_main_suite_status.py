@@ -2,6 +2,21 @@ import json
 
 import pytest
 
+
+def test_matched_rbench_video_baseline_requires_protocol_and_complete_scope():
+    from tools.build_main_suite_status import rbench_baseline_score
+    from tools.evaluate_rbench_common_gpt61 import UPSTREAM
+    source = {'model': 'test-model', 'scorer_sha256': 'a' * 64, 'manifest_sha256': 'b' * 64}
+    report = {**source, 'protocol': 'rbench-common-official-gpt-branch-gpt61-sol-v1',
+              'judge': JUDGE, 'official_code_commit': UPSTREAM, 'full_common50': True,
+              'expected_cases': 50, 'scored_cases': 50, 'failed_cases': [], 'mean': 3.0,
+              'official_combined_gpt_qwen_leaderboard_equivalent': False}
+    assert rbench_baseline_score(report, source) == 3.0
+    assert rbench_baseline_score({**report, 'scored_cases': 49}, source) is None
+    assert rbench_baseline_score({**report, 'judge': 'different-judge'}, source) is None
+    assert rbench_baseline_score({**report, 'official_combined_gpt_qwen_leaderboard_equivalent': True}, source) is None
+    assert rbench_baseline_score(report, {**source, 'manifest_sha256': 'c' * 64}) is None
+
 from tools.build_main_suite_status import (
     BENCHMARKS, JUDGE, appearance_scores, harness_progress, legacy_score, native_main_smoke,
     native_smoke_additional_samples, native_smoke_cumulative_quota, native_smoke_weekly_deltas,

@@ -163,7 +163,7 @@ class Bridge(BaseHTTPRequestHandler):
             storage=None;ready=True
             if budget is not None:
                 try:
-                    storage=budget.capacity_status(self.server.max_request_bytes)
+                    storage=budget.capacity_status(self.server.max_request_bytes, refresh=False)
                     ready=storage['ready']
                 except OSError:
                     storage={'ready':False,'error':'storage_status_unavailable'};ready=False
@@ -382,7 +382,10 @@ class Bridge(BaseHTTPRequestHandler):
                 if writer is not None:
                     writer.remove_marker(rid+'.active.json')
                 else:
-                    (self.server.log_dir/(rid+'.active.json')).unlink(missing_ok=True)
+                    if budget:
+                        budget.remove_record(rid+'.active.json')
+                    else:
+                        (self.server.log_dir/(rid+'.active.json')).unlink(missing_ok=True)
                 if leased:budget.release(rid)
             print(json.dumps(record,ensure_ascii=False),flush=True)
             self.close_connection=True

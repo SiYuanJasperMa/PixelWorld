@@ -66,3 +66,19 @@ PNGs and traces remain on BN; evaluation never uses the web preview. Small RGB
 players and the already verified standalone 4K pixel smoke remain unchanged.
 Publication stages only changed paths, so an unrelated historical media backlog
 does not require a complete working-tree scan on every progress update.
+
+## Durable log accounting
+
+Each mutable proxy log directory has one writer, enforced with an advisory
+file lease. The writer counts existing files once and updates the byte ledger
+for each durable write and transient-marker deletion. Request admission and
+HTTP health checks use that ledger instead of scanning every historical file.
+The64GiB capacity,20GiB free-space reserve, request reservations, atomic
+replacement and fsync remain enforced.
+
+External archival may remove verified immutable closed records. The cached
+ledger then overestimates usage until a fresh capacity inspection or admission
+reconciliation at the capacity boundary. Do not append or restore files into
+a live leased directory; stop its writer first, or explicitly reconcile before
+resuming admission. `capacity_status()` performs a fresh inspection by default;
+`refresh=False` is the single-writer runtime snapshot.

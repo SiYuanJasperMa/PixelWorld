@@ -511,6 +511,25 @@ def rbench_score(report, model):
     return scored, finite_score(row.get('mean')) if full else None
 
 
+def rbench_baseline_score(report, source):
+    """Admit the matched GPT-only branch, never a combined-leaderboard score."""
+    from tools.evaluate_rbench_common_gpt61 import UPSTREAM
+    if not (all(isinstance(source.get(k), str) and re.fullmatch(r'[0-9a-f]{64}', source[k])
+                for k in ('scorer_sha256', 'manifest_sha256'))
+            and isinstance(source.get('model'), str) and report.get('model') == source['model']
+            and report.get('protocol') == 'rbench-common-official-gpt-branch-gpt61-sol-v1'
+            and report.get('judge') == JUDGE and report.get('official_code_commit') == UPSTREAM
+            and report.get('scorer_sha256') == source.get('scorer_sha256')
+            and report.get('manifest_sha256') == source.get('manifest_sha256')
+            and report.get('full_common50') is True
+            and report.get('expected_cases') == report.get('scored_cases') == 50
+            and report.get('failed_cases') == []
+            and report.get('official_combined_gpt_qwen_leaderboard_equivalent') is False):
+        return None
+    value = finite_score(report.get('mean'))
+    return value if value is not None and 1 <= value <= 5 else None
+
+
 def appearance_scores(report):
     from tools.evaluate_video_photographic_gpt61 import RUBRIC_SHA256, VERSION
 
@@ -648,6 +667,12 @@ def build(nightly, publication):
     groups = {(x.get('suite'), x.get('model_key')): x for x in cat.get('groups', []) if x.get('track') == TRACK}
     evaluation = nightly / 'evaluation'
     rbench = read(evaluation / 'rbench_common_gpt61_live/execution.json')
+    registered_rbench = read(evaluation / 'rbench_current_sources.json')
+    if registered_rbench.get('execution'):
+        current = read(Path(registered_rbench['execution']))
+        if (current.get('protocol'), current.get('judge')) == (
+                'rbench-common-official-gpt-branch-gpt61-sol-v1', JUDGE):
+            rbench = current
     phygen = read(evaluation / 'phygen_gpt61_sol_three_stage/summary.json')
     phygen_deepseek = read(evaluation / 'phygen_gpt61_sol_deepseek/summary.json')
     photo = read(evaluation / 'photographic_gpt61_existing_main/execution.json')
@@ -715,6 +740,9 @@ def build(nightly, publication):
             if item.get('kind') == 'published_reference':
                 scores[benchmark] = finite_score(item.get('value'))
         _, scores['phygenbench'] = phygen_score(phygen, baseline_keys[key])
+        source = registered_rbench.get('baselines', {}).get(key, {})
+        if source.get('summary'):
+            scores['rbench'] = rbench_baseline_score(read(Path(source['summary'])), source)
         references[key] = scores
     baseline_report = read(evaluation/'physics_iq_local_baselines/summary.json')
     baseline_rechecks = [{k: row.get(k) for k in ('cohort','model','status','partial_done','expected','source_count','selected_count','failed','missing_ids','official_full_score')}
@@ -723,6 +751,9 @@ def build(nightly, publication):
     video_progress = project_all_video_evaluation_progress(read(evaluation/'maintenance_20261125/progress_summary.json'))
     if native and not any(model == 'gpt62-astra-native' for model, _ in additional):
         rows['gpt62-astra-native'] = native_experiment_cells(native, video_progress)
+    native_rbench = rows.get('gpt62-astra-native', {}).get('rbench')
+    if native_rbench and native_rbench.get('counts', {}).get('complete') == 50:
+        native_rbench['scored'], native_rbench['score'] = rbench_score(rbench, 'gpt62-astra-native')
     return {'protocol': 'pixelworld-main-suite-20261124', 'updated_utc': utc_now(), 'models': rows,
             'references': references,
             'harness_progress': harness_progress(nightly/'controlled_harness_matrix'),
@@ -805,7 +836,7 @@ def render(status):
         value = scores.get(key)
         if value is None:
             return '<td>—</td>'
-        origin = 'GPT-6.1-Sol 重评' if key == 'phygenbench' else '论文 / 榜单参考'
+        origin = 'GPT-6.1-Sol 重评' if key in ('phygenbench', 'rbench') else '论文 / 榜单参考'
         return f'<td><b>{display_score(key, value)}</b><br><span class="small muted">{origin}</span></td>'
 
     heads = ''.join(f'<th><a href="{href or "videos.html?benchmark=" + key}">{label}</a><br>'

@@ -90,6 +90,46 @@ def test_exact_logged_bytes_and_oversized_record_is_rejected(tmp_path):
     assert not (tmp_path/'too_big.json').exists()
 
 
+def test_managed_logging_does_not_rescan_the_growing_directory(tmp_path, monkeypatch):
+    budget = SpoolBudget(tmp_path, 1024**3)
+    original = budget.used_bytes
+    scans = []
+    def scan():
+        scans.append(True)
+        return original()
+    monkeypatch.setattr(budget, 'used_bytes', scan)
+    for i in range(8):
+        request = str(i)
+        budget.acquire(request, 100, timeout=0)
+        budget.write(request, request + '.active.json', b'{}')
+        budget.write(request, request + '.input.json', b'complete original input')
+        budget.append_summary(request, {'id': request})
+        budget.remove_record(request + '.active.json')
+        budget.release(request)
+    status = budget.capacity_status(refresh=False)
+    assert len(scans) == 1
+    assert status['used_bytes'] == original()
+    assert all((tmp_path / (str(i) + '.input.json')).read_bytes() == b'complete original input' for i in range(8))
+
+
+def test_new_external_closed_files_trigger_capacity_reconciliation(tmp_path):
+    budget = SpoolBudget(tmp_path, 100 * 1024**2)
+    assert budget.capacity_status()['ready']
+    with (tmp_path / 'restored.json').open('wb') as stream:
+        stream.truncate(40 * 1024**2)
+    assert not budget.capacity_status()['ready']
+    assert budget.capacity_status()['used_bytes'] == 40 * 1024**2
+
+
+def test_mutable_spool_directory_has_one_writer(tmp_path):
+    owner = SpoolBudget(tmp_path, 100 * 1024**2)
+    with pytest.raises(RuntimeError, match='already owns'):
+        SpoolBudget(tmp_path, 100 * 1024**2)
+    owner._owner.close()
+    replacement = SpoolBudget(tmp_path, 100 * 1024**2)
+    assert replacement.capacity_status()['ready']
+
+
 def test_verified_compressed_archive_is_readable_and_reclaimed(tmp_path):
     import gzip
     spool=tmp_path/'spool';spool.mkdir()
