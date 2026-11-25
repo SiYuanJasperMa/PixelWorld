@@ -13,6 +13,17 @@ from tools.publish_dashboard_snapshot import snapshot, SHELLS, validate_script_s
 from tools.prepare_hf_delivery import sanitize
 from tools.hf_commit_budget import commit as dataset_commit
 from tools.prepare_hf_delivery import TRACE_FORMAT_VERSION
+from pixelworld.publication_endpoints import canonicalize_code_links
+
+MAIN_OWNED_FRONTEND = {'index.html', 'main_suite_status_v2.json', 'videos.html',
+    'results_browser.js', 'results_browser.css', 'physics_iq_baseline.html',
+    'rbench_common_manipulation.html', 'phygenbench.html', 'phygen_pixelspace.html', 'pcve_rigid.html'}
+
+
+def legacy_frontend_files(files):
+    """Legacy refreshes cannot overwrite the current main-suite browser."""
+    return {name: canonicalize_code_links(body) for name, body in files.items()
+            if name not in MAIN_OWNED_FRONTEND}
 
 def chart_evidence(source):
     """Only completed scores and their usage coverage trigger chart rebuilding."""
@@ -168,6 +179,7 @@ def hf_frontend(source, token_file):
             files[name]=(source/name).read_text()
     for path in (source/'charts').glob('*.svg'):
         files['charts/'+path.name]=path.read_text()
+    files=legacy_frontend_files(files)
     binary_assets={ 'charts/'+path.name:path for path in (source/'charts').glob('*.png') }
     validate_script_syntax(files)
     for name, content in files.items():
@@ -201,6 +213,7 @@ if __name__ == '__main__':
     parser.add_argument('--token-file', type=Path)
     parser.add_argument('--interval', type=int, default=120)
     parser.add_argument('--hf-only', action='store_true', help='Publish results to HF while keeping generated data out of the GitHub code repository')
+    parser.add_argument('--legacy-github-pages', action='store_true', help='Explicit opt-in for retired gh-pages delivery; current publication uses HF')
     args = parser.parse_args()
     with args.state.with_suffix('.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -214,7 +227,7 @@ if __name__ == '__main__':
                     ('hf', hf_progress, (args.source, args.token_file)),
                     ('charts', refresh_charts, (args.source,args.frontend_source or args.source)),
                     ('hf_frontend', hf_frontend, (args.frontend_source or args.source, args.token_file))):
-                    if name=='github' and args.hf_only:
+                    if name=='github' and (args.hf_only or not args.legacy_github_pages):
                         statuses[name]={'enabled':False,'reason':'Generated metadata/media are published to HF'}
                         continue
                     future = futures.get(name)

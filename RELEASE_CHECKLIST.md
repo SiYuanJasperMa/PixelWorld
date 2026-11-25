@@ -3,7 +3,8 @@
 Current release target: **four-benchmark main suite** (Physics-IQ Verified,
 RBench Common Manipulation, PhyGenBench T2V, PCVE-RigidBench), 720p / 24 FPS,
 Codex 0.169.0, `case-only-v1`, 1M output tokens per real attempt, at most five
-real attempts per case with infrastructure failures exempt.
+real attempts per case with infrastructure failures exempt; RBench's original
+allowance is one, and owner-authorized sparse-tail recovery is recorded separately.
 
 ## Code
 
@@ -42,7 +43,8 @@ real attempts per case with infrastructure failures exempt.
 - [ ] `tools.watch_hf_dataset_progress` mirrors `live/` progress to
   `HuggingFriends/PixelWorld`.
 - [ ] `tools.publish_main_suite_hf` has published the Space snapshot; the page
-  polls `main_suite_status_v2.json` and reloads when `updated_utc` changes.
+  polls the dataset `metadata/main_suite_status.json` every 60 seconds and
+  replaces its main content with the matching `dashboard/index.html` snapshot.
 - [ ] The dataset README, `metadata/protocol.json` and
   `metadata/main_suite_status.json` match the current protocol and snapshot.
 - [ ] The visual site is tested for playback and Trace links.

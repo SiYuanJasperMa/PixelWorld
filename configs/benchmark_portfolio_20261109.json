@@ -9,7 +9,7 @@
       "task_type": "i2v",
       "scope": "50 shared embodied generation prompts x Text/Vision-Agent",
       "status": "running",
-      "monitor": "https://siyuanmacs.github.io/pixelworld/robojudge.html",
+      "monitor": "https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html#legacy",
       "notes": "Original RoboJudge-9B scoring; Table8 comparability remains explicitly gated."
     },
     {
@@ -18,7 +18,7 @@
       "task_type": "i2v",
       "scope": "198 official BPP/I2V prompts x Text/Vision-Agent",
       "status": "running",
-      "monitor": "https://siyuanmacs.github.io/pixelworld/physics_iq_baseline.html",
+      "monitor": "https://huggingfriends-pixelworld-dashboard.static.hf.space/physics_iq_baseline.html",
       "notes": "Native v2 GPT rerun is separate from legacy-v1 reference results."
     },
     {
@@ -27,7 +27,7 @@
       "task_type": "video_edit",
       "scope": "129 official quantitative English source-video edits x Text/Vision",
       "status": "running",
-      "monitor": "https://siyuanmacs.github.io/pixelworld/pcve_rigid.html",
+      "monitor": "https://huggingfriends-pixelworld-dashboard.static.hf.space/pcve_rigid.html",
       "native_frames": 96,
       "native_fps": 24,
       "duration_seconds": 4,
@@ -51,7 +51,7 @@
         "Physical Properties": "Material",
         "Chemical Properties": "Material"
       },
-      "monitor": "https://siyuanmacs.github.io/pixelworld/phygen_pixelspace.html",
+      "monitor": "https://huggingfriends-pixelworld-dashboard.static.hf.space/phygenbench.html",
       "generation_resolution": [
         256,
         144
@@ -66,7 +66,7 @@
       "task_type": "i2v_extension",
       "scope": "Same 160 prompts paired with selected Qwen-Image-2.1 pre-action initial frames.",
       "status": "smoke_running",
-      "monitor": "https://siyuanmacs.github.io/pixelworld/phygen_pixelspace.html",
+      "monitor": "https://huggingfriends-pixelworld-dashboard.static.hf.space/phygenbench.html",
       "initializer": "Qwen-Image-2.1 initial frame only",
       "video_generation_model": "none",
       "generation_resolution": [
@@ -84,7 +84,7 @@
       "label": "VBench-2.0 five-dimension subset",
       "task_type": "t2v",
       "status": "archived_candidate",
-      "monitor": "https://siyuanmacs.github.io/pixelworld/vbench2_subset.html",
+      "monitor": "https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html#legacy",
       "notes": "Generated artifacts are preserved, but it is outside the current 4+1 main protocol."
     },
     {
@@ -92,7 +92,7 @@
       "label": "OpenVE-Bench smoke",
       "task_type": "video_edit",
       "status": "optional_smoke",
-      "monitor": "https://siyuanmacs.github.io/pixelworld/openve.html",
+      "monitor": "https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html#legacy",
       "notes": "Not launched as a main full benchmark."
     }
   ],
@@ -107,5 +107,8 @@
       "url": "https://siyuanmacs.github.io/physics-iq-pixel-preview/bench_smoke_20261106/index.html",
       "reason": "Exploratory smoke examples; not part of the five-benchmark main portfolio."
     }
-  ]
+  ],
+  "status": "legacy",
+  "current_suite": "docs/MAIN_SUITE_20261124.md",
+  "current_dashboard": "https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html"
 }

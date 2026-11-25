@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pixelworld-bench"
 version = "0.1.0"
-description = "Evaluate coding agents as direct RGB pixel world models on Physics-IQ Verified."
+description = "Evaluate coding agents as direct RGB pixel world models across physics and video benchmarks."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -16,6 +16,12 @@ dependencies = [
   "numpy>=1.26",
   "Pillow>=10.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/SiYuanJasperMa/PixelWorld"
+Documentation = "https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/INDEX.md"
+Dataset = "https://huggingface.co/datasets/HuggingFriends/PixelWorld"
+Dashboard = "https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "playwright>=1.48"]

@@ -1,4 +1,4 @@
-"""Sync monitor pages and bounded case previews into the stable site repository.
+"""Legacy Pages publisher; current delivery uses tools.publish_main_suite_hf.
 
 Optional Pages delivery keeps exact media on main and publishes a small HTML
 branch. The legacy heavy-site links remain available for historical artifacts.

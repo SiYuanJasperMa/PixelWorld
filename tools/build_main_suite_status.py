@@ -24,7 +24,7 @@ BENCHMARKS = {
     'pcve': ('pcve_standard720p24fps', 129, 'PES'),
 }
 ROSTER = ('gpt62-sol', 'gpt61-sol', 'gpt6-astra', 'gpt56-sol', 'gpt56-terra',
-          'gpt56-luna', 'deepseek-v41', 'seed21-pro', 'glm54')
+          'gpt56-luna', 'deepseek-v41', 'seed21-pro', 'glm54', 'gpt62-astra-native')
 COUNT_FIELDS = ('complete', 'running', 'pending', 'exhausted')
 JUDGE = 'traex/GPT-6.1-Sol'
 TRACK = 'vision-agent'
@@ -707,7 +707,7 @@ def build(nightly, publication):
                          for row in baseline_report.get('cohorts', [])]
     native = native_main_smoke(evaluation/'astra62_native_main_smoke.json', evaluation/'astra62_native_smoke_source.json')
     video_progress = project_all_video_evaluation_progress(read(evaluation/'maintenance_20261125/progress_summary.json'))
-    if native:
+    if native and not any(model == 'gpt62-astra-native' for model, _ in additional):
         rows['gpt62-astra-native'] = native_experiment_cells(native, video_progress)
     return {'protocol': 'pixelworld-main-suite-20261124', 'updated_utc': utc_now(), 'models': rows,
             'references': references,

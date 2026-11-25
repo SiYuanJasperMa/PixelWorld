@@ -1,91 +1,46 @@
 # PixelWorld
 
-PixelWorld evaluates a **coding agent as a direct RGB pixel world model**.
-Given a benchmark prompt and the permitted source pixels for I2V or editing,
-the agent writes runnable Python and emits every output frame. The generation
-path uses no image/video generator, learned renderer, physics engine or
-reference continuation.
+PixelWorld evaluates coding agents that write runnable programs and directly
+output RGB video frames. The generation path uses no image/video generator,
+learned renderer, physics engine or reference continuation.
 
 [Code](https://github.com/SiYuanJasperMa/PixelWorld) ·
-[HF dataset](https://huggingface.co/datasets/HuggingFriends/PixelWorld) ·
-[Live dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html) ·
+[Dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html) ·
+[Videos and traces](https://huggingface.co/datasets/HuggingFriends/PixelWorld) ·
 [Documentation](docs/INDEX.md)
 
-## Current main suite
+## Main experiments
 
-The authoritative current protocol is
-[Main suite, November 24](docs/MAIN_SUITE_20261124.md).
+| Benchmark | Task | Full scope | Main setting | Physical score |
+|---|---|---:|---|---|
+| Physics-IQ Verified | I2V | 198 cases | 1280×720 · 24 FPS · 5 s | Official Verified |
+| RBench Common Manipulation | I2V | 50 cases | Native aspect, short edge 720 · 24 FPS · 5 s | Official GPT branch, GPT-6.1-Sol adaptation |
+| PhyGenBench | T2V | 160 prompts | 1280×720 · 24 FPS · 5 s | GPT-6.1-Sol three-stage MCQ adaptation |
+| PCVE-RigidBench | V2V editing | 129 cases | 1280×720 · 24 FPS · 4 s | Official PES |
 
-| Benchmark | Scope | Output contract |
-|---|---|---|
-| Physics-IQ Verified | 198 I2V cases | 1280×720, 24 FPS, 120 frames / 5 s |
-| RBench Common Manipulation | 50 I2V cases | Native aspect ratio, 720-pixel short edge, 24 FPS, 120 frames / 5 s |
-| PhyGenBench | 160 official T2V prompts | 1280×720, 24 FPS, 120 frames / 5 s; photographic pixel-space target |
-| PCVE-RigidBench | Full 129-case V2V editing set | 1280×720, 24 FPS, 96 frames / 4 s; official editing timeline |
+The main track is **Vision** (`vision-agent`). Text is an analysis control.
+The harness uses **Codex 0.169.0**, `case-only-v1` isolation, requested high
+reasoning and **1M reported output tokens per real attempt**. The general
+allowance is five real attempts; RBench's original allowance is one. Recorded
+infrastructure failures are exempt. Owner-authorized sparse-tail recovery is
+tracked separately and stops at the first valid delivery; successful videos
+are never rerolled for a better score. See [retry accounting](docs/RETRY_POLICY.md).
 
-The main track is `vision-agent` (paper name: **Vision**). Text is a separate
-analysis control; Vision-Input is retained for explicit legacy configurations.
-Codex CLI **0.169.0**, `case-only-v1` isolation and requested high reasoning
-effort are pinned. Each real attempt has a **1,000,000 reported output-token**
-budget. The general cap is five real attempts per case; **RBench permits one
-real candidate per sample, with no quality rerolls or Best-of-N**.
-Infrastructure retries are recorded separately and do not spend these caps.
-
-The nine-model roster is GPT-6.2-Sol, GPT-6.1-Sol, GPT-6-Astra, GPT-5.6-Sol,
+The main roster is GPT-6.2-Sol, GPT-6.1-Sol, GPT-6-Astra, GPT-5.6-Sol,
 GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash, Seed-2.1-Pro-0915 and GLM-5.4.
-Inclusion in the roster does not imply a completed cohort. The dashboard
-reports generation, evaluation and publication progress separately.
+The dashboard reports their actual generation, evaluation and publication
+coverage. Native GPT-6.2-Astra is a separate cohort using Codex 0.172.0; its
+version and quota records are kept separate from the main harness.
 
-The dashboard also lists the **native GPT-6.2-Astra cohort** separately as
-`gpt62-astra-native`. It uses the same benchmark media contracts with native
-OpenAI authentication, **Codex 0.172.0 / high / default service tier**. This is
-an explicit version exception; do not pool it with the 0.169.0 harness baseline
-or identify it as the TRAEX GPT-6.2-Sol route. Its completed quota study has
-41 accepted runs, preserved original audit evidence, and
-[per-run token and quota records](https://huggingface.co/datasets/HuggingFriends/PixelWorld/blob/main/metadata/astra62_native_quota_final.json).
-Further native generation awaits the owner's budget decision.
+The authoritative scope, inputs and evaluator pins are in
+[the current main protocol](docs/MAIN_SUITE_20261124.md). Physical scores,
+GPT-6.1-Sol photographic-appearance scores and FVD are separate evaluations.
+PhyGenBench's MCQ adaptation is not the original probability-based metric.
 
-RBench uses the pinned upstream Common Manipulation GPT branch adapted to
-GPT-6.1-Sol. PhyGenBench uses the three-stage ordinal MCQ adaptation with
-GPT-6.1-Sol; older GPT-5.5 judgments remain separate. Complete benchmark scopes
-and matching evaluator provenance are required for full scores. Video-quality
-analysis is separate from physical QA.
+## Run a model
 
-The [harness analysis](docs/HARNESS_COMPARISON.md) compares Codex 0.169.0,
-OpenCode 1.19.6 and Claude Code 2.1.304 under the same controlled generation
-boundary. Adapter admission and cohort completion are recorded independently.
-Pi evidence and RoboJudge cohorts are historical. The
-[November 17 freeze](docs/FINAL_EXPERIMENT_PROTOCOL.md) documents earlier
-settings, including retained 100k-budget deliveries; it is not the current
-four-benchmark launch specification.
-
-## Retained analyses
-
-The analysis roster includes GPT-6.1-Sol, GPT-5.6-Sol, GPT-5.6-Terra,
-GPT-5.6-Luna, DeepSeek-V4.1-Flash and **GPT-6.2-Sol**. A prepared config or a
-queued condition is not proof that generation or scoring has completed.
-
-| Analysis | Frozen comparison |
-|---|---|
-| Text versus Vision | Physics-IQ, PhyGenBench and PCVE; reuse the main Vision cohort |
-| Spatial resolution | Physics-IQ: 480p / 720p / 1080p, fixed 24 FPS |
-| Temporal sampling | Physics-IQ: 12 / 24 / 48 FPS, fixed 720p and five-second duration |
-| Thinking effort | Physics-IQ: low / high / the model's verified higher or maximum setting |
-| Agent harness | Physics-IQ: Codex 0.169.0 / OpenCode 1.19.6 / Claude Code 2.1.304, the same model and 720p/24 FPS contract |
-| Video quality | Separate GPT-6.1-Sol appearance judgments and benchmark-specific FVD |
-
-RBench currently has its main Vision cohort; no Text or Vision-Input control
-has been admitted. Main 720p/24 FPS/high results are reused in the appropriate
-analyses. Physical QA, subjective appearance and FVD have separate score
-versions and scopes. Interrupted transport calls are not evidence of poor
-generation quality; preserve their original records and correct accounting
-only when the interruption is evidenced. Pi, DSH, retired Flash conditions and
-superseded quality settings remain historical.
-
-## Run or add a model
-
-Requirements: Linux, Python 3.11+, Codex CLI 0.169.0, `git`, `ffmpeg`, `uv`,
-and a working case sandbox.
+Requirements: Linux, Python 3.11+, Codex 0.169.0, `git`, `ffmpeg`, `uv` and
+working case isolation.
 
 ```bash
 git clone https://github.com/SiYuanJasperMa/PixelWorld.git
@@ -96,87 +51,78 @@ uv pip install -e ".[dev]"
 export PIXELWORLD_CODEX="$(command -v codex)"
 ```
 
-Obtain the frozen per-benchmark configs and licensed input manifests from the
-benchmark owner. Set `$BENCHMARK_CONFIG` to an ignored local config and
-`$SMOKE_CASE` to an actual case ID in that config. Generic example configs are
-interface examples and do not freeze the current suite.
+Obtain the four frozen configs and permitted input manifests from the owner.
+Set `$BENCHMARK_CONFIG`, `$MODEL_KEY` and `$SMOKE_CASE` to that supplied setup;
+[repository templates](configs/README.md) do not include licensed inputs.
 
 ```bash
 pixelworld doctor --config "$BENCHMARK_CONFIG" --require-sandbox
-pixelworld run-case --config "$BENCHMARK_CONFIG" \
-  --model my-model --track vision-agent --case "$SMOKE_CASE"
-# After checking the delivery and recording the admission gates:
+pixelworld run-case --config "$BENCHMARK_CONFIG"   --model "$MODEL_KEY" --track vision-agent --case "$SMOKE_CASE"
+# After validating the smoke, reuse it in the full matrix:
 pixelworld matrix run --config "$BENCHMARK_CONFIG"
 pixelworld matrix status --config "$BENCHMARK_CONFIG"
 ```
 
-Repeat with each of the four frozen configs. Keep the accepted smoke under the
-same configuration/run root so the matrix reuses it, especially for RBench.
-The current launch workflow is in [Add a model](docs/ADD_MODEL_RUNBOOK.md) and
-the [copy-paste handoff](docs/COLLABORATOR_HANDOFF.md).
-The two collaborator assignments are [Claude main experiments](docs/RUN_CLAUDE_MAIN.md)
-and [Kimi + Qwen main experiments](docs/RUN_KIMI_QWEN_MAIN.md): both cover only
-the four full Vision main benchmarks, not the analysis matrix.
-`tools/final_experiments.py` retains the older RoboJudge suite mapping and must
-not be used to launch this four-benchmark suite.
+| Assignment | Instructions |
+|---|---|
+| Claude model: four full Vision benchmarks, 537 cases | [Claude main experiments](docs/RUN_CLAUDE_MAIN.md) |
+| Kimi and Qwen: four full Vision benchmarks each, 1,074 tasks | [Kimi + Qwen main experiments](docs/RUN_KIMI_QWEN_MAIN.md) |
+| Another exact model/version | [Add-model runbook](docs/ADD_MODEL_RUNBOOK.md) · [Handoff template](docs/COLLABORATOR_HANDOFF.md) |
 
-## Results and publication
+These assignments use the Codex harness. Claude Code is a separate harness
+analysis. Retain all attempts, reuse compatible accepted videos and record
+missing usage as unavailable. Do not feed evaluator results into generation.
 
-GitHub holds code, protocol documents, config templates and small provenance
-records. Generated outputs are published to
-[HuggingFriends/PixelWorld](https://huggingface.co/datasets/HuggingFriends/PixelWorld).
-The [dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html)
-shows playable candidates and progress. See also
+## Analysis experiments
+
+| Analysis | Comparison |
+|---|---|
+| Text versus Vision | Physics-IQ, PhyGenBench and PCVE |
+| Resolution | Physics-IQ: 480p / 720p / 1080p, fixed 24 FPS |
+| FPS | Physics-IQ: 12 / 24 / 48 FPS, fixed 720p and five seconds |
+| Thinking effort | Physics-IQ: low / high / verified higher or maximum setting |
+| Harness | Physics-IQ: Codex 0.169.0 / OpenCode 1.19.6 / Claude Code 2.1.304 |
+| Video quality | Separate GPT-6.1-Sol appearance judgments and reference-pool FVD |
+
+The analysis roster includes GPT-6.1-Sol, GPT-5.6-Sol, GPT-5.6-Terra,
+GPT-5.6-Luna, DeepSeek-V4.1-Flash and GPT-6.2-Sol. Compatible main results are
+reused. See [harness comparison](docs/HARNESS_COMPARISON.md) and
 [analysis progress](https://huggingfriends-pixelworld-dashboard.static.hf.space/analyses.html).
 
-The dataset's `metadata/experiment_index.json` indexes the current suite;
-`metadata/main_suite_status.json` and `dashboard/index.html` are published in
-one commit and verified at that revision before the Space snapshot is updated.
-An open dashboard tab polls the dataset every 60 seconds and replaces its main
-content when a matching newer snapshot is available. The snapshot publisher
-checks for content changes every five minutes.
+## Results, storage and publishing
 
-Per-case details and sanitized full traces live under
-`live/<suite>/<model>/<track>/`; preview media lives under `data/assets/`.
-Older `data/` snapshots and `traces/` archives remain available for provenance.
-Public traces retain recorded native events, images, code and input/output
-text after sanitization. Licensed standalone benchmark inputs, evaluator
-references and private raw API archives are excluded.
+| Location | Contents |
+|---|---|
+| [GitHub](https://github.com/SiYuanJasperMa/PixelWorld) | Code, protocol documents and portable templates; all future source updates use this repository |
+| [HF dataset](https://huggingface.co/datasets/HuggingFriends/PixelWorld) | Generated previews, sanitized complete traces, case indices, scores and publication receipts |
+| [HF dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html) | Live main matrix, analysis progress, videos and trace browser |
+| Private shared storage | Original API inputs/outputs, full artifacts, exact configs and verified run archives |
 
-Publication coverage at `metadata/publication_coverage.json` compares current
-case hashes with completed upload receipts. It does not certify a full remote
-byte audit. Generation completion, a fresh status timestamp and complete media
-publication are different states. See [HF publishing](docs/HF_PUBLISHING.md)
-for the exporter, resumable uploader, progress watcher and verification steps.
+The main snapshot publisher checks every five minutes. Open tabs poll HF every
+60 seconds; generation, scoring and upload coverage are shown separately.
+See [HF publishing](docs/HF_PUBLISHING.md), [storage layout](docs/STORAGE_LAYOUT.md)
+and [repository/publication ownership](docs/REPOSITORY_AND_PUBLICATION.md).
 
-## Repository layout
+## Repository map
 
-```text
-pixelworld/            harness, validation, scheduling, media contract
-configs/               model templates and frozen example configs
-docs/                  protocols and operational documentation
-docs/archive/          superseded experiments and provenance
-baselines/             native baseline provenance
-tools/                 dashboard, publication, evaluation and audit utilities
-tests/                 harness regression tests
-```
+| Directory | Purpose |
+|---|---|
+| `pixelworld/` | Harness, media contracts, validation, isolation and scheduling |
+| `configs/` | Portable interface templates; frozen runtime configs are owner-supplied |
+| `tools/` | [Evaluation, monitoring, publication and archive utilities](tools/README.md) |
+| `tests/` | Harness and publication regression checks |
+| `docs/` | [Current protocols and operating guides](docs/INDEX.md) |
+| `docs/archive/` | Superseded experiments and historical provenance |
+| `baselines/` | Native video-model baseline provenance |
 
-Generated `data/`, `vendor/`, `runs/`, `site/` and `evaluation_outputs/` are
-ignored. Keep credentials, private endpoints, local absolute paths, generated
-videos/tensors, benchmark inputs, references/masks and scores out of Git.
-Durable private storage holds original run artifacts and raw API recordings;
-see [storage layout](docs/STORAGE_LAYOUT.md),
-[storage policy](docs/STORAGE_POLICY.md) and
-[recording contract](docs/DATA_RECORDING_CONTRACT.md).
+Generated data, run roots, checkpoints and site outputs are ignored. Credentials,
+private paths, standalone benchmark references, masks and raw API archives must
+stay out of Git. Historical RoboJudge, Pi/DSH and Flash work is archived;
+`tools/final_experiments.py` and the old Pages publisher are legacy utilities.
 
-## Upstream attribution
-
-Follow the upstream licenses and data terms:
-
-- [Physics-IQ](https://github.com/google-deepmind/physics-IQ-benchmark) and
-  [Verified dataset](https://huggingface.co/datasets/Anates-Labs-Research/Physics-IQ-Verified)
-- [RBench](https://huggingface.co/datasets/DAGroup-PKU/RBench) and
-  [ReVidgen](https://github.com/DAGroup-PKU/ReVidgen)
-- [PhyGenBench](https://github.com/OpenGVLab/PhyGenBench)
-- [PCVE-RigidBench dataset](https://huggingface.co/datasets/ccmoony/PCVE-RigidBench)
-- [OpenAI Codex CLI](https://github.com/openai/codex)
+Code is [Apache-2.0](LICENSE). Follow [upstream attribution](NOTICE) and the
+licenses for [Physics-IQ](https://github.com/google-deepmind/physics-IQ-benchmark),
+[RBench/ReVidgen](https://github.com/DAGroup-PKU/ReVidgen),
+[PhyGenBench](https://github.com/OpenGVLab/PhyGenBench),
+[PCVE-RigidBench](https://huggingface.co/datasets/ccmoony/PCVE-RigidBench) and
+[Codex](https://github.com/openai/codex).

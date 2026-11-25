@@ -1,70 +1,51 @@
-# PixelWorld documentation index
+# Documentation
 
-## Current main suite
+Current code: https://github.com/SiYuanJasperMa/PixelWorld
 
-- [MAIN_SUITE_20261124.md](MAIN_SUITE_20261124.md) — current Physics-IQ Verified
-  I2V198, RBench Common Manipulation I2V50, PhyGenBench T2V160 and full
-  PCVE-RigidBench V2V129; pinned evaluators and admission gates.
-- [ADD_MODEL_RUNBOOK.md](ADD_MODEL_RUNBOOK.md) — Codex 0.169.0, exact model
-  routing, supplied frozen configs, smoke reuse and per-benchmark matrix CLI.
-- [COLLABORATOR_HANDOFF.md](COLLABORATOR_HANDOFF.md) — copy-paste assignment
-  for one exact model version under the current suite.
-- [RUN_CLAUDE_MAIN.md](RUN_CLAUDE_MAIN.md) — Claude collaborator: four full
-  Vision main benchmarks, 537 official samples.
-- [RUN_KIMI_QWEN_MAIN.md](RUN_KIMI_QWEN_MAIN.md) — Kimi/Qwen collaborator: four
-  full Vision main benchmarks per model, 1,074 model-by-sample tasks in total.
-- [HARNESS_COMPARISON.md](HARNESS_COMPARISON.md) — separate Codex 0.169.0 /
-  OpenCode 1.19.6 / Claude Code 2.1.304 analysis and admission evidence; Pi legacy.
+Results: https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html
 
-## Local baseline evaluation
+## Run main experiments
 
-- [PHYSICS_IQ_BASELINE_REEVALUATION.md](PHYSICS_IQ_BASELINE_REEVALUATION.md) — local VideoGen subset reevaluation and published-score distinctions.
+| Task | Guide |
+|---|---|
+| Understand the four benchmarks and protocol pins | [Current main suite](MAIN_SUITE_20261124.md) |
+| Run an exact model with Codex 0.169.0 | [Add-model runbook](ADD_MODEL_RUNBOOK.md) |
+| Claude collaborator: 537 Vision samples | [Claude assignment](RUN_CLAUDE_MAIN.md) |
+| Kimi/Qwen collaborator: 537 samples each | [Kimi + Qwen assignment](RUN_KIMI_QWEN_MAIN.md) |
+| Hand a task to another collaborator | [Handoff template](COLLABORATOR_HANDOFF.md) |
+| Choose configuration templates | [Configuration guide](../configs/README.md) |
 
-## Publication and durable storage
+## Evaluate and interpret results
 
-- [HF_PUBLISHING.md](HF_PUBLISHING.md) — dataset/media/trace pipeline,
-  dataset-first snapshot readback, Space publication and open-tab refresh.
-- [HF_DATASET_README.md](HF_DATASET_README.md) and [HF_SPACE_README.md](HF_SPACE_README.md)
-  — tracked sources for the public dataset and dashboard repository cards.
-- [STORAGE_LAYOUT.md](STORAGE_LAYOUT.md) — private artifact ownership,
-  LF3data archive and local working/publication directories.
-- [STORAGE_POLICY.md](STORAGE_POLICY.md) — durable storage, archive readback
-  and verified pruning rules.
-- [DATA_RECORDING_CONTRACT.md](DATA_RECORDING_CONTRACT.md) — native originals,
-  normalized events, usage coverage and candidate/code provenance.
-- [RESULT_PROVENANCE.md](RESULT_PROVENANCE.md) — retained-result provenance
-  and configuration audits; older results require compatibility checks.
+| Task | Guide |
+|---|---|
+| Dispatch evaluation and monitor its coverage | [Automatic evaluation](AUTOMATIC_EVALUATION.md) |
+| Keep accepted runs, evaluator versions and partial scores distinct | [Result provenance](RESULT_PROVENANCE.md) |
+| Compare native video-model outputs | [Local baseline evaluation](PHYSICS_IQ_BASELINE_REEVALUATION.md) |
+| Compare Codex, OpenCode and Claude Code | [Harness comparison](HARNESS_COMPARISON.md) |
+| Review framework and analysis design | [Paper framework](FRAMEWORK_FOR_PAPER.md) |
 
-Public entry points:
-[HF dataset](https://huggingface.co/datasets/HuggingFriends/PixelWorld) ·
-[Dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html).
-Publication coverage compares current hashes with upload receipts; it is not
-an exhaustive remote byte audit.
+Physical scores, GPT-6.1-Sol appearance scores and reference-pool FVD are
+separate measurements. Full scores require complete, matching case coverage.
 
-## Generation and operations
+## Publish and operate
 
-- [CODEX.md](CODEX.md) — Codex routing, clean context and track boundaries.
-- [FILESYSTEM_ISOLATION.md](FILESYSTEM_ISOLATION.md) — `case-only-v1` isolation.
-- [WORKSPACE_AND_TASK.md](WORKSPACE_AND_TASK.md) — workspace and task contract.
-- [RETRY_POLICY.md](RETRY_POLICY.md) — general five-attempt cap and infra
-  exemption; the current RBench protocol overrides this with one real candidate.
-- [AUTOMATIC_EVALUATION.md](AUTOMATIC_EVALUATION.md) — scoring and GPU dispatch;
-  current suite evaluator pins take precedence over historical cohorts.
-- [MONITORING_RECOVERY.md](MONITORING_RECOVERY.md)
-- [SERVICE_RECOVERY.md](SERVICE_RECOVERY.md)
-- [PHYGENBENCH_PIXELSPACE_PAIRED_V2.md](PHYGENBENCH_PIXELSPACE_PAIRED_V2.md)
-- [T2V_PHOTOGRAPHIC_TARGET.md](T2V_PHOTOGRAPHIC_TARGET.md)
+| Task | Guide |
+|---|---|
+| Use the canonical GitHub, HF and local locations | [Repository and publication ownership](REPOSITORY_AND_PUBLICATION.md) |
+| Upload videos, sanitized complete traces and live progress | [HF publishing](HF_PUBLISHING.md) |
+| Update the dataset and Space cards | [Dataset README](HF_DATASET_README.md) · [Space README](HF_SPACE_README.md) |
+| Store and verify private originals | [Storage layout](STORAGE_LAYOUT.md) · [Storage policy](STORAGE_POLICY.md) |
+| Record inputs, outputs, tokens and candidate history | [Recording contract](DATA_RECORDING_CONTRACT.md) |
+| Retry failed deliveries without rerolling successful videos | [Retry policy](RETRY_POLICY.md) |
+| Check filesystem and task boundaries | [Isolation](FILESYSTEM_ISOLATION.md) · [Workspace contract](WORKSPACE_AND_TASK.md) |
+| Recover a stopped service | [Service recovery](SERVICE_RECOVERY.md) · [Monitoring recovery](MONITORING_RECOVERY.md) |
+| Locate current command-line utilities | [Tools guide](../tools/README.md) |
 
-## Paper and historical provenance
+## Historical material
 
-- [FRAMEWORK_FOR_PAPER.md](FRAMEWORK_FOR_PAPER.md) — framework and analysis design.
-- [FINAL_EXPERIMENT_PROTOCOL.md](FINAL_EXPERIMENT_PROTOCOL.md) — November 17
-  historical freeze, older model matrix, budgets and reuse provenance.
-- [MAIN_EXPERIMENT_PROTOCOL.md](MAIN_EXPERIMENT_PROTOCOL.md) — historical public
-  benchmark reference; consult the current suite for its RBench replacement.
-- [PHYSICS_BENCHMARK_CANDIDATES.md](PHYSICS_BENCHMARK_CANDIDATES.md) — benchmark scouting.
-- [archive/README.md](archive/README.md) — superseded experiments and protocols.
-
-RoboJudge results remain historical. `tools/final_experiments.py` retains the
-old suite mapping; use the current add-model runbook to launch four frozen
-per-benchmark configs rather than treating that legacy launcher as current.
+[Archive index](archive/README.md) contains superseded protocols and experiments.
+The [November 17 freeze](FINAL_EXPERIMENT_PROTOCOL.md),
+[old main protocol](MAIN_EXPERIMENT_PROTOCOL.md), RoboJudge, Pi/DSH and Flash
+records remain for provenance. Historical deployment URLs are not current
+publishing targets. Use the current main suite and add-model runbook for new runs.

@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 
 from pixelworld.util import atomic_json, utc_now
+from pixelworld.publication_endpoints import canonicalize_code_links
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE = re.compile(r'/mnt/|/home/tiger/|127\.0\.0\.1|\bhf_[A-Za-z0-9]{20,}|\bghp_[A-Za-z0-9]{20,}')
@@ -30,7 +31,7 @@ def main():
     for kind, repo, sources in specs:
         if args.target not in ('both', kind):
             continue
-        files = {name: path.read_bytes() for name, path in sources.items()}
+        files = {name: canonicalize_code_links(path.read_text()).encode() for name, path in sources.items()}
         for name, body in files.items():
             text = body.decode()
             if PRIVATE.search(text):

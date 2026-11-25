@@ -11,6 +11,7 @@ import time
 from urllib.request import urlopen
 
 from pixelworld.util import atomic_json, utc_now
+from pixelworld.publication_endpoints import canonicalize_code_links
 from tools.build_main_suite_status import build, render, project_all_video_evaluation_progress
 
 SPACE = 'HuggingFriends/PixelWorld-dashboard'
@@ -47,6 +48,7 @@ def payload(status):
     stylesheet = assets/'results_browser.css'
     if stylesheet.exists():
         files[stylesheet.name] = stylesheet.read_text()
+    files = {name: canonicalize_code_links(body) for name, body in files.items()}
     if any(PRIVATE.search(body) for body in files.values()):
         raise ValueError('Dashboard snapshot contains private data')
     stable = {key: val for key, val in status.items() if key != 'updated_utc'}
