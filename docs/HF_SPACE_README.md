@@ -11,7 +11,7 @@ pinned: false
 
 [Open the dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html) ·
 [Videos and traces](https://huggingface.co/datasets/HuggingFriends/PixelWorld) ·
-[Code and protocol](https://github.com/SiyuanMaCS/PixelWorld)
+[Code and protocol](https://github.com/SiYuanJasperMa/PixelWorld)
 
 This static Space displays the current four-benchmark suite: Physics-IQ
 Verified (I2V198), RBench Common Manipulation (I2V50), PhyGenBench (T2V160),
@@ -39,5 +39,5 @@ and the same-model Codex/OpenCode/Claude Code comparison, including GPT-6.2-Sol.
 Config admission, generation, scoring and publication are distinct states.
 Original API bodies and private archives stay outside this public Space.
 
-[Uploading and publishing](https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/HF_PUBLISHING.md) ·
-[Collaborator run instructions](https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/COLLABORATOR_HANDOFF.md)
+[Uploading and publishing](https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/HF_PUBLISHING.md) ·
+[Collaborator run instructions](https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/COLLABORATOR_HANDOFF.md)

@@ -107,7 +107,7 @@ def build(run,web,legacy):
           '<div class="card feature"><span class=badge>冻结原生 harness · 100k</span>'
           f'<div class=facts><div><strong>198</strong>每组任务</div><div><strong>{len(MODELS)}</strong>模型</div><div><strong>2</strong>Tracks</div></div>'
           '<p class=desc>256×144 · 4FPS · 20帧／5秒。模型自主检查和修订。旧50k及legacy运行明确单列来源。</p>'
-          '<a href="https://github.com/SiyuanMaCS/PixelWorld/tree/main/baselines/native_v2_100k">baseline代码与复现文档 →</a></div>'
+          '<a href="https://github.com/SiYuanJasperMa/PixelWorld/tree/main/baselines/native_v2_100k">baseline代码与复现文档 →</a></div>'
           '<h2 id=models>模型 × Track</h2><div class=scroll><table class=matrix><tr><th>模型</th><th>Text</th><th>Vision</th></tr>')
     for model,label in MODELS.items():
         body+=f'<tr><th>{label}</th>'

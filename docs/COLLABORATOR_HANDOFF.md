@@ -7,7 +7,7 @@ release commit and frozen configs. Commands are in
 ```text
 Run one additional exact-version PixelWorld model under the current main suite.
 
-Repository: https://github.com/SiyuanMaCS/PixelWorld
+Repository: https://github.com/SiYuanJasperMa/PixelWorld
 Required release commit: [OWNER PROVIDES; record before running]
 Required Codex CLI: 0.169.0 [record executable hash]
 Exact model/API ID and stable model key: [FILL IN; no family aliases]

@@ -13,8 +13,8 @@ tags:
 # PixelWorld: generated videos and agent traces
 
 [Dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html) ·
-[Code and current protocol](https://github.com/SiyuanMaCS/PixelWorld) ·
-[Upload guide](https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/HF_PUBLISHING.md)
+[Code and current protocol](https://github.com/SiYuanJasperMa/PixelWorld) ·
+[Upload guide](https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/HF_PUBLISHING.md)
 
 Coding agents write Python and emit RGB video frames directly. The current
 main suite contains Physics-IQ Verified (198 I2V cases), RBench Common

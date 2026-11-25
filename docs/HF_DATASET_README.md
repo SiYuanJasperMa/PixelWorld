@@ -13,8 +13,8 @@ tags:
 # PixelWorld: generated videos and agent traces
 
 [Dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html) ·
-[Code and current protocol](https://github.com/SiyuanMaCS/PixelWorld) ·
-[Upload guide](https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/HF_PUBLISHING.md)
+[Code and current protocol](https://github.com/SiYuanJasperMa/PixelWorld) ·
+[Upload guide](https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/HF_PUBLISHING.md)
 
 Coding agents write Python and emit RGB video frames directly. The current
 main suite contains Physics-IQ Verified (198 I2V cases), RBench Common
@@ -91,8 +91,8 @@ uploads. A separate progress watcher and dataset-first dashboard publisher
 refresh the index and paired HTML snapshot. The browser reads HF every 60
 seconds; snapshot publication checks every five minutes. Media and trace
 readiness are separate from generation completion. The complete workflow is
-[HF_PUBLISHING.md](https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/HF_PUBLISHING.md),
-with a [collaborator assignment](https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/COLLABORATOR_HANDOFF.md).
+[HF_PUBLISHING.md](https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/HF_PUBLISHING.md),
+with a [collaborator assignment](https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/COLLABORATOR_HANDOFF.md).
 
 Existing paths remain for reproducibility. RoboJudge, Pi and retired Flash
 artifacts are historical; they do not define the current main suite. Consult

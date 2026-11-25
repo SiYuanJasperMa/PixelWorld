@@ -13,7 +13,7 @@
     'phygenbench.html':'phygenbench','phygen_pixelspace.html':'phygenbench','pcve_rigid.html':'pcve'};
   const LABELS = {[NATIVE]:'GPT-6.2-Astra', 'gpt62-sol':'GPT-6.2-Sol','gpt61-sol':'GPT-6.1-Sol',
     'gpt6-astra':'GPT-6-Astra','gpt56-sol':'GPT-5.6-Sol','gpt56-terra':'GPT-5.6-Terra',
-    'gpt56-luna':'GPT-5.6-Luna','deepseek-v41':'DeepSeek-V4.1-Flash','seed21-pro':'Seed-2.1-Pro-0915'};
+    'gpt56-luna':'GPT-5.6-Luna','deepseek-v41':'DeepSeek-V4.1-Flash','seed21-pro':'Seed-2.1-Pro-0915','glm54':'GLM-5.4'};
   const safePath = value => typeof value === 'string' && /^[A-Za-z0-9_./-]+\.json$/.test(value) && !value.startsWith('/') && !value.split('/').includes('..');
   function benchmarkFor(value, filename='', index='') {
     if (BENCHMARKS[value]) return value;
@@ -29,7 +29,8 @@
       if (!benchmark) return true;
       if (group.model_key === NATIVE) return group.suite?.startsWith(benchmark + '_native_astra62_');
       const expected = BENCHMARKS[benchmark].suite;
-      return group.suite === expected || (benchmark === 'rbench' ? group.suite?.startsWith(expected + '_') : group.suite === expected + '_gpt62');
+      return group.suite === expected || (benchmark === 'rbench' ? group.suite?.startsWith(expected + '_') :
+        group.suite === expected + '_gpt62' || group.suite === expected + '_' + group.model_key);
     });
   }
   function assetURL(name, area='data') {

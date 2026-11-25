@@ -673,12 +673,12 @@ def protocol_audit_notice(run_root: Path, benchmark: str) -> str:
                 '<p>标准模式每个 prompt 要求 3 份独立视频；当前每个只有 1 份。'
                 '现有生成继续保留，当前单样本覆盖不能作为标准三样本结果。'
                 '不复制视频补齐；追加生成等待实验负责人决定。</p>'
-                '<a class="link" href="https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/VBENCH2_OFFICIAL_PROTOCOL_AUDIT.md">官方代码审计 →</a></div>')
+                '<a class="link" href="https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/VBENCH2_OFFICIAL_PROTOCOL_AUDIT.md">官方代码审计 →</a></div>')
     return ('<div class="card legacy"><h3>官方评测依赖待配置</h3>'
             '<p>160 条 caption 已与官方逐条核对。主榜组合使用 VQAScore、'
             'GPT-4o-0513、LLaVA-Interleave 和 InternVideo2；当前尚无已确认的 '
             'GPT-4o-0513 接口。开源分支分数不能直接替代主榜组合分数。</p>'
-            '<a class="link" href="https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/PHYGENBENCH_OFFICIAL_PROTOCOL_AUDIT.md">官方代码审计 →</a></div>')
+            '<a class="link" href="https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/PHYGENBENCH_OFFICIAL_PROTOCOL_AUDIT.md">官方代码审计 →</a></div>')
 
 
 def write_vbench_page(run_root: Path, destination: Path) -> None:
@@ -926,7 +926,7 @@ def write_phygen_pixelspace_page(run_root: Path, destination: Path) -> None:
             '<h2>已核验的 I2V 初态</h2><div class=card><p>四条 smoke 覆盖失重倒水、镜像、热相变、颜料混合。'
             '首帧均来自 pinned Qwen-Image-2.1 revision，并且下采样后的实际输入已读图复核。</p>'
             '<p><a class="button primary" href="phygen_qwen_init/index.html">查看 Qwen init frames →</a> '
-            '<a class="button" href="https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/PHYGENBENCH_PIXELSPACE_PAIRED_V2.md">完整协议 →</a></p></div>'
+            '<a class="button" href="https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/PHYGENBENCH_PIXELSPACE_PAIRED_V2.md">完整协议 →</a></p></div>'
             '<h2>旧实验</h2><div class=card><p>旧 PhyGenBench 与 VBench T2V 运行已转入 legacy；它们不参与此处结果。</p>'
             '<a class="button" href="phygenbench.html">旧 PhyGen 说明 →</a> <a class="button" href="vbench2_subset.html">旧 VBench 说明 →</a></div>')
     destination.write_text(page("PhyGenBench paired pixel-space protocol", body))
@@ -1005,7 +1005,7 @@ def write_openve_page(run_root: Path, destination: Path) -> None:
             '<p class="note">来源：官方论文 v1 Table 2。Runway Aleph 的 3.50 仅来自每类 30 条、共 240 条的子集，单独保留，不作为全 431 条的直接比较。论文模型采用各自官方输入帧数与训练分辨率；PixelWorld 的采样参数另行报告。</p>'
             '<p><a class="button" href="https://arxiv.org/html/2512.07826v1#S3.T2">官方论文 Table 2 ↗</a> '
             '<a class="button" href="https://huggingface.co/datasets/Lewandofski/OpenVE-Bench">官方 431 条数据 ↗</a> '
-            '<a class="button" href="https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/OPENVE_BENCH.md">复现实验说明 ↗</a></p>')
+            '<a class="button" href="https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/OPENVE_BENCH.md">复现实验说明 ↗</a></p>')
     destination.write_text(page('OpenVE-Bench · PixelWorld',body))
 
 
@@ -1023,8 +1023,8 @@ def write_physics_highres_page(run_root: Path, destination: Path) -> None:
         '<p>Scope：198 cases × 2 models × 2 tracks = 792 videos。'
         '这是分辨率/FPS敏感性分析，不替代主 Physics-IQ Verified 4FPS leaderboard。</p>'
         '<p class=note>输出契约：512×288 · 24 FPS · 120 frames。Frame 00 必须严格等于 512×288 的 prepared first_frame.png。</p>'
-        '<p><a class="button" href="https://github.com/SiyuanMaCS/PixelWorld/blob/main/docs/HIGH_RES_FPS_ABLATION.md">GitHub 协议说明 ↗</a> '
-        '<a class="button" href="https://github.com/SiyuanMaCS/PixelWorld/blob/main/configs/physics-iq-512w24fps.example.json">配置模板 ↗</a></p></div>'
+        '<p><a class="button" href="https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/HIGH_RES_FPS_ABLATION.md">GitHub 协议说明 ↗</a> '
+        '<a class="button" href="https://github.com/SiYuanJasperMa/PixelWorld/blob/main/configs/physics-iq-512w24fps.example.json">配置模板 ↗</a></p></div>'
         '<h2>Model × Track Progress</h2>'
         + model_track_matrix(run_root, "physics_iq_512w24fps_gpt_native", status, "physics_iq_512w24fps_gpt_native")
         + '<h2>配置</h2><div class=scroll><table>'

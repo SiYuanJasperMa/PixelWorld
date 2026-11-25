@@ -24,7 +24,7 @@ BENCHMARKS = {
     'pcve': ('pcve_standard720p24fps', 129, 'PES'),
 }
 ROSTER = ('gpt62-sol', 'gpt61-sol', 'gpt6-astra', 'gpt56-sol', 'gpt56-terra',
-          'gpt56-luna', 'deepseek-v41', 'seed21-pro')
+          'gpt56-luna', 'deepseek-v41', 'seed21-pro', 'glm54')
 COUNT_FIELDS = ('complete', 'running', 'pending', 'exhausted')
 JUDGE = 'traex/GPT-6.1-Sol'
 TRACK = 'vision-agent'
@@ -404,6 +404,30 @@ def count_config(config, model, expected):
     return {'counts': {key: counts[key] for key in COUNT_FIELDS}, 'last_delivery_utc': latest}
 
 
+def additional_main_configs(nightly):
+    """Read owner-registered extra main cohorts without machine-specific defaults."""
+    entries = read(nightly / 'additional_main_cohorts.json').get('configured', [])
+    result = {}
+    for entry in entries:
+        model, benchmark = entry.get('model_key'), entry.get('benchmark')
+        if model not in ROSTER or benchmark not in BENCHMARKS:
+            raise ValueError('Unknown additional main cohort')
+        key = (model, benchmark)
+        if key in result:
+            raise ValueError('Duplicate additional main cohort')
+        path = Path(entry['config'])
+        if not path.is_absolute():
+            path = nightly / path
+        config = load_config(path)
+        if config.model(model).tracks != (TRACK,):
+            raise ValueError('Additional main cohort must use Vision-Agent')
+        expected = BENCHMARKS[benchmark][1]
+        if len(config.case_ids) != expected or len(set(config.case_ids)) != expected:
+            raise ValueError('Additional main cohort has a different benchmark scope')
+        result[key] = config
+    return result
+
+
 def count_parallel_config(config, model, expected, mappings):
     """Join a worker's fresh PID-checked snapshot with preserved master cases."""
     entry = next((row for row in mappings.values() if row.get('source_config') == str(config.source)), None)
@@ -621,17 +645,23 @@ def build(nightly, publication):
     rconfigs = rbench_configs(nightly / 'rbench_full_dispatch')
     registry = read(nightly / 'gpt62_cohorts/dispatch_registry.json')['configured']
     gpt62 = {x['name']: load_config(Path(x['config'])) for x in registry if x['name'].endswith('_full')}
+    additional = additional_main_configs(nightly)
     parallel_source = read(nightly/'main_parallel_sources.json')
     parallel = read(Path(parallel_source['mapping'])) if isinstance(parallel_source.get('mapping'), str) else {}
+    parallel.update(read(nightly / 'additional_main_sources.json'))
     rows = {}
     for model in ROSTER:
         cells = {}
         for key, (suite, expected, metric) in BENCHMARKS.items():
             if key == 'rbench':
-                progress = count_parallel_config(*rconfigs[model], expected, parallel) if model in rconfigs else public_counts({}, expected)
+                if (model, key) in additional:
+                    cfg = additional[model, key]
+                    progress = count_parallel_config(cfg, cfg.model(model), expected, parallel)
+                else:
+                    progress = count_parallel_config(*rconfigs[model], expected, parallel) if model in rconfigs else public_counts({}, expected)
                 scored, score = rbench_score(rbench, model)
             else:
-                config = gpt62.get(key + '_full') if model == 'gpt62-sol' else None
+                config = additional.get((model, key)) or (gpt62.get(key + '_full') if model == 'gpt62-sol' else None)
                 progress = count_parallel_config(config, config.model(model), expected, parallel) if config else public_counts(groups.get((suite, model), {}), expected)
                 record = cohorts.get((suite, model), {})
                 if key == 'phygenbench':
@@ -694,7 +724,7 @@ LABELS = {
     'gpt62-sol': 'GPT-6.2-Sol', 'gpt61-sol': 'GPT-6.1-Sol', 'gpt6-astra': 'GPT-6-Astra',
     'gpt56-sol': 'GPT-5.6-Sol', 'gpt56-terra': 'GPT-5.6-Terra', 'gpt56-luna': 'GPT-5.6-Luna',
     'deepseek-v41': 'DeepSeek-V4.1-Flash', 'seed21-pro': 'Seed-2.1-Pro-0915',
-    'gpt62-astra-native': 'GPT-6.2-Astra',
+    'gpt62-astra-native': 'GPT-6.2-Astra', 'glm54': 'GLM-5.4',
 }
 HEADER = {
     'physics_iq': ('Physics-IQ Verified', 'I2V · 198 cases', 'physics_iq_baseline.html'),
@@ -715,6 +745,7 @@ def render(status):
         suite = BENCHMARKS[key][0]
         if key == 'rbench': suite += '_' + model
         elif model == 'gpt62-sol': suite += '_gpt62'
+        elif model == 'glm54': suite += '_glm54'
         index = quote(f'{suite}/{model}/{TRACK}/index.json', safe='')
         return f'videos.html?index={index}'
 
@@ -991,7 +1022,7 @@ def render(status):
 <title>PixelWorld · 主实验</title><link rel="stylesheet" href="formal.css"><style>.native-row th,.native-row td{{background:#f1f6ff}}.native-row th{{color:#24538c}}details summary{{font-size:14px}}table td{{min-width:180px}}table th:first-child{{min-width:180px}}</style><body><header><nav><strong><a href="index.html">PixelWorld</a></strong>
 <span><a href="analyses.html">分析进度</a><a href="cost_effects.html">成本与效果</a><a href="pixelworld-index.html">历史总览</a>
 <a href="robojudge.html">RoboJudge · 历史</a><a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld">视频与 Trace</a>
-<a href="https://github.com/SiyuanMaCS/PixelWorld">GitHub</a></span></nav></header>
+<a href="https://github.com/SiYuanJasperMa/PixelWorld">GitHub</a></span></nav></header>
 <main><p class="eyebrow">CODING AGENTS AS PIXEL WORLD MODELS</p><h1>主实验</h1>
 <p class="muted">Vision · 720p / 24 FPS · 数据快照 <time datetime="{escape(status['updated_utc'])}">{escape(status['updated_utc'])}</time></p>
 <div class="table"><table><thead><tr><th>模型</th>{heads}</tr></thead><tbody>{rows}</tbody></table></div>

@@ -642,7 +642,7 @@ def main():
     body += '<h2>公开模型参考</h2><details class=report><summary>展开已调查的公开 baseline</summary><p>直接引用公开分数；各模型的比较条件单独标注。</p><div class=scroll><table><tr><th>官方 setting</th><th>模型</th><th>公开分数</th><th>比较条件</th></tr>'
     for row in BASELINES:
         body += '<tr>' + ''.join(f'<td>{html.escape(cell)}</td>' for cell in row) + '</tr>'
-    body += ('</table></div></details><p class=desc><a href="https://github.com/SiyuanMaCS/PixelWorld">PixelWorld 代码库</a> · '
+    body += ('</table></div></details><p class=desc><a href="https://github.com/SiYuanJasperMa/PixelWorld">PixelWorld 代码库</a> · '
              '<a href="https://github.com/google-deepmind/physics-IQ-benchmark#physics-iq-verified-leaderboard">Physics-IQ 官方榜</a> · '
              '<a href="https://huggingface.co/spaces/Vchitect/VBench_Leaderboard">VBench 官方榜</a></p>')
     latest = max((r["latest"] for r in good), default="")

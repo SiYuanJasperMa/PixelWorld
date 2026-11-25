@@ -50,7 +50,7 @@ def build(run,web):
         body+=f'<article class=card><h3>{labels[key]}</h3>'
         if video:body+=player({**video,'pixels':f'rsi_assets/{key}/final/'+video['pixels_file'],'poster':f'rsi_assets/{key}/final/poster.png'})
         body+=f'<p><a href="rsi_assets/{key}/index.html">候选、检查图与完整工具轨迹 →</a></p></article>'
-    body+='</div><p><a href="https://github.com/SiyuanMaCS/PixelWorld/tree/main/research/rsi_v1">RSI任务提示与设计说明 →</a></p>'
+    body+='</div><p><a href="https://github.com/SiYuanJasperMa/PixelWorld/tree/main/research/rsi_v1">RSI任务提示与设计说明 →</a></p>'
     if (run/'analysis/rsi_v2_pair.json').exists():
         report2=json.loads((run/'analysis/rsi_v2_pair.json').read_text())
         labels2={'baseline':'Baseline · 原生自主生成','rsi_v2':'RSI v2 · 场景结构提示'}
@@ -70,7 +70,7 @@ def build(run,web):
             body+=f'<article class=card><h3>{labels2[key]}</h3>'
             if video:body+=player({**video,'pixels':f'rsi_assets/{asset_key}/final/'+video['pixels_file'],'poster':f'rsi_assets/{asset_key}/final/poster.png'})
             body+=f'<p><a href="rsi_assets/{asset_key}/index.html">每轮候选播放、检查图与工具轨迹 →</a></p></article>'
-        body+='</div><p><a href="https://github.com/SiyuanMaCS/PixelWorld/tree/main/research/rsi_v2">RSI v2任务提示与设计说明 →</a></p>'
+        body+='</div><p><a href="https://github.com/SiYuanJasperMa/PixelWorld/tree/main/research/rsi_v2">RSI v2任务提示与设计说明 →</a></p>'
     probe=run/'rsi_v3_started.json'
     if probe.exists():
         state=json.loads(probe.read_text());path=Path(state['run']);m=json.loads((path/'run_manifest.json').read_text()) if (path/'run_manifest.json').exists() else {}
@@ -89,7 +89,7 @@ def build(run,web):
             body+=f'<p>已记录不同RGB候选：{cost["distinct_rgb_candidates"]}；PA / IA：{quality(run,key)}</p>'
             if cost['output_tokens'] is not None:body+=f'<p>输出tokens：{cost["output_tokens"]}；最终墙钟：{cost["wall_seconds"]:.1f}秒</p>'
             body+=f'<p><a href="rsi_assets/{key}/index.html">候选、检查图与工具轨迹 →</a></p></article>'
-        body+='</div><p><a href="https://github.com/SiyuanMaCS/PixelWorld/tree/main/research/rsi_v3">RSI v3任务提示与实验设计 →</a></p>'
+        body+='</div><p><a href="https://github.com/SiYuanJasperMa/PixelWorld/tree/main/research/rsi_v3">RSI v3任务提示与实验设计 →</a></p>'
     body+='<p class=note>PA与IA是原版RoboJudge-9B对本开发样本的1–5评分，不是完整shared50均值，也不是排行榜分数。评测结果不进入任何baseline生成上下文。</p>'
     page=document('RSI development comparison · PixelWorld',body).replace('href="../index.html"','href="index.html"').replace('href="protocol.html"','href="bench_smoke_codex_20261109/protocol.html"')
     (web/'rsi_comparison.html').write_text(page)

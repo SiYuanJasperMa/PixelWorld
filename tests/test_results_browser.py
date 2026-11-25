@@ -69,3 +69,13 @@ const groups=['physics_iq_720p24fps','pcve_standard720p24fps'].map(suite=>({
 console.log(JSON.stringify(ui.selectGroups({groups},null,'gpt56-sol')));
 """)
     assert result == []
+
+
+def test_new_main_model_links_select_its_registered_suite():
+    result = evaluate("""
+const groups=['physics_iq_720p24fps_glm54','physics_iq_res1080_glm54'].map(suite=>({
+ suite,model_key:'glm54',track:'vision-agent',path:suite+'/glm54/vision-agent/index.json'}));
+console.log(JSON.stringify(ui.selectGroups({groups},'physics_iq','glm54')));
+""")
+    assert len(result) == 1
+    assert result[0]['suite'] == 'physics_iq_720p24fps_glm54'

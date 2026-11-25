@@ -26,7 +26,7 @@ def build(destination):
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PixelWorld-Flash · Cost and Quality</title><link rel="stylesheet" href="formal.css">
 <style>button{background:#eef3fb;color:#2456a3;border:1px solid #c6d4e9;padding:8px 13px;border-radius:7px;cursor:pointer;margin-right:8px}svg{width:100%;height:auto}.panel{padding:20px;border:1px solid #dfe5ee;border-radius:12px;background:#fff;margin:20px 0}</style></head><body>
-<header><nav><strong><a href="index.html">PixelWorld</a></strong><span><a href="index.html">主实验</a><a href="flash.html">Flash</a><a href="https://github.com/SiyuanMaCS/PixelWorld">GitHub</a><a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld">视频与 Trace</a></span></nav></header>
+<header><nav><strong><a href="index.html">PixelWorld</a></strong><span><a href="index.html">主实验</a><a href="flash.html">Flash</a><a href="https://github.com/SiYuanJasperMa/PixelWorld">GitHub</a><a href="https://huggingface.co/datasets/HuggingFriends/PixelWorld">视频与 Trace</a></span></nav></header>
 <main><p class="eyebrow">PHYSICS-IQ · HARNESS ANALYSIS</p><h1>PixelWorld-Flash</h1>
 <p class="muted">GPT-5.6-Luna · 720p / 24 FPS · 1M output-token budget</p>
 <p><button data-cohort="confirmation_native24">主设置评分 · 24 FPS</button><button data-cohort="submission_native24">提交反馈 · 配对测试</button><button data-cohort="boundary_native24">提交边界 · 配对测试</button><button data-cohort="prompt_native24">效率提示 · 配对测试</button><button data-cohort="confirmation">开发评分 · 4 FPS</button><button data-cohort="legacy">旧开发消融</button></p>

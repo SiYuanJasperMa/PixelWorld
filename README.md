@@ -6,7 +6,7 @@ the agent writes runnable Python and emits every output frame. The generation
 path uses no image/video generator, learned renderer, physics engine or
 reference continuation.
 
-[Code](https://github.com/SiyuanMaCS/PixelWorld) ·
+[Code](https://github.com/SiYuanJasperMa/PixelWorld) ·
 [HF dataset](https://huggingface.co/datasets/HuggingFriends/PixelWorld) ·
 [Live dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html) ·
 [Documentation](docs/INDEX.md)
@@ -31,8 +31,8 @@ budget. The general cap is five real attempts per case; **RBench permits one
 real candidate per sample, with no quality rerolls or Best-of-N**.
 Infrastructure retries are recorded separately and do not spend these caps.
 
-The eight-model roster is GPT-6.2-Sol, GPT-6.1-Sol, GPT-6-Astra, GPT-5.6-Sol,
-GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash and Seed-2.1-Pro-0915.
+The nine-model roster is GPT-6.2-Sol, GPT-6.1-Sol, GPT-6-Astra, GPT-5.6-Sol,
+GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash, Seed-2.1-Pro-0915 and GLM-5.4.
 Inclusion in the roster does not imply a completed cohort. The dashboard
 reports generation, evaluation and publication progress separately.
 
@@ -88,7 +88,7 @@ Requirements: Linux, Python 3.11+, Codex CLI 0.169.0, `git`, `ffmpeg`, `uv`,
 and a working case sandbox.
 
 ```bash
-git clone https://github.com/SiyuanMaCS/PixelWorld.git
+git clone https://github.com/SiYuanJasperMa/PixelWorld.git
 cd PixelWorld
 uv venv --python 3.11 .venv
 source .venv/bin/activate

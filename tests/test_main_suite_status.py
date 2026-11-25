@@ -11,6 +11,40 @@ from tools.build_main_suite_status import (
 )
 
 
+def test_additional_main_configs_use_registered_paths_and_exact_scope(tmp_path):
+    from tools.build_main_suite_status import additional_main_configs
+    config = {'case_ids': [f'{i:04d}' for i in range(1, 51)],
+              'models': [{'key': 'glm54', 'model': 'traex/GLM-5.4', 'tracks': ['vision-agent']}]}
+    path = tmp_path / 'glm.json'
+    path.write_text(json.dumps(config))
+    registry = {'configured': [{'model_key': 'glm54', 'benchmark': 'rbench', 'config': 'glm.json'}]}
+    (tmp_path / 'additional_main_cohorts.json').write_text(json.dumps(registry))
+    assert additional_main_configs(tmp_path)['glm54', 'rbench'].source == path
+    config['case_ids'].pop()
+    path.write_text(json.dumps(config))
+    with pytest.raises(ValueError, match='scope'):
+        additional_main_configs(tmp_path)
+
+
+def test_additional_main_rejects_duplicate_cohort_and_vision_input(tmp_path):
+    from tools.build_main_suite_status import additional_main_configs
+    assert additional_main_configs(tmp_path) == {}
+    config = {'case_ids': [f'{i:04d}' for i in range(1, 51)],
+              'models': [{'key': 'glm54', 'model': 'traex/GLM-5.4', 'tracks': ['vision-input']}]}
+    path = tmp_path / 'glm.json'
+    path.write_text(json.dumps(config))
+    row = {'model_key': 'glm54', 'benchmark': 'rbench', 'config': 'glm.json'}
+    registry = tmp_path / 'additional_main_cohorts.json'
+    registry.write_text(json.dumps({'configured': [row]}))
+    with pytest.raises(ValueError, match='Vision-Agent'):
+        additional_main_configs(tmp_path)
+    config['models'][0]['tracks'] = ['vision-agent']
+    path.write_text(json.dumps(config))
+    registry.write_text(json.dumps({'configured': [row, row]}))
+    with pytest.raises(ValueError, match='Duplicate'):
+        additional_main_configs(tmp_path)
+
+
 def test_appearance_requires_both_orders_on_the_full_benchmark():
     from tools.evaluate_video_photographic_gpt61 import RUBRIC_SHA256, VERSION
 

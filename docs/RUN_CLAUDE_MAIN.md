@@ -2,7 +2,8 @@
 
 你负责用 Claude 模型完成 PixelWorld 的四个主 benchmark，**每个 benchmark 全量、只跑 Vision 主实验**。每个模型共 537 个官方样本。记录实际使用的确切模型版本/API model ID。
 
-代码：<https://github.com/SiyuanMaCS/PixelWorld>  
+代码：<https://github.com/SiYuanJasperMa/PixelWorld>
+
 主协议：[MAIN_SUITE_20261124.md](MAIN_SUITE_20261124.md)  
 运行步骤：[ADD_MODEL_RUNBOOK.md](ADD_MODEL_RUNBOOK.md)  
 结果页：<https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html>
