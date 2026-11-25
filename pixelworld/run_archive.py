@@ -42,7 +42,7 @@ def _closed_files(run):
                 if p.is_file() and not p.is_symlink():yield p.relative_to(run).as_posix(),p
 
 
-def _wire_files(run, log_root, request_ids=()):
+def _wire_files(run, log_root, request_ids=(), fallback_roots=()):
     ids=list(dict.fromkeys(rid for rid in request_ids if isinstance(rid, str) and RID.fullmatch(rid)))
     ledger=run/'recording/api_usage.jsonl'
     if ledger.is_file():
@@ -53,13 +53,20 @@ def _wire_files(run, log_root, request_ids=()):
                 rid=x.get('response_id')
                 if isinstance(rid,str) and RID.fullmatch(rid) and rid not in ids:ids.append(rid)
     files=[]; roles={}
+    roots=([Path(log_root)] if log_root is not None else []) + [Path(p).resolve(strict=True) for p in fallback_roots]
+    if any(not p.is_dir() for p in roots):
+        raise ValueError('Proxy log roots must be directories')
     for rid in ids:
         roles[rid]=[]
-        if log_root is None:continue
         for suffix in WIRE_ROLES:
-            p=log_root/f'{rid}.{suffix}'
-            if p.is_file() and not p.is_symlink() and p.resolve()==p:
-                files.append((f'api_originals/{rid}/{suffix}',p));roles[rid].append(suffix)
+            matches=[]
+            for root in roots:
+                p=root/f'{rid}.{suffix}'
+                if p.is_file() and not p.is_symlink() and p.resolve()==p:matches.append(p)
+            if matches:
+                if len(matches)>1 and len({sha256(p) for p in matches})!=1:
+                    raise ValueError('Conflicting original API records across authorized roots')
+                files.append((f'api_originals/{rid}/{suffix}',matches[0]));roles[rid].append(suffix)
     return files,roles
 
 
@@ -152,7 +159,7 @@ def _archive_identity(run, manifest_sha256, wire_files, extras, request_ids=()):
     return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest(),value
 
 
-def latest_archive_receipt(run, root, *, benchmark, proxy_logs=None, request_ids=(), extra_files=None):
+def latest_archive_receipt(run, root, *, benchmark, proxy_logs=None, request_ids=(), extra_files=None, proxy_log_fallbacks=()):
     """Return only the exact current archive; changed revisions remain available."""
     run=Path(run).resolve();root=Path(root).absolute()
     manifest=json.loads((run/'run_manifest.json').read_text())
@@ -166,7 +173,7 @@ def latest_archive_receipt(run, root, *, benchmark, proxy_logs=None, request_ids
     old=json.loads(path.read_text());target=path.parent/'artifacts.tar.gz'
     if target.is_symlink() or not target.is_file() or target.stat().st_size!=old.get('archive_bytes'):
         raise ValueError('Existing verified archive is missing or changed')
-    wire,roles=_wire_files(run,proxy_logs,request_ids);extras=_external_files(extra_files)
+    wire,roles=_wire_files(run,proxy_logs,request_ids,proxy_log_fallbacks);extras=_external_files(extra_files)
     identity,_=_archive_identity(run,sha256(run/'run_manifest.json'),wire,extras,roles)
     if old.get('archive_identity')==identity:return old
     # Compatibility for earlier receipts with no additional attachments.
@@ -179,7 +186,7 @@ def latest_archive_receipt(run, root, *, benchmark, proxy_logs=None, request_ids
 
 
 def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Path|None=None,
-                           prune_reproducible:bool=False, request_ids=(), extra_files=None) -> dict:
+                           prune_reproducible:bool=False, request_ids=(), extra_files=None, proxy_log_fallbacks=()) -> dict:
     """Pin an attempt in a numbered per-model directory, then independently read back payloads."""
     run,root=run.resolve(),root.absolute()
     if root.resolve()!=root or root.is_relative_to(run) or run.is_relative_to(root):
@@ -190,7 +197,7 @@ def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Pat
     if proxy_logs is not None:
         proxy_logs=proxy_logs.resolve(strict=True)
         if not proxy_logs.is_dir():raise ValueError('Proxy log root must be a directory')
-    wire_files,roles=_wire_files(run,proxy_logs,request_ids)
+    wire_files,roles=_wire_files(run,proxy_logs,request_ids,proxy_log_fallbacks)
     extras=_external_files(extra_files)
     manifest_hash=sha256(run/'run_manifest.json')
     identity,identity_fields=_archive_identity(run,manifest_hash,wire_files,extras,roles)
@@ -208,7 +215,7 @@ def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Pat
             if previous_path.is_file():
                 previous=json.loads(previous_path.read_text())
                 exact=latest_archive_receipt(run,root,benchmark=benchmark,proxy_logs=proxy_logs,
-                                            request_ids=request_ids,extra_files=extra_files)
+                                            request_ids=request_ids,extra_files=extra_files,proxy_log_fallbacks=proxy_log_fallbacks)
                 if exact is not None:
                     if prune_reproducible:
                         archive=previous_path.parent/'artifacts.tar.gz'

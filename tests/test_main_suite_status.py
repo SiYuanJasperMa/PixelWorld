@@ -445,7 +445,8 @@ def test_native_formal_row_deduplicates_batches_without_inventing_full_scores():
     assert 'class="native-row"' in html and 'Codex 0.172.0 · high · default' in html
     assert 'physics_iq_baseline.html?model=gpt62-astra-native' in html
     assert '<details id="native-history"><summary>' in html
-    assert '<b>3 / 198</b>' in html
+    assert '<b>已处理 3 / 198</b>' in html
+    assert '成功 3 · 确认失败 0' in html
 def test_native_pcve_keeps_the_official_zero_based_case_ids():
     from tools.build_main_suite_status import native_experiment_cells
     rows = [{'benchmark':'pcve','case':case,'state':'complete'}
@@ -595,3 +596,21 @@ def test_all_video_progress_keeps_record_hash_and_binding_units_separate():
     assert '画质评分绑定 140' in panel and '物理评分绑定 75' in panel
     assert 'metadata/all_video_evaluation_progress.json' in panel and '<details>' in panel
     assert '<b>4.42</b>' in html and '976 / 976' in html
+
+
+def test_progress_counts_terminal_failures_as_processed_and_distinguishes_pending():
+    from tools.build_main_suite_status import generation_bar,generation_phase
+    closed={'complete':40,'exhausted':10,'running':0,'pending':0}
+    assert generation_phase(closed,50)=='已结束（含失败）'
+    bar=generation_bar(closed,50)
+    assert 'data-state="exhausted"' in bar and 'background:#dc2626' in bar
+    assert 'width:20.00%' in bar and '确认失败 10' in bar
+    assert generation_phase({'complete':40,'exhausted':0,'running':1,'pending':9},50)=='运行中'
+    assert generation_phase({'complete':40,'exhausted':0,'running':0,'pending':10},50)=='待继续生成'
+    assert generation_phase({'complete':50,'exhausted':0,'running':0,'pending':0},50)=='全部成功'
+
+
+def test_paper_roster_retains_new_astra_and_retires_old_astra():
+    from tools.build_main_suite_status import ROSTER
+    assert 'gpt6-astra' not in ROSTER
+    assert 'gpt62-astra-native' in ROSTER

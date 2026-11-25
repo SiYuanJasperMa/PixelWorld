@@ -181,3 +181,26 @@ def test_late_prune_independent_readback_preserves_original_receipt(tmp_path):
     assert receipt.read_bytes() == original
     assert not (workspace/'pixels.packing.npy').exists()
     assert (workspace/'pixels.npz').is_file()
+
+
+def test_proxy_cutover_preserves_old_and_new_request_originals(tmp_path):
+    run=completed_run(tmp_path)
+    (run/'recording/api_usage.jsonl').write_text(''.join(json.dumps({'response_id':rid})+'\n' for rid in ['resp_old','resp_new']))
+    old=tmp_path/'old';old.mkdir();new=tmp_path/'new';new.mkdir()
+    for source,rid in [(old,'resp_old'),(new,'resp_new')]:
+        (source/(rid+'.input.json')).write_bytes(b'original input')
+        (source/(rid+'.response.json')).write_bytes(b'original response')
+    archive=tmp_path/'archive'
+    receipt=archive_closed_attempt(run,archive,benchmark='physics_iq',proxy_logs=new,proxy_log_fallbacks=[old])
+    assert receipt['wire_pair_count']==2
+    assert set(receipt['known_request_roles'])=={'resp_old','resp_new'}
+    assert archive_closed_attempt(run,archive,benchmark='physics_iq',proxy_logs=new,proxy_log_fallbacks=[old])==receipt
+    assert all((p/(rid+'.response.json')).exists() for p,rid in [(old,'resp_old'),(new,'resp_new')])
+
+
+def test_proxy_cutover_rejects_conflicting_originals(tmp_path):
+    run=completed_run(tmp_path);old=tmp_path/'old';old.mkdir();new=tmp_path/'new';new.mkdir()
+    (old/'resp_test.input.json').write_bytes(b'old original')
+    (new/'resp_test.input.json').write_bytes(b'conflicting original')
+    with pytest.raises(ValueError,match='Conflicting original API'):
+        archive_closed_attempt(run,tmp_path/'archive',benchmark='physics_iq',proxy_logs=new,proxy_log_fallbacks=[old])

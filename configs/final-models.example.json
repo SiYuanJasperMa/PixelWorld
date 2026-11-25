@@ -33,12 +33,6 @@
       "analysis": true
     },
     {
-      "key": "gpt6-astra",
-      "model": "traex/GPT-6-Astra",
-      "reasoning_effort": "high",
-      "analysis": false
-    },
-    {
       "key": "seed21-pro",
       "model": "traex/Seed-2.1-Pro-0915",
       "reasoning_effort": "high",

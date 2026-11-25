@@ -108,7 +108,7 @@ def discover_registered(configs: dict[Path, str]):
                     yield path, manifest, scope, config_path
 
 
-def _existing(root: Path, scope: str, path: Path, manifest: dict, *, proxy=None, request_ids=(), extra_files=None) -> str | None:
+def _existing(root: Path, scope: str, path: Path, manifest: dict, *, proxy=None, request_ids=(), extra_files=None, proxy_log_fallbacks=()) -> str | None:
     parent = root / scope / manifest['model_key']
     index = parent / 'archive_index.json'
     if not index.is_file():
@@ -126,13 +126,13 @@ def _existing(root: Path, scope: str, path: Path, manifest: dict, *, proxy=None,
             target.stat().st_size != old.get('archive_bytes')):
         return 'existing_archive_missing_or_incomplete'
     if latest_archive_receipt(path.parent,root,benchmark=scope,proxy_logs=proxy,
-                              request_ids=request_ids,extra_files=extra_files) is not None:
+                              request_ids=request_ids,extra_files=extra_files,proxy_log_fallbacks=proxy_log_fallbacks) is not None:
         return 'already_verified'
     return None  # Capture a new numbered revision; the old receipt remains intact.
 
 
 def archive_recent(configs: dict[Path, str], root: Path, proxy_roots: dict[str, Path], *,
-                   since=SINCE, apply=False, limit=4, proxy_indexes=None, evaluation_records=(), prune=False) -> dict:
+                   since=SINCE, apply=False, limit=4, proxy_indexes=None, evaluation_records=(), prune=False, proxy_fallbacks=None) -> dict:
     if limit < 1:
         raise ValueError('Archive limit must be positive')
     root = root.absolute()
@@ -151,6 +151,7 @@ def archive_recent(configs: dict[Path, str], root: Path, proxy_roots: dict[str, 
             continue
         provider = (manifest.get('provider') or {}).get('base_url')
         proxy = proxy_roots.get(provider)
+        fallbacks=(proxy_fallbacks or {}).get(provider,())
         request_ids=[];wire_evidence={}
         index=(proxy_indexes or {}).get(provider)
         if index:
@@ -170,7 +171,7 @@ def archive_recent(configs: dict[Path, str], root: Path, proxy_roots: dict[str, 
         if proxy is None:
             counts['wire_route_unavailable_artifacts_retained'] += 1
         try:
-            existing = _existing(root, scope, path, manifest,proxy=proxy,request_ids=request_ids,extra_files=extras)
+            existing = _existing(root, scope, path, manifest,proxy=proxy,request_ids=request_ids,extra_files=extras,proxy_log_fallbacks=fallbacks)
         except (OSError, ValueError, KeyError, TypeError):
             counts['existing_archive_unreadable'] += 1
             continue
@@ -188,7 +189,7 @@ def archive_recent(configs: dict[Path, str], root: Path, proxy_roots: dict[str, 
             try:
                 receipt = archive_closed_attempt(path.parent, root, benchmark=scope,
                                                  proxy_logs=proxy, prune_reproducible=prune,
-                                                 request_ids=request_ids,extra_files=extras)
+                                                 request_ids=request_ids,extra_files=extras,proxy_log_fallbacks=fallbacks)
                 item.update(status='verified', run_number=receipt['run_number'],
                             archive_bytes=receipt['archive_bytes'], wire_pair_count=receipt['wire_pair_count'],
                             known_requests=len(receipt['known_request_roles']),
@@ -220,6 +221,7 @@ def main():
     p.add_argument('--registry', type=Path, action='append', default=[])
     p.add_argument('--scope', action='append', default=[], metavar='CONFIG=BENCHMARK_CONDITION')
     p.add_argument('--proxy-route', action='append', default=[], metavar='BASE_URL=PRIVATE_LOG_ROOT')
+    p.add_argument('--proxy-fallback', action='append', default=[], metavar='BASE_URL=RETAINED_LOG_ROOT')
     p.add_argument('--proxy-index', action='append', default=[], metavar='BASE_URL=PRIVATE_INDEX_DB')
     p.add_argument('--evaluation-registry', type=Path, action='append', default=[])
     p.add_argument('--prune-reproducible', action='store_true')
@@ -240,6 +242,11 @@ def main():
     configs = registered_configs(args.config, args.registry, _assignments(args.scope))
     routes = {url: Path(root).resolve(strict=True) for url, root in _assignments(args.proxy_route).items()}
     indexes={url:Path(path) for url,path in _assignments(args.proxy_index).items()}
+    fallbacks={}
+    for value in args.proxy_fallback:
+        url, separator, path=value.partition('=')
+        if not separator or url not in routes or not path:p.error('Fallback requires an existing exact proxy route')
+        fallbacks.setdefault(url,[]).append(Path(path).resolve(strict=True))
     if not routes:
         p.error('At least one exact --proxy-route must be authorized')
     lock_path = args.lock or args.report.with_suffix('.lock')
@@ -274,7 +281,7 @@ def main():
                     evaluation_records.extend(records if isinstance(records,list) else records.get('records',records.get('rows',[])))
             report = archive_recent(configs, args.archive_root, routes, since=args.since,
                                     apply=args.apply, limit=args.limit,proxy_indexes=indexes,
-                                    evaluation_records=evaluation_records,prune=args.prune_reproducible)
+                                    evaluation_records=evaluation_records,prune=args.prune_reproducible,proxy_fallbacks=fallbacks)
             report['worker'] = identity
             atomic_json(args.report, report)
             print(json.dumps({'updated_utc': report['updated_utc'], 'counts': report['counts']}), flush=True)

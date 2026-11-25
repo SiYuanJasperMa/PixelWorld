@@ -11,7 +11,6 @@
   "models": {
     "gpt62-sol": "traex/GPT-6.2-Sol",
     "gpt61-sol": "traex/GPT-6.1-Sol",
-    "gpt6-astra": "traex/GPT-6-Astra",
     "gpt56-sol": "traex/GPT-5.6-Sol",
     "gpt56-terra": "traex/GPT-5.6-Terra",
     "gpt56-luna": "traex/GPT-5.6-Luna",
@@ -123,6 +122,13 @@
         "claude_code": "2.1.304"
       },
       "controls": "same exact model, main720p24fps media and common capability boundary"
+    }
+  },
+  "legacy_models": {
+    "gpt6-astra": {
+      "model": "traex/GPT-6-Astra",
+      "paper_main": false,
+      "retain_results_and_traces": true
     }
   }
 }

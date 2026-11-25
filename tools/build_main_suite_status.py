@@ -24,7 +24,7 @@ BENCHMARKS = {
     'phygenbench': ('phygenbench_t2v_main720p24fps', 160, 'Overall'),
     'pcve': ('pcve_standard720p24fps', 129, 'PES'),
 }
-ROSTER = ('gpt62-sol', 'gpt61-sol', 'gpt6-astra', 'gpt56-sol', 'gpt56-terra',
+ROSTER = ('gpt62-sol', 'gpt61-sol', 'gpt56-sol', 'gpt56-terra',
           'gpt56-luna', 'deepseek-v41', 'seed21-pro', 'glm54', 'gpt62-astra-native')
 COUNT_FIELDS = ('complete', 'running', 'pending', 'exhausted')
 JUDGE = 'traex/GPT-6.1-Sol'
@@ -746,6 +746,24 @@ HEADER = {
 }
 
 
+def generation_phase(counts, expected):
+    values=public_counts({'counts':counts},expected)['counts']
+    processed=values['complete']+values['exhausted']
+    if processed==expected and not values['running'] and not values['pending']:
+        return '已结束（含失败）' if values['exhausted'] else '全部成功'
+    if values['running']:return '运行中'
+    return '待继续生成' if values['pending'] else '状态待同步'
+
+
+def generation_bar(counts, expected):
+    values=public_counts({'counts':counts},expected)['counts']
+    colors={'complete':'#2563eb','exhausted':'#dc2626','running':'#f59e0b'}
+    label=f"成功 {values['complete']}，确认失败 {values['exhausted']}，运行中 {values['running']}，待生成 {values['pending']}"
+    segments=''.join(f'<i data-state="{key}" style="width:{100*values[key]/expected:.2f}%;background:{color};border-radius:0;height:100%"></i>'
+                     for key,color in colors.items() if values[key])
+    return f'<div class="progress progress-stack" style="display:flex;height:7px;background:#e2e8f0;overflow:hidden" role="img" aria-label="{label}">{segments}</div>'
+
+
 def render(status):
     def display_score(key, score):
         digits = {'physics_iq': 2, 'pcve': 3, 'rbench': 3, 'phygenbench': 4}[key]
@@ -764,7 +782,7 @@ def render(status):
     def cell(row, key, model):
         count, total = row['counts'], row['expected']
         _, _, href = HEADER[key]
-        progress = f"<b>{count['complete']} / {total}</b>"
+        progress = f"<b>已处理 {count['complete']+count['exhausted']} / {total}</b>"
         viewer = viewer_href(key, model)
         detail = f'{href}?model={quote(model)}' if href else viewer
         progress = f'<a href="{detail}">{progress}</a>'
@@ -776,8 +794,8 @@ def render(status):
         last = (f'<time datetime="{escape(recent)}">{escape(recent)}</time>' if recent else
                 '交付时间待同步' if count['complete'] else '尚无交付')
         pending_label = '待补齐（额度审核）' if model == 'gpt62-astra-native' else '待生成'
-        return (f'<td>{progress}<div class="progress"><i style="width:{100*count["complete"]/total:.1f}%"></i></div>'
-                f'<div class="small muted">{count["running"]} 运行 · {count["pending"]} {pending_label} · {count["exhausted"]} 终止</div>'
+        return (f'<td>{progress}{generation_bar(count,total)}<div class="small">{generation_phase(count,total)}</div>'
+                f'<div class="small muted">成功 {count["complete"]} · 确认失败 {count["exhausted"]}<br>{count["running"]} 运行 · {count["pending"]} {pending_label}</div>'
                 f'<div>{evaluation}</div><div class="small muted">最近交付：{last}</div>'
                 f'<a class="small" href="{viewer}">视频与 Trace →</a></td>')
 
@@ -794,7 +812,7 @@ def render(status):
     rows = ''.join(f'<tr class="baseline"><th>{baseline_labels[model]}<br><span class="small muted">VideoGen baseline</span></th>' +
                    ''.join(baseline_cell(scores, k) for k in HEADER) + '</tr>'
                    for model, scores in status.get('references', {}).items())
-    model_order = sorted(status['models'], key=lambda model: model != 'gpt62-astra-native')
+    model_order = sorted((m for m in status['models'] if m in ROSTER), key=lambda model: model != 'gpt62-astra-native')
     rows += ''.join((f'<tr class="native-row"><th>{LABELS[model]}<br><span class="small muted">Codex 0.172.0 · high · default</span></th>'
                      if model == 'gpt62-astra-native' else f'<tr><th>{LABELS[model]}</th>')
                     + ''.join(cell(status['models'][model][k], k, model) for k in HEADER) + '</tr>'
@@ -802,14 +820,14 @@ def render(status):
     fvd_rows = ''.join(f'<tr><th>{LABELS[model]}</th>' + ''.join(
         '<td>—</td>' if cells[k].get('fvd') is None else f'<td>{cells[k]["fvd"]:.2f}</td>'
         for k in ('physics_iq', 'pcve')) + '</tr>' for model, cells in status['models'].items()
-        if any(cells[k].get('fvd') is not None for k in ('physics_iq', 'pcve')))
+        if model in ROSTER and any(cells[k].get('fvd') is not None for k in ('physics_iq', 'pcve')))
     def harness_cell(entry):
         if not entry:
             return '<td>—</td>'
         counts = entry['counts']
         if entry['full_released']:
             return (f"<td><b>{counts['complete']} / {entry['expected']}</b><br><span class='small muted'>"
-                    f"{counts['running']} 运行 · {counts['pending']} 待生成 · {counts['exhausted']} 终止</span></td>")
+                    f"{counts['running']} 运行 · {counts['pending']} 待生成 · {counts['exhausted']} 确认失败</span></td>")
         phase = {'canary_running':'验收生成中','canary_scoring':'验收评分 / 归档','canary_failed':'验收未通过',
                  'canary_waiting':'验收待核查','registered':'已登记'}[entry['state']]
         return f'<td>{phase}<br><span class="small muted">{counts["running"]} 运行 · 未发全量</span></td>'
@@ -1037,6 +1055,7 @@ def render(status):
 <a href="https://github.com/SiYuanJasperMa/PixelWorld">GitHub</a></span></nav></header>
 <main><p class="eyebrow">CODING AGENTS AS PIXEL WORLD MODELS</p><h1>主实验</h1>
 <p class="muted">Vision · 720p / 24 FPS · 数据快照 <time datetime="{escape(status['updated_utc'])}">{escape(status['updated_utc'])}</time></p>
+<p class="small muted">蓝色：成功 · 红色：确认失败 · 黄色：运行中 · 灰色：待生成。已处理 = 成功 + 确认失败；确认失败按当前授权重试窗口统计，infra 中断待恢复。</p>
 <div class="table"><table><thead><tr><th>模型</th>{heads}</tr></thead><tbody>{rows}</tbody></table></div>
 <p class="small muted">只有评完全部样本才显示总分。RBench 只生成一个候选，使用 GPT-6.1-Sol 的官方 GPT 分支适配，不是 GPT + Qwen 联合榜分。
 PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混排。PCVE 采用 Full 129；PES 校准与论文参照见详情页。</p>

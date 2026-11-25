@@ -2,6 +2,9 @@
 
 The new main table is a four-benchmark suite. Historical RoboJudge runs and
 scores remain available; they are not a column in this protocol version.
+Historical GPT-6-Astra is excluded from the paper main roster. Retain its videos,
+traces and scores in legacy results; use the separately recorded native
+GPT-6.2-Astra cohort for the Astra main-table entry.
 
 | Benchmark | Task | Main score and provenance |
 |---|---|---|
