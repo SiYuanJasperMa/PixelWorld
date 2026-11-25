@@ -7,6 +7,31 @@ from pixelworld.util import sha256
 from tools.watch_rbench_common_scores import GPT61_JUDGE, PROTOCOL, UPSTREAM, numeric_score, read_pilot
 
 
+def test_recovery_source_requires_owner_and_preserves_input_and_model(tmp_path):
+    from tools.watch_rbench_common_scores import configs
+    dispatch=tmp_path/'dispatch'; dispatch.mkdir()
+    inputs=tmp_path/'inputs'
+    original=dispatch/'original.json'
+    cfg={'protocol':'rbench-test-v1','inputs_root':str(inputs),'runs_root':str(dispatch/'runs'),
+         'case_ids':[f'{i:04}' for i in range(1,51)],'max_attempts':1,'max_total_attempts':1,
+         'models':[{'key':'m','model':'pinned-model','tracks':['vision-agent']}]}
+    original.write_text(json.dumps(cfg))
+    (dispatch/'launch_receipt.json').write_text(json.dumps({'rows':[{'model':'m','config':str(original)}]}))
+    recovery=tmp_path/'recovery.json'; new=dict(cfg,runs_root=str(tmp_path/'recovery-runs'))
+    recovery.write_text(json.dumps(new))
+    override={'m':{'source_config':str(original),'recovery_config':str(recovery),
+                   'owner_authorized_recovery':True}}
+    path=dispatch/'generation_source_overrides.json';path.write_text(json.dumps(override))
+    assert configs(dispatch)['m'][0].runs_root==tmp_path/'recovery-runs'
+    override['m']['owner_authorized_recovery']=False;path.write_text(json.dumps(override))
+    with pytest.raises(ValueError,match='Unverified'):
+        configs(dispatch)
+    override['m']['owner_authorized_recovery']=True;path.write_text(json.dumps(override))
+    new['inputs_root']=str(tmp_path/'different-inputs');recovery.write_text(json.dumps(new))
+    with pytest.raises(ValueError,match='input or model'):
+        configs(dispatch)
+
+
 def test_pilot_only_reused_for_same_source_and_prompt_revision(tmp_path):
     pilot = tmp_path/'pilot'
     (pilot/'evaluation').mkdir(parents=True)

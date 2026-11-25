@@ -20,11 +20,12 @@ from tools.evaluate_rbench_common_gpt61 import GPT61_JUDGE, UPSTREAM, OfficialGP
 PROTOCOL = 'rbench-common-official-gpt-branch-gpt61-sol-v1'
 
 
-def manifest_info(run: Path, case: str, key: str) -> dict:
+def manifest_info(run: Path, case: str, key: str, track: str = 'vision-agent') -> dict:
     m = json.loads((run/'run_manifest.json').read_text())
     spec = m['media_contract']
     if not (m.get('status')=='complete' and m['validation'].get('pass') is True and
             m['case_id']==case and m['model_key']==key and type(m['attempt']) is int and m['attempt']>=1 and
+            m.get('track', 'vision-agent') == track and
             spec['frames']==120 and spec['fps']==24 and spec['task_type']=='i2v'):
         raise ValueError('Not the verified first-and-only RBench candidate')
     for ordinal in range(1, m['attempt']):
@@ -32,8 +33,12 @@ def manifest_info(run: Path, case: str, key: str) -> dict:
         if not prior.is_file():
             raise ValueError('Missing predecessor for an infrastructure retry')
         record = json.loads(prior.read_text())
+        authorization=m.get('retry_authorization')or{}
+        owner_recovery=(authorization.get('exception')=='near_complete_rescue'
+                        and authorization.get('until_first_delivery') is True)
         if (record.get('case_id') != case or record.get('model_key') != key
-                or record.get('status') != 'failed' or not infrastructure_failure(record)):
+                or record.get('status') != 'failed'
+                or not (infrastructure_failure(record) or owner_recovery)):
             raise ValueError('RBench cannot reroll a real model attempt')
     return m
 
@@ -88,11 +93,27 @@ def configs(dispatch):
     optional=dispatch/'remaining_roster_queue/queued.json'
     extra=json.loads(optional.read_text()) if optional.is_file() else []
     rows=[(r['model'],Path(r['config'])) for r in main+extra]; result={}
+    override_path=dispatch/'generation_source_overrides.json'
+    overrides=json.loads(override_path.read_text()) if override_path.is_file() else {}
     for key,path in rows:
         if key in result or not path.resolve().is_relative_to(dispatch.resolve()):raise ValueError('Unexpected dispatch identity or path')
         c=load_config(path)
         if c.max_total_attempts!=1 or c.max_attempts!=1 or list(c.case_ids)!=[f'{i:04}'for i in range(1,51)]:
             raise ValueError('Only exact 50-case, one-candidate RBench cohort configs supported')
+        if key in overrides:
+            override=overrides[key]
+            if (override.get('owner_authorized_recovery') is not True
+                    or Path(override.get('source_config','')).resolve()!=path.resolve()):
+                raise ValueError('Unverified RBench recovery source override')
+            replacement=load_config(Path(override['recovery_config']))
+            old,new=c.model(key),replacement.model(key)
+            if (replacement.protocol!=c.protocol or replacement.case_ids!=c.case_ids
+                    or replacement.inputs_root.resolve()!=c.inputs_root.resolve()
+                    or replacement.max_attempts!=1 or replacement.max_total_attempts!=1
+                    or (new.model,new.cli_backend,new.reasoning_effort,new.tracks)!=
+                       (old.model,old.cli_backend,old.reasoning_effort,old.tracks)):
+                raise ValueError('Recovery changes the RBench input or model protocol')
+            c=replacement
         result[key]=(c,c.model(key))
     return result
 

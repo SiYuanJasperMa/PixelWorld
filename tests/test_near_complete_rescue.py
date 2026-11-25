@@ -99,3 +99,15 @@ def test_owner_tail_policy_survives_an_infrastructure_retry(tmp_path):
     assert result['items'][0]['model_attempt_cap']==8
     assert result['items'][0]['until_first_delivery'] is True
     assert model_attempt_cap(config,model,'text','bad')==8
+
+
+def test_explicit_model_recovery_does_not_extend_another_model(tmp_path):
+    config,model=nearly_done(tmp_path,good=3)
+    assert authorize_near_complete(config, min_fraction=0, until_first_delivery=True,
+        model_keys={'another-model'}, apply=True)['authorized_cases']==0
+    result=authorize_near_complete(config, min_fraction=0, until_first_delivery=True,
+        model_keys={model.key}, apply=True)
+    assert result['authorized_cases']==1
+    manifest(config,model,'bad',6,{'status':'complete','validation':{'pass':True}})
+    assert authorize_near_complete(config, min_fraction=0, until_first_delivery=True,
+        model_keys={model.key}, apply=True)['authorized_cases']==0

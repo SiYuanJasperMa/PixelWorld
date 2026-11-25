@@ -16,6 +16,7 @@ from pixelworld.config import load_config
 from pixelworld.supervisor import inspect
 from pixelworld.util import atomic_json, utc_now
 from tools.watch_rbench_common_scores import configs as rbench_configs
+from tools.prepare_hf_delivery import TRACE_FORMAT_VERSION
 
 BENCHMARKS = {
     'physics_iq': ('physics_iq_720p24fps', 198, 'Verified'),
@@ -450,6 +451,14 @@ def count_parallel_config(config, model, expected, mappings):
         fresh = 0 <= (datetime.now(timezone.utc)-updated).total_seconds() <= 180
     except (KeyError, ValueError, TypeError):
         fresh = False
+    # Full-scope worker summaries are already audited by that worker. Re-reading
+    # every historical attempt here duplicates its work and slows publication.
+    values = group.get('counts', {})
+    if (fresh and set(worker.case_ids) == set(config.case_ids)
+            and snapshot.get('cases') == expected and group.get('model_key') == model.key
+            and all(type(values.get(k, 0)) is int and values.get(k, 0) >= 0 for k in COUNT_FIELDS)
+            and sum(values.get(k, 0) for k in COUNT_FIELDS) == expected):
+        return public_counts(group, expected)
     running = set(group.get('running_cases', [])) if fresh else set()
     states = []
     worker_ids = set(worker.case_ids)
@@ -686,8 +695,11 @@ def build(nightly, publication):
                     cells[key]['fvd'] = fvd
         rows[model] = cells
     from tools.publication_coverage import coverage
-    indexes = {group['path']: read(publication/group['path']) for group in cat.get('groups', [])}
-    upload_coverage = coverage(cat, indexes, read(publication.parent.parent/'state/hf_incremental.json'))
+    upload_coverage = read(publication.parent.parent/'state/publication_coverage.json')
+    if (upload_coverage.get('schema') != 'pixelworld-publication-coverage-v1'
+            or upload_coverage.get('trace_format_version') != TRACE_FORMAT_VERSION):
+        indexes = {group['path']: read(publication/group['path']) for group in cat.get('groups', [])}
+        upload_coverage = coverage(cat, indexes, read(publication.parent.parent/'state/hf_incremental.json'))
     plan = read(publication / 'experiment_plan.json')
     baseline_keys = {'seedance25': 'seedance25-v1', 'minimax-h3': 'minimax-h3-local'}
     references = {}

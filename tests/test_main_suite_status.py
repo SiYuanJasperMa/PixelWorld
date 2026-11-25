@@ -490,6 +490,28 @@ def test_parallel_main_counts_worker_pids_on_the_worker_and_keeps_master_cases(t
     assert result['counts'] == {'complete':1,'running':2,'pending':0,'exhausted':0}
 
 
+def test_full_scope_fresh_worker_snapshot_does_not_rescan_historical_attempts(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from tools import build_main_suite_status as mod
+    model = SimpleNamespace(key='model')
+    config = SimpleNamespace(source=tmp_path/'config.json', runs_root=tmp_path/'runs',
+        case_ids=('0001','0002'), protocol='frozen', inputs_root=tmp_path/'inputs', models=(model,),
+        max_attempts=1, max_total_attempts=5, output_token_budget=1000000,
+        filesystem_policy='case-only-v1', harness_variant='baseline')
+    config.runs_root.mkdir()
+    (config.runs_root/'status.json').write_text(json.dumps({'cases':2,
+        'updated_utc':datetime.now(timezone.utc).isoformat(), 'groups':{'model/vision-agent':{
+            'model_key':'model', 'counts':{'complete':1,'running':1},
+            'latest_completion':['2026-11-24T12:00:00+00:00','0001']}}}))
+    monkeypatch.setattr(mod, 'load_config', lambda _:config)
+    monkeypatch.setattr(mod, 'inspect', lambda *a: (_ for _ in ()).throw(AssertionError('Unexpected rescan')))
+    result = mod.count_parallel_config(config, model, 2, {'x':{
+        'source_config':str(config.source),'canonical_config':str(config.source)}})
+    assert result['counts'] == {'complete':1,'running':1,'pending':0,'exhausted':0}
+    assert result['last_delivery_utc'] == '2026-11-24T12:00:00+00:00'
+
+
 def test_harness_worker_sidecar_overrides_only_its_verified_models(tmp_path):
     from tools.build_main_suite_status import harness_progress
     (tmp_path/'harness_worker_live_status.json').write_text(json.dumps({

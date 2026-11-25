@@ -36,7 +36,7 @@ def _stall_only(manifest: dict, events: Path) -> bool:
     return kinds and kinds[-1] == 'turn.started' and all(k in ('thread.started', 'turn.started') for k in kinds)
 
 
-def reclassify(root: Path, apply: bool = False) -> dict:
+def reclassify(root: Path, apply: bool = False, model_keys=None) -> dict:
     def inspect(manifest_path):
         try:manifest=json.loads(manifest_path.read_text())
         except (OSError,ValueError):return None
@@ -68,6 +68,8 @@ def reclassify(root: Path, apply: bool = False) -> dict:
             atomic_json(manifest_path,manifest)
         return item
     paths=list(root.glob('*/*/case_*/run_manifest.json'))
+    if model_keys is not None:
+        paths=[path for path in paths if path.relative_to(root).parts[0] in set(model_keys)]
     with ThreadPoolExecutor(max_workers=16) as pool:
         results=[item for item in pool.map(inspect,paths) if item]
     counts=Counter('already_classified' if item.get('already') else item['reason'] for item in results)
@@ -77,5 +79,6 @@ def reclassify(root: Path, apply: bool = False) -> dict:
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('roots',nargs='+',type=Path);parser.add_argument('--apply',action='store_true')
-    args=parser.parse_args();reports=[reclassify(root.resolve(),args.apply) for root in args.roots]
+    parser.add_argument('--model',action='append',help='Restrict recovery to explicit model keys')
+    args=parser.parse_args();reports=[reclassify(root.resolve(),args.apply,args.model) for root in args.roots]
     print(json.dumps(reports,indent=2))

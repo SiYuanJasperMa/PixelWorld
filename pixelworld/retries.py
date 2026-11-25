@@ -169,7 +169,8 @@ def authorize_failed(config: Benchmark, extra_attempts: int = 2, max_rounds: int
 
 def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
                             min_fraction: float = .95, max_missing: int | None = None,
-                            apply: bool = False, until_first_delivery: bool = False) -> dict:
+                            apply: bool = False, until_first_delivery: bool = False,
+                            model_keys: set[str] | None = None) -> dict:
     """Grant one fresh attempt to a sparse terminal tail under user authorization.
 
     The global cap remains unchanged. This policy never looks at quality scores
@@ -180,7 +181,8 @@ def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
     from .supervisor import case_ids, configurations, inspect
     from .runner import run_path
     from .util import sha256
-    if not 1<=extra_attempts<=2 or not 0<min_fraction<=1 or (max_missing is not None and max_missing<1):
+    targeted_all = min_fraction == 0 and until_first_delivery and bool(model_keys)
+    if not 1<=extra_attempts<=2 or (not targeted_all and not 0<min_fraction<=1) or (max_missing is not None and max_missing<1):
         raise ValueError('Invalid sparse rescue policy')
     if config.max_total_attempts is None:return {'authorized_cases':0,'items':[]}
     path=ledger_path(config);config.runs_root.mkdir(parents=True,exist_ok=True)
@@ -192,6 +194,8 @@ def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
         status_path=config.runs_root/'status.json'
         status=json.loads(status_path.read_text())if status_path.exists()else{}
         for model,track in configurations(config):
+            if model_keys is not None and model.key not in model_keys:
+                continue
             # Attach completion evidence to existing scoped authorizations.
             prefix=f'{model.key}/{track}/'
             for key,history in data['cases'].items():

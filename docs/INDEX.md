@@ -38,6 +38,7 @@ separate measurements. Full scores require complete, matching case coverage.
 | Store and verify private originals | [Storage layout](STORAGE_LAYOUT.md) · [Storage policy](STORAGE_POLICY.md) |
 | Record inputs, outputs, tokens and candidate history | [Recording contract](DATA_RECORDING_CONTRACT.md) |
 | Retry failed deliveries without rerolling successful videos | [Retry policy](RETRY_POLICY.md) |
+| Verify provider errors and preserve failed attempts during recovery | [Provider failure recovery](PROVIDER_FAILURE_RECOVERY.md) |
 | Check filesystem and task boundaries | [Isolation](FILESYSTEM_ISOLATION.md) · [Workspace contract](WORKSPACE_AND_TASK.md) |
 | Recover a stopped service | [Service recovery](SERVICE_RECOVERY.md) · [Monitoring recovery](MONITORING_RECOVERY.md) |
 | Locate current command-line utilities | [Tools guide](../tools/README.md) |

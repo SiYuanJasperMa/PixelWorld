@@ -141,8 +141,8 @@ def main():
     parser.add_argument('--watch-seconds', type=int)
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
-    if args.watch_seconds is not None and args.watch_seconds < 300:
-        parser.error('Use at least five minutes between publication checks')
+    if args.watch_seconds is not None and args.watch_seconds < 60:
+        parser.error('Use at least one minute between publication checks')
     state = args.state
     state.parent.mkdir(parents=True, exist_ok=True)
     with state.with_suffix('.lock').open('a') as lock:

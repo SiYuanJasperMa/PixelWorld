@@ -88,6 +88,8 @@ def main():
                         help='User-authorized sparse terminal rescues, at most two extra real attempts')
     parser.add_argument('--near-complete-until-delivery',action='store_true',
                         help='Requires explicit owner authorization: retry a sparse terminal tail until first valid delivery')
+    parser.add_argument('--retry-all-failed-model', action='append', default=[],
+                        help='Explicit owner authorization for this exact model key: finish all failed cases, not only a sparse tail')
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--interval", type=float, default=60)
@@ -123,6 +125,11 @@ def main():
             # not measure the number of model attempts.
             result = authorize_failed(unfinished_retry_scope(config), args.extra_attempts, max_rounds,
                                       args.apply, args.cooldown if args.continuous else 0)
+            if args.retry_all_failed_model:
+                recovery=authorize_near_complete(config, min_fraction=0, max_missing=None,
+                    until_first_delivery=True, model_keys=set(args.retry_all_failed_model), apply=args.apply)
+                result['owner_model_recovery']=recovery
+                result['authorized_cases']+=recovery['authorized_cases']
             if args.near_complete_extra_attempts or args.near_complete_until_delivery:
                 rescue=authorize_near_complete(config,extra_attempts=args.near_complete_extra_attempts or 2,
                     min_fraction=.85 if args.near_complete_until_delivery else .95,

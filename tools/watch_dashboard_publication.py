@@ -14,6 +14,7 @@ from tools.prepare_hf_delivery import sanitize
 from tools.hf_commit_budget import commit as dataset_commit
 from tools.prepare_hf_delivery import TRACE_FORMAT_VERSION
 from pixelworld.publication_endpoints import canonicalize_code_links
+from pixelworld.util import atomic_json
 
 MAIN_OWNED_FRONTEND = {'index.html', 'main_suite_status_v2.json', 'videos.html',
     'results_browser.js', 'results_browser.css', 'physics_iq_baseline.html',
@@ -133,6 +134,7 @@ def hf_progress(source, token_file):
         items.append(('live/analysis_progress.json',sanitize(json.loads(analysis_source.read_text()))))
     from tools.publication_coverage import coverage
     upload_coverage=coverage(catalogue,indexes,{'ready':ledger})
+    atomic_json(bundle/'state/publication_coverage.json', upload_coverage)
     items.extend([('live/publication_coverage.json',upload_coverage),
                   ('metadata/publication_coverage.json',upload_coverage)])
     # Completed groups are re-exported with fresh poll timestamps even when no

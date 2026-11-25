@@ -30,7 +30,7 @@ The dataset is the data source. The main page polls
 `metadata/main_suite_status.json` every 60 seconds and replaces its content with
 the paired `dashboard/index.html` snapshot when available. Detail pages read
 `live/catalogue.json` and recorded case indices; previews/posters are under
-`data/assets/`. The main snapshot publisher checks every five minutes, while
+`data/assets/`. The main snapshot publisher checks every minute, while
 case, media, trace and progress uploaders run independently. Refreshing the
 page does not generate or score a video.
 

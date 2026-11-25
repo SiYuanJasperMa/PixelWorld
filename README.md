@@ -98,7 +98,7 @@ reused. See [harness comparison](docs/HARNESS_COMPARISON.md) and
 | [HF dashboard](https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html) | Live main matrix, analysis progress, videos and trace browser |
 | Private shared storage | Original API inputs/outputs, full artifacts, exact configs and verified run archives |
 
-The main snapshot publisher checks every five minutes. Open tabs poll HF every
+The main snapshot publisher checks every minute. Open tabs poll HF every
 60 seconds; generation, scoring and upload coverage are shown separately.
 See [HF publishing](docs/HF_PUBLISHING.md), [storage layout](docs/STORAGE_LAYOUT.md)
 and [repository/publication ownership](docs/REPOSITORY_AND_PUBLICATION.md).

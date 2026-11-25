@@ -144,7 +144,17 @@ usage(10,'a')
 from artifact_io import save
 (w/'generate.py').write_text('# initial fixture\\n')
 save(np.repeat(np.array(Image.open('first_frame.png'))[None],6,axis=0),w)
-time.sleep(1.3)
+# Wait for the asynchronous candidate recorder, rather than assuming the host
+# can finish its snapshot within a fixed 1.3-second scheduling window.
+deadline=time.monotonic()+30
+while time.monotonic()<deadline:
+ ready=False
+ for receipt in (w.parent/'trace').glob('round_*/snapshot.json'):
+  try: ready=ready or json.loads(receipt.read_text()).get('required_output_files_complete',False)
+  except (OSError,ValueError): pass
+ if ready: break
+ time.sleep(.05)
+else: raise RuntimeError('Fixture candidate snapshot did not finish')
 usage(60,'b')
 (w/'generate.py').write_text('# incomplete revision\\n');(w/'pixels.npz').write_bytes(b'partial')
 time.sleep(60)

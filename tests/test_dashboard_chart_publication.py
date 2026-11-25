@@ -23,5 +23,6 @@ def test_frontend_publication_includes_svg_and_downloadable_png(tmp_path, monkey
         HfApi=lambda **kwargs: SimpleNamespace(create_commit=create_commit),
         CommitOperationAdd=lambda **kwargs: SimpleNamespace(**kwargs)))
     publisher.hf_frontend(source, None)
-    assert {item.path_in_repo for item in operations} == {'index.html', 'charts/pcve_scale.svg', 'charts/pcve_scale.png'}
+    # The main-suite publisher owns index.html; the legacy producer owns charts.
+    assert {item.path_in_repo for item in operations} == {'charts/pcve_scale.svg', 'charts/pcve_scale.png'}
     assert b'updated score chart' in next(item.path_or_fileobj for item in operations if item.path_in_repo.endswith('.svg'))

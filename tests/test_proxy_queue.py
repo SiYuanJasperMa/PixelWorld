@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def queue_function():
-    source=Path(__file__).resolve().parents[2]/'traex_api_proxy/responses_proxy.py'
+    source=Path(__file__).resolve().parents[1]/'pixelworld/traex_responses_proxy.py'
     tree=ast.parse(source.read_text())
     node=next(x for x in tree.body if isinstance(x,ast.FunctionDef)and x.name=='queue_aware_events')
     namespace={'json':json,'sse_events':lambda response:iter(response.events)}

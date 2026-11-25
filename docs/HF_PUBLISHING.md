@@ -139,7 +139,7 @@ python -m tools.publish_main_suite_hf \
   --nightly "$NIGHTLY_ROOT" \
   --publication "$PUBLICATION_SOURCE" \
   --state "$NIGHTLY_ROOT/main_suite_hf_publisher.json" \
-  --watch-seconds 300
+  --watch-seconds 60
 ```
 
 The publisher first commits `metadata/main_suite_status.json`,
@@ -147,7 +147,7 @@ The publisher first commits `metadata/main_suite_status.json`,
 atomically, then reads back their exact bytes at the returned commit revision.
 After successful dataset readback, it updates the Space's `index.html` and
 `main_suite_status_v2.json`. Separate dataset/Space receipts record the commit
-identities. The watcher checks every five minutes and uploads changed content
+identities. The watcher checks every minute and uploads changed content
 only. Omit `--watch-seconds` for one pass; `--dry-run` validates a snapshot
 without uploading it.
 

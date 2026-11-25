@@ -31,8 +31,10 @@ def discover_manifests(root: Path):
     """Read only root / optional benchmark-condition / model / track / case leaves."""
     paths = set()
     if (root / 'run_manifest.json').is_file():
-        paths.add(root / 'run_manifest.json')
+        return [root / 'run_manifest.json']
     paths.update(root.glob('case_*/run_manifest.json'))
+    if root.name in TRACKS:
+        return sorted(path for path in paths if not path.is_symlink())
     # At most two hierarchy prefixes before model/track, never recursive glob.
     for prefix in ('', '*/', '*/*/'):
         for track in TRACKS:

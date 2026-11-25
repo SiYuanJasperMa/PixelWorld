@@ -51,5 +51,5 @@ change. Their README sources are tracked in
 The [standard publication pipeline](HF_PUBLISHING.md) exports sanitized case
 records, uploads videos and complete sanitized traces, publishes the dataset
 snapshot, verifies exact bytes, then updates the Space. The main publisher
-checks every five minutes; open tabs poll the dataset every 60 seconds.
+checks every minute; open tabs poll the dataset every 60 seconds.
 Private original API bodies remain in the verified shared-storage archive.
