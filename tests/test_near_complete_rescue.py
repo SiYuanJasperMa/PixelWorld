@@ -1,5 +1,6 @@
 from dataclasses import replace
 import json
+import pytest
 
 from pixelworld.retries import authorize_near_complete, model_attempt_cap, authorize_failed
 from pixelworld.supervisor import inspect
@@ -111,3 +112,22 @@ def test_explicit_model_recovery_does_not_extend_another_model(tmp_path):
     manifest(config,model,'bad',6,{'status':'complete','validation':{'pass':True}})
     assert authorize_near_complete(config, min_fraction=0, until_first_delivery=True,
         model_keys={model.key}, apply=True)['authorized_cases']==0
+
+
+@pytest.mark.parametrize('other_state',['pending','running'])
+def test_explicit_all_failed_recovery_does_not_wait_for_other_cases(tmp_path,monkeypatch,other_state):
+    import pixelworld.supervisor as supervisor
+    config,model=fixture(tmp_path)
+    config=replace(config,max_attempts=5,max_total_attempts=5)
+    for attempt in range(1,6):
+        manifest(config,model,'bad',attempt,{'status':'failed'})
+    original=supervisor.inspect
+    def state(c,m,t,case):
+        return {'state':other_state} if case=='good' else original(c,m,t,case)
+    monkeypatch.setattr(supervisor,'inspect',state)
+    assert authorize_near_complete(config,until_first_delivery=True,apply=True)['authorized_cases']==0
+    result=authorize_near_complete(config,min_fraction=0,until_first_delivery=True,
+                                  model_keys={model.key},apply=True)
+    assert [row['key'] for row in result['items']]==['m/text/bad']
+    assert result['items'][0]['start_attempt']==6
+    assert model_attempt_cap(config,model,'text','good')==5

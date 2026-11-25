@@ -174,8 +174,10 @@ def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
     """Grant one fresh attempt to a sparse terminal tail under user authorization.
 
     The global cap remains unchanged. This policy never looks at quality scores
-    and never relaxes a cohort whose ordinary attempts or infrastructure retries
-    are still pending. Two extra attempts are the default; an explicit owner
+    and waits for a sparse cohort's ordinary or infrastructure attempts to close.
+    Explicit all-failed model recovery can grant an exhausted case while other
+    cases remain active; it never grants an active or successful case.
+    Two extra attempts are the default; an explicit owner
     instruction can keep granting one at a time until the first valid delivery.
     """
     from .supervisor import case_ids, configurations, inspect
@@ -214,7 +216,7 @@ def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
             done=sum(row['state']=='complete'for row in info.values())
             missing=[case for case,row in info.items()if row['state']=='exhausted']
             if (not missing or (max_missing is not None and len(missing)>max_missing) or done<len(ids)*min_fraction
-                    or any(row['state']in('pending','running')for row in info.values())):continue
+                    or (not targeted_all and any(row['state']in('pending','running')for row in info.values()))):continue
             for case in missing:
                 row=info[case];consumed=row.get('model_attempts',0)
                 cap=model_attempt_cap(config,model,track,case)
