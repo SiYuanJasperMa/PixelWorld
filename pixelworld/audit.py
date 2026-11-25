@@ -117,11 +117,12 @@ def _unwrap_shell(command: str) -> str:
     return command
 
 
-def _python_sections(command: str, include_written: bool = False):
+def _python_sections(command: str, include_written: bool = False, *, compound: bool = False):
     executable = r"python(?:3)?\s+-"
-    written = r"cat\s*>\s*(?:'[^'\n]+\.py'|\"[^\"\n]+\.py\"|[^\s<>;'\"]+\.py)"
+    written = r"cat\s*>>?\s*(?:'[^'\n]+\.py'|\"[^\"\n]+\.py\"|[^\s<>;'\"]+\.py)"
     prefix = f"(?:{executable}|{written})" if include_written else executable
-    pattern = rf"(?m)^{prefix}\s+<<\s*['\"]?(?P<tag>[A-Za-z_]\w*)['\"]?\s*\n"
+    boundary=r"(?:^|[;&|])" if compound else r"^"
+    pattern = rf"(?m){boundary}[ \t]*{prefix}\s+<<\s*['\"]?(?P<tag>[A-Za-z_]\w*)['\"]?\s*\n"
     for header in re.finditer(pattern, command):
         tail = command[header.end():]
         end = re.search(r'(?m)^'+re.escape(header.group('tag'))+r'\s*$',tail)
@@ -192,6 +193,46 @@ _LITERAL_SED_EDITS = (
 )
 
 
+def _sed_delimiter_positions(command: str) -> set[int]:
+    """Mask syntax delimiters, retaining operands and real sed output paths."""
+    positions=set()
+    pattern=re.compile(r"(?m)(?:^|[;&|])[ \t]*sed[ \t]+-i(?:[ \t]+-e)?[ \t]+'(?P<script>[^'\n]*)'")
+    for match in pattern.finditer(command):
+        script=match.group('script');base=match.start('script');i=0
+        def close(start, delimiter):
+            p=start
+            while p<len(script):
+                if script[p]=='\\':p+=2;continue
+                if script[p]==delimiter:return p
+                p+=1
+            return None
+        def address(start):
+            if start<len(script) and script[start]=='/':
+                end=close(start+1,'/')
+                if end is not None:return end+1,[start,end]
+            p=start
+            while p<len(script) and (script[p].isdigit() or script[p]=='$'):p+=1
+            return p,[]
+        while i<len(script):
+            while i<len(script) and script[i] in ' \t;':i+=1
+            if i>=len(script):break
+            i,delimiters=address(i)
+            if i<len(script) and script[i]==',':
+                i,more=address(i+1);delimiters+=more
+            while i<len(script) and script[i] in ' \t!':i+=1
+            if i<len(script) and script[i] in 'sy' and i+1<len(script):
+                first=i+1;delimiter=script[first];middle=close(first+1,delimiter)
+                last=close(middle+1,delimiter) if middle is not None else None
+                if last is not None:
+                    delimiters.extend([first,middle,last]);i=last+1
+                else:break
+            positions.update(base+p for p in delimiters)
+            # A w filename is an operand, not another regex delimiter.
+            end=script.find(';',i)
+            i=len(script) if end<0 else end+1
+    return positions
+
+
 def _division_positions(body: str, *, embedded: bool = False) -> set[int]:
     offsets = [0]
     for line in body.splitlines(keepends=True):
@@ -233,12 +274,13 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
     # A slash in an actual Python division expression is not a file path.
     # Restrict lexical parsing to Python heredoc bodies; shell paths and
     # quoted Python filenames remain subject to the original checks.
-    for body_start, body in _python_sections(command, include_written=True):
+    for body_start, body in _python_sections(command, include_written=True,compound=True):
         divisions.update(body_start + index for index in _division_positions(body))
     # A literal sed substitution has two operands separated by slash
     # delimiters. Do not join the tail of one operand to the head of the
     # next and call it a path; leave both operands and the target auditable.
     path_text = list(command)
+    for position in _sed_delimiter_positions(command):path_text[position]=' '
     for pattern in _LITERAL_SED_EDITS:
         for edit in pattern.finditer(command):
             for delimiter in pattern.groupindex:

@@ -72,6 +72,24 @@ def unfinished_retry_scope(config):
     return replace(config, models=tuple(models))
 
 
+def recover_audit_before_retry(config, apply):
+    """Defer grants when a valid historical artifact needs writable-host repair."""
+    from tools.revalidate_audit_failures import recover
+    restored=[];pending=[]
+    for model in config.models:
+        for track in model.tracks:
+            for path in (config.runs_root/model.key/track).glob('case_*/run_manifest.json'):
+                try:
+                    m=json.loads(path.read_text());v=m.get('validation') or {}
+                    if m.get('status')!='failed' or not v.get('outside_workspace_command_paths'):continue
+                    if v.get('missing_required') or not v.get('frame0_exact') or not v.get('png_tensor_exact'):continue
+                    report=recover(path.parent,apply=apply)
+                    if report.get('applied'):restored.append(str(path.parent))
+                except OSError:
+                    pending.append(str(path.parent))
+    return {'restored':restored,'pending_writable_host':pending}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, action="append", required=True)
@@ -90,6 +108,8 @@ def main():
                         help='Requires explicit owner authorization: retry a sparse terminal tail until first valid delivery')
     parser.add_argument('--retry-all-failed-model', action='append', default=[],
                         help='Explicit owner authorization for this exact model key: finish all failed cases, not only a sparse tail')
+    parser.add_argument('--audit-revalidate',action='store_true',
+                        help='Revalidate closed audit-only rejections before granting any regeneration')
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--interval", type=float, default=60)
@@ -119,6 +139,11 @@ def main():
             if (config.runs_root / "STOP").exists():
                 reports.append({"config": str(path), "phase": "explicitly_stopped"})
                 continue
+            if args.audit_revalidate:
+                audit=recover_audit_before_retry(config,args.apply)
+                if audit['pending_writable_host']:
+                    reports.append({'config':str(path),'phase':'awaiting_audit_revalidation','audit_recovery':audit})
+                    continue
             # Continuous monitoring is not permission for unbounded retries.
             # The externally visible policy is the total model-attempt cap.
             # Ledger windows identify new run directories; their ordinals do

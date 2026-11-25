@@ -81,6 +81,31 @@ def make_artifacts(workspace: Path, time_first=False):
             (workspace / name).write_text("ok")
 
 
+def test_audit_recovery_preserves_original_pixels_and_rejects_real_outside_paths(tmp_path):
+    from tools.revalidate_audit_failures import recover
+    from pixelworld.media import DEFAULT_MEDIA
+    run=tmp_path/'run';run.mkdir();workspace=run/'workspace';make_artifacts(workspace)
+    logs=run/'logs';logs.mkdir()
+    command="cat >> generate.py <<'PY'\nshape=(W//step,H//step)\nPY\n"
+    events=[{'type':'item.completed','item':{'type':'command_execution','command':command,'status':'completed','exit_code':0}}, {'type':'turn.completed'}]
+    (logs/'events.jsonl').write_text('\n'.join(map(json.dumps,events)))
+    manifest={'status':'failed','exit_status':0,'track':'vision-agent','media_contract':DEFAULT_MEDIA,
+              'validation':{'pass':False,'planning_and_method_reports_required':False,
+                            'outside_workspace_command_paths':['/step,H//step']}}
+    path=run/'run_manifest.json';path.write_text(json.dumps(manifest));before=path.read_bytes()
+    pixels_before=sha256(workspace/'pixels.npz')
+    result=recover(run,apply=True)
+    assert result['applied']
+    assert sha256(workspace/'pixels.npz')==pixels_before
+    assert (logs/'run_manifest_before_audit_revalidation.json').read_bytes()==before
+    assert json.loads(path.read_text())['validation']['pass']
+    assert not recover(run,apply=True)['applied']
+    path.write_bytes(before)
+    events[0]['item']['command']='cat /outside/reference.png'
+    (logs/'events.jsonl').write_text('\n'.join(map(json.dumps,events)))
+    assert not recover(run,apply=False)['eligible']
+
+
 def test_denied_scratch_in_successful_compound_command_is_warning(tmp_path):
     workspace=tmp_path/'workspace';make_artifacts(workspace)
     path='/tmp/pixelworld_nonexistent_audit_fixture_9e2d/file.py'

@@ -27,11 +27,11 @@ tracked separately and stops at the first valid delivery; successful videos
 are never rerolled for a better score. See [retry accounting](docs/RETRY_POLICY.md).
 
 The main roster is GPT-6.2-Sol, GPT-6.1-Sol, GPT-5.6-Sol,
-GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash, Seed-2.1-Pro-0915 and GLM-5.4.
+GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash and Seed-2.1-Pro-0915.
 The dashboard reports their actual generation, evaluation and publication
 coverage. Native GPT-6.2-Astra is a separate cohort using Codex 0.172.0; its
 version and quota records are kept separate from the main harness. Historical
-GPT-6-Astra runs are retained in legacy results and excluded from the paper main
+GPT-6-Astra and GLM-5.4 runs are retained in legacy results and excluded from the paper main
 table.
 
 The authoritative scope, inputs and evaluator pins are in

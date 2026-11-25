@@ -129,6 +129,12 @@
       "model": "traex/GPT-6-Astra",
       "paper_main": false,
       "retain_results_and_traces": true
+    },
+    "glm54": {
+      "model": "traex/GLM-5.4",
+      "paper_main": false,
+      "generation_discontinued": true,
+      "retain_results_and_traces": true
     }
   }
 }

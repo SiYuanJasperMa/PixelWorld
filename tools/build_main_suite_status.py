@@ -25,8 +25,9 @@ BENCHMARKS = {
     'pcve': ('pcve_standard720p24fps', 129, 'PES'),
 }
 ROSTER = ('gpt62-sol', 'gpt61-sol', 'gpt56-sol', 'gpt56-terra',
-          'gpt56-luna', 'deepseek-v41', 'seed21-pro', 'glm54', 'gpt62-astra-native')
+          'gpt56-luna', 'deepseek-v41', 'seed21-pro', 'gpt62-astra-native')
 COUNT_FIELDS = ('complete', 'running', 'pending', 'exhausted')
+RETIRED_MODELS = frozenset(('gpt6-astra','glm54'))
 JUDGE = 'traex/GPT-6.1-Sol'
 TRACK = 'vision-agent'
 SMOKE_TOKEN_FIELDS = ('input_tokens', 'cached_input_tokens', 'cache_write_input_tokens',
@@ -411,6 +412,7 @@ def additional_main_configs(nightly):
     result = {}
     for entry in entries:
         model, benchmark = entry.get('model_key'), entry.get('benchmark')
+        if model in RETIRED_MODELS:continue
         if model not in ROSTER or benchmark not in BENCHMARKS:
             raise ValueError('Unknown additional main cohort')
         key = (model, benchmark)

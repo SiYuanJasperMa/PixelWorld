@@ -14,12 +14,12 @@ from tools.build_main_suite_status import (
 def test_additional_main_configs_use_registered_paths_and_exact_scope(tmp_path):
     from tools.build_main_suite_status import additional_main_configs
     config = {'case_ids': [f'{i:04d}' for i in range(1, 51)],
-              'models': [{'key': 'glm54', 'model': 'traex/GLM-5.4', 'tracks': ['vision-agent']}]}
-    path = tmp_path / 'glm.json'
+              'models': [{'key': 'gpt62-sol', 'model': 'traex/GLM-5.4', 'tracks': ['vision-agent']}]}
+    path = tmp_path / 'active-model.json'
     path.write_text(json.dumps(config))
-    registry = {'configured': [{'model_key': 'glm54', 'benchmark': 'rbench', 'config': 'glm.json'}]}
+    registry = {'configured': [{'model_key': 'gpt62-sol', 'benchmark': 'rbench', 'config': 'active-model.json'}]}
     (tmp_path / 'additional_main_cohorts.json').write_text(json.dumps(registry))
-    assert additional_main_configs(tmp_path)['glm54', 'rbench'].source == path
+    assert additional_main_configs(tmp_path)['gpt62-sol', 'rbench'].source == path
     config['case_ids'].pop()
     path.write_text(json.dumps(config))
     with pytest.raises(ValueError, match='scope'):
@@ -30,10 +30,10 @@ def test_additional_main_rejects_duplicate_cohort_and_vision_input(tmp_path):
     from tools.build_main_suite_status import additional_main_configs
     assert additional_main_configs(tmp_path) == {}
     config = {'case_ids': [f'{i:04d}' for i in range(1, 51)],
-              'models': [{'key': 'glm54', 'model': 'traex/GLM-5.4', 'tracks': ['vision-input']}]}
-    path = tmp_path / 'glm.json'
+              'models': [{'key': 'gpt62-sol', 'model': 'traex/GLM-5.4', 'tracks': ['vision-input']}]}
+    path = tmp_path / 'active-model.json'
     path.write_text(json.dumps(config))
-    row = {'model_key': 'glm54', 'benchmark': 'rbench', 'config': 'glm.json'}
+    row = {'model_key': 'gpt62-sol', 'benchmark': 'rbench', 'config': 'active-model.json'}
     registry = tmp_path / 'additional_main_cohorts.json'
     registry.write_text(json.dumps({'configured': [row]}))
     with pytest.raises(ValueError, match='Vision-Agent'):
@@ -614,3 +614,9 @@ def test_paper_roster_retains_new_astra_and_retires_old_astra():
     from tools.build_main_suite_status import ROSTER
     assert 'gpt6-astra' not in ROSTER
     assert 'gpt62-astra-native' in ROSTER
+
+
+def test_retired_glm_is_ignored_without_loading_old_config(tmp_path):
+    from tools.build_main_suite_status import additional_main_configs
+    (tmp_path/"additional_main_cohorts.json").write_text(json.dumps({"configured":[{"model_key":"glm54","benchmark":"rbench","config":"retired.json"}]}))
+    assert additional_main_configs(tmp_path)=={}
