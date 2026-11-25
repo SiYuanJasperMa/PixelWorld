@@ -71,3 +71,31 @@ def test_infrastructure_retries_keep_scoped_real_attempt_cap(tmp_path):
     ledger=json.loads((config.runs_root/'retry_authorizations.json').read_text())
     assert any(row.get('completed_manifest_sha256')for row in ledger['cases']['m/text/bad'])
     assert inspect(config,model,'text','bad')['state']=='complete'
+
+
+def test_explicit_owner_tail_retry_stops_at_first_valid_delivery(tmp_path):
+    config,model=nearly_done(tmp_path)
+    for attempt in range(6,10):
+        result=authorize_near_complete(config,until_first_delivery=True,apply=True)
+        assert result['items'][0]['model_attempt_cap']==attempt
+        assert result['items'][0]['until_first_delivery'] is True
+        assert config.max_total_attempts==5
+        manifest(config,model,'bad',attempt,{'status':'failed'})
+    authorize_near_complete(config,until_first_delivery=True,apply=True)
+    manifest(config,model,'bad',10,{'status':'complete','validation':{'pass':True}})
+    assert authorize_near_complete(config,until_first_delivery=True,apply=True)['authorized_cases']==0
+    assert inspect(config,model,'text','bad')['state']=='complete'
+
+
+def test_owner_tail_policy_survives_an_infrastructure_retry(tmp_path):
+    config,model=nearly_done(tmp_path)
+    for attempt in (6,7):
+        authorize_near_complete(config,until_first_delivery=True,apply=True)
+        manifest(config,model,'bad',attempt,{'status':'failed'})
+    authorize_near_complete(config,until_first_delivery=True,apply=True)
+    manifest(config,model,'bad',8,{'status':'failed','validation':{'infra_error':'storage'}})
+    result=authorize_failed(config,extra_attempts=1,max_rounds=None,apply=True)
+    assert result['items'][0]['start_attempt']==9
+    assert result['items'][0]['model_attempt_cap']==8
+    assert result['items'][0]['until_first_delivery'] is True
+    assert model_attempt_cap(config,model,'text','bad')==8

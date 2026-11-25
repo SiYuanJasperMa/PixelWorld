@@ -87,7 +87,8 @@ def model_attempt_cap(config: Benchmark, model: Model, track: str, case: str) ->
         if override is None:continue
         if (cap is None or item.get('exception')!='near_complete_rescue'
                 or type(override) is not int
-                or not config.max_total_attempts <= override <= config.max_total_attempts+2):
+                or override < config.max_total_attempts
+                or (override > config.max_total_attempts+2 and item.get('until_first_delivery') is not True)):
             raise ValueError('Invalid scoped near-complete attempt cap')
         cap=max(cap,override)
     return cap
@@ -150,6 +151,8 @@ def authorize_failed(config: Benchmark, extra_attempts: int = 2, max_rounds: int
                         "reason": "User authorized retry of failed samples; old artifacts and usage retained."}
                 if cap!=config.max_total_attempts:
                     item.update(exception='near_complete_rescue',model_attempt_cap=cap)
+                    if any(w.get('until_first_delivery') is True for w in windows(config,model,track,case)):
+                        item['until_first_delivery']=True
                 granted.append({"key": key, **item})
                 if apply:
                     data["cases"].setdefault(key, []).append(item)
@@ -166,12 +169,13 @@ def authorize_failed(config: Benchmark, extra_attempts: int = 2, max_rounds: int
 
 def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
                             min_fraction: float = .95, max_missing: int | None = None,
-                            apply: bool = False) -> dict:
+                            apply: bool = False, until_first_delivery: bool = False) -> dict:
     """Grant one fresh attempt to a sparse terminal tail under user authorization.
 
     The global cap remains unchanged. This policy never looks at quality scores
     and never relaxes a cohort whose ordinary attempts or infrastructure retries
-    are still pending. At most two extra real attempts are allowed per case.
+    are still pending. Two extra attempts are the default; an explicit owner
+    instruction can keep granting one at a time until the first valid delivery.
     """
     from .supervisor import case_ids, configurations, inspect
     from .runner import run_path
@@ -210,7 +214,7 @@ def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
             for case in missing:
                 row=info[case];consumed=row.get('model_attempts',0)
                 cap=model_attempt_cap(config,model,track,case)
-                if consumed<cap or consumed>=config.max_total_attempts+extra_attempts:continue
+                if consumed<cap or (not until_first_delivery and consumed>=config.max_total_attempts+extra_attempts):continue
                 existing=[int(p.name.rsplit('_attempt_',1)[1])for p in (config.runs_root/model.key/track).glob(f'case_{case}_attempt_*')]
                 start=max([config.max_attempts,*existing])+1
                 key=prefix+case;history=data['cases'].setdefault(key,[])
@@ -220,6 +224,9 @@ def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
                       'model_attempts_before':consumed,'infra_attempts_before':row.get('infra_attempts',0),
                       'cohort_completed':done,'cohort_expected':len(ids),
                       'reason':'User authorized bounded individual rescues for nearly complete cohorts; no evaluator feedback.'}
+                if until_first_delivery:
+                    item.update(until_first_delivery=True,
+                                reason='Owner explicitly authorized the sparse failed tail until its first valid delivery; no quality rerolls.')
                 granted.append({'key':key,**item})
                 if apply:history.append(item);changed=True
         if apply and changed:

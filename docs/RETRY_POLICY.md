@@ -35,3 +35,14 @@ scoped `model_attempt_cap`, cohort coverage, original attempt history and reason
 It does not modify the global cap or supply evaluator feedback. A completed
 rescue is marked with an asterisk in public progress and keeps its source hash.
 Report default-cap delivery and final rescued delivery separately in analysis.
+
+The owner may explicitly request finishing a sparse failed tail instead of
+stopping after two extra attempts. Only for that instruction, use
+`--near-complete-until-delivery`: at least 85% must already be delivered and at
+most ten cases may remain terminal. Each case receives one new attempt at a
+time, stopping at its first valid delivery. This mode never retries a successful
+video for a better score, never uses evaluator feedback, and never modifies the
+global cap. Its external authorization records `until_first_delivery: true`,
+the scoped attempt cap and the full history. Infrastructure retries preserve
+that authorization without spending a model attempt. Default-cap completion
+and completion after the owner-requested tail recovery remain separate counts.

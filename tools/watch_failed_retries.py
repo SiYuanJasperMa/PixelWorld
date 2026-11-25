@@ -86,6 +86,8 @@ def main():
     parser.add_argument('--manager-map',type=Path,help='Runtime config-path to original manager/code checkout map')
     parser.add_argument('--near-complete-extra-attempts',type=int,default=0,
                         help='User-authorized sparse terminal rescues, at most two extra real attempts')
+    parser.add_argument('--near-complete-until-delivery',action='store_true',
+                        help='Requires explicit owner authorization: retry a sparse terminal tail until first valid delivery')
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--interval", type=float, default=60)
@@ -121,8 +123,11 @@ def main():
             # not measure the number of model attempts.
             result = authorize_failed(unfinished_retry_scope(config), args.extra_attempts, max_rounds,
                                       args.apply, args.cooldown if args.continuous else 0)
-            if args.near_complete_extra_attempts:
-                rescue=authorize_near_complete(config,extra_attempts=args.near_complete_extra_attempts,apply=args.apply)
+            if args.near_complete_extra_attempts or args.near_complete_until_delivery:
+                rescue=authorize_near_complete(config,extra_attempts=args.near_complete_extra_attempts or 2,
+                    min_fraction=.85 if args.near_complete_until_delivery else .95,
+                    max_missing=10 if args.near_complete_until_delivery else None,
+                    until_first_delivery=args.near_complete_until_delivery,apply=args.apply)
                 result['near_complete_rescue']=rescue
                 result['authorized_cases']+=rescue['authorized_cases']
                 if args.apply and rescue['authorized_cases']:
