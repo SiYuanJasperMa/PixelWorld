@@ -2,7 +2,7 @@
 
 Keep generation prompts, media settings, model identity, and the case budget fixed when diagnosing a failed submission. Inspect the original API request and response, not only the CLI's `turn.completed` event.
 
-The cumulative case output budget and a provider's per-response output limit are different controls. A gateway can truncate one reasoning response even when the agent has substantial case budget remaining. The Responses bridge preserves native `length` as `response.incomplete` with reason `max_output_tokens`; it must never label this response completed or mark a partial tool call complete. An explicit client output limit is retained.
+The cumulative case output budget and a provider's per-response output limit are different controls. Standard bridges use a shared fallback of 128,000 output tokens per response; explicit client limits remain unchanged. A gateway can truncate one reasoning response even when the agent has substantial case budget remaining. The Responses bridge preserves native `length` as `response.incomplete` with reason `max_output_tokens`; it must never label this response completed or mark a partial tool call complete. An explicit client output limit is retained.
 
 Adjacent parallel tool calls are serialized as one assistant tool batch, followed by their original result messages and IDs. This normalizes the transport without changing the task prompt or requiring extra generation or inspection.
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).resolve().parent
-from pixelworld.provider_completion import native_output_limit, terminal_status
+from pixelworld.provider_completion import DEFAULT_PROVIDER_MAX_OUTPUT_TOKENS, native_output_limit, terminal_status
 from pixelworld.log_storage import add_storage_arguments, resolve_storage_arguments
 MODEL_CONFIG = {}
 MODELS = {}
@@ -104,7 +104,7 @@ def native_request(req):
     return {'extra_info':json.dumps({'tool_wire_contract':'preserve_v1'}),'config_name':MODELS[model],
             'model_name':MODEL_CONFIG[model]['native_model_name'],'user_input':user_input,'messages':messages,
             'session_id':(req.get('prompt_cache_key') or str(uuid.uuid4())),'conversation_id':(req.get('prompt_cache_key') or str(uuid.uuid4())),'is_preset':True,
-            'tools':tools,'max_tokens':req.get('max_output_tokens',32000),
+            'tools':tools,'max_tokens':native_output_limit(req),
             'reasoning_effort':req.get('reasoning',{}).get('effort',MODEL_CONFIG[model].get('default_reasoning_level')),
             'parallel_tool_calls':req.get('parallel_tool_calls',True),'access_type':4}
 
@@ -205,7 +205,7 @@ class Bridge(BaseHTTPRequestHandler):
             streaming=bool(req.get('stream',False))
             save_log('input.json',req)
             native_input=dict(req)
-            native_input['max_output_tokens']=native_output_limit(req,getattr(self.server,'default_max_output_tokens',32000))
+            native_input['max_output_tokens']=native_output_limit(req,getattr(self.server,'default_max_output_tokens',DEFAULT_PROVIDER_MAX_OUTPUT_TOKENS))
             payload=native_request(native_input)
             if getattr(self.server,'use_request_parameters',False):
                 payload['is_preset']=False
@@ -399,7 +399,7 @@ def main():
     p.add_argument('--upstream-read-timeout',type=float,default=180)
     p.add_argument('--queue-retry-delay',type=float,default=0)
     p.add_argument('--max-request-bytes',type=int,default=30_000_000)
-    p.add_argument('--default-max-output-tokens',type=int,default=32000)
+    p.add_argument('--default-max-output-tokens',type=int,default=DEFAULT_PROVIDER_MAX_OUTPUT_TOKENS)
     add_storage_arguments(p)
     args=resolve_storage_arguments(p.parse_args(),p)
     global MODEL_CONFIG, MODELS

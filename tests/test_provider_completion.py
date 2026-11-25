@@ -28,3 +28,8 @@ def test_configured_limit_does_not_replace_explicit_client_limit():
 def test_invalid_limit_is_rejected(value):
     with pytest.raises(ValueError):
         native_output_limit({'max_output_tokens': value})
+
+
+def test_standard_fallback_is_128k_and_explicit_client_limit_still_wins():
+    assert native_output_limit({}) == 128000
+    assert native_output_limit({"max_output_tokens": 32000}) == 32000

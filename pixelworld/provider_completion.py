@@ -1,6 +1,8 @@
 """Preserve upstream stop semantics when adapting a Responses provider."""
 from __future__ import annotations
 
+DEFAULT_PROVIDER_MAX_OUTPUT_TOKENS = 128000
+
 
 def terminal_status(finish_reason: str | None) -> tuple[str, dict | None]:
     """A length-limited upstream response is never a completed agent answer."""
@@ -13,7 +15,7 @@ def terminal_status(finish_reason: str | None) -> tuple[str, dict | None]:
     raise ValueError(f'Unsupported upstream finish reason: {finish_reason!r}')
 
 
-def native_output_limit(request: dict, default: int = 32000) -> int:
+def native_output_limit(request: dict, default: int = DEFAULT_PROVIDER_MAX_OUTPUT_TOKENS) -> int:
     """Keep an explicit client limit; validate the configured fallback."""
     value = request.get('max_output_tokens', default)
     if type(value) is not int or value < 1:
