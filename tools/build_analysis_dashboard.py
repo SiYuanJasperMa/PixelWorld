@@ -26,6 +26,7 @@ CONDITIONS = [
     {"id": "physics_iq_thinking_higher", "title": "Physics-IQ · Thinking xhigh / max", "question": "GPT 请求 xhigh；DeepSeek 请求 max；API 接受已实测，内部推理深度由 provider 控制", "track": "vision-agent", "cases": 198, "runs": "physics_iq_thinking_higher", "config": "physics_iq_thinking_higher_analysis.json"},
     {"id": "robojudge_text", "title": "RoboJudge · Text", "question": "Text vs Vision", "track": "text", "cases": 50, "runs": "robojudge_text", "config": "robojudge_text_analysis.json"},
     {"id": "pcve_text", "title": "PCVE · Text", "question": "Text vs Vision", "track": "text", "cases": 129, "runs": "pcve_text", "config": "pcve_text_analysis.json"},
+    {"id": "rbench_text", "title": "RBench Common Manipulation · Text", "question": "Text vs Vision；Vision复用主实验", "track": "text", "cases": 50, "runs": "rbench_text", "config": "rbench_text_analysis.json"},
     {"id": "phygenbench_text", "title": "PhyGenBench · Text", "question": "Text vs Vision", "track": "text", "cases": 160, "runs": "phygenbench_text", "config": "phygenbench_text_analysis.json"},
     {"id": "physics_iq_harness_pi", "title": "Physics-IQ · Pi 1.6.0", "question": "同模型换 agent harness · 720p24fps · 原生工具与内核隔离", "track": "vision-agent", "cases": 198, "runs": "physics_iq_harness_pi", "config": "physics_iq_harness_pi_analysis.json"},
 ]
@@ -72,9 +73,9 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
         media=read(Path(config.get('inputs_root',''))/str(first)/'task_spec.json') if first else {}
         output_text=(f"{media.get('width')}×{media.get('height')} · {media.get('fps')} FPS · {media.get('frames')} frames"
                      if media else '')
-        bench=next(name for name in ('physics_iq','robojudge','pcve','phygenbench') if spec['id'].startswith(name))
+        bench=next(name for name in ('physics_iq','robojudge','pcve','phygenbench','rbench') if spec['id'].startswith(name))
         page={'physics_iq':'physics_iq_baseline.html','robojudge':'robojudge.html',
-              'pcve':'pcve_rigid.html','phygenbench':'phygen_pixelspace.html'}[bench]
+              'pcve':'pcve_rigid.html','phygenbench':'phygen_pixelspace.html','rbench':'rbench_common_manipulation.html'}[bench]
         groups = status.get("groups", {})
         source_updates=[status.get('updated_utc')]
         for source in runtime_rows:
@@ -133,7 +134,7 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
             "updated_utc": max((x for x in source_updates if isinstance(x,str)),default=None),
             "models": rows,
             "scored_models": sum(row['evaluation']['full_scope_scored'] for row in rows),
-            "primary_metric": {'physics_iq':'Verified','robojudge':'Mean','pcve':'PES','phygenbench':'Overall'}[bench],
+            "primary_metric": {'physics_iq':'Verified','robojudge':'Mean','pcve':'PES','phygenbench':'Overall','rbench':'GPT branch'}[bench],
         })
         for name in totals:
             totals[name] += counts.get(name, 0)
