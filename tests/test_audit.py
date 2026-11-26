@@ -106,6 +106,85 @@ def test_audit_recovery_preserves_original_pixels_and_rejects_real_outside_paths
     assert not recover(run,apply=False)['eligible']
 
 
+def relocation_fixture(tmp_path, command_suffix=''):
+    import shutil
+    from pixelworld.media import DEFAULT_MEDIA
+    source = tmp_path/'original'
+    source.mkdir()
+    make_artifacts(source/'workspace')
+    (source/'logs').mkdir()
+    events = [{'type':'item.completed','item':{'type':'command_execution',
+        'command':f'cd {source / "workspace"} && python generate.py'+command_suffix,
+        'status':'completed','exit_code':0}}, {'type':'turn.completed'}]
+    (source/'logs/events.jsonl').write_text('\n'.join(map(json.dumps,events)))
+    manifest = {'status':'failed','exit_status':0,'track':'vision-agent',
+        'workspace':str(source/'workspace'),'media_contract':DEFAULT_MEDIA,
+        'validation':{'pass':False,'planning_and_method_reports_required':False,
+                      'outside_workspace_command_paths':['/old/workspace']}}
+    (source/'run_manifest.json').write_text(json.dumps(manifest))
+    copy = tmp_path/'relocated'
+    shutil.copytree(source, copy)
+    return source, copy
+
+
+def test_relocated_audit_uses_verified_execution_alias_without_rewriting_raw_events(tmp_path):
+    from tools.revalidate_audit_failures import recover
+    source, copy = relocation_fixture(tmp_path)
+    before = (source/'run_manifest.json').read_bytes()
+    events_before = (source/'logs/events.jsonl').read_bytes()
+    pixels_before = sha256(copy/'workspace/pixels.npz')
+    assert not recover(copy, apply=False)['eligible']
+    assert recover(copy, apply=True, original_run=source)['applied']
+    assert (source/'run_manifest.json').read_bytes() == before
+    assert (copy/'logs/run_manifest_before_audit_revalidation.json').read_bytes() == before
+    assert (copy/'logs/events.jsonl').read_bytes() == events_before
+    assert sha256(copy/'workspace/pixels.npz') == pixels_before
+
+
+def test_relocated_alias_projection_keeps_real_outside_access_blocked(tmp_path):
+    from tools.revalidate_audit_failures import recover
+    source, copy = relocation_fixture(tmp_path, '; cat /other_experiment/reference.png')
+    result = recover(copy, apply=True, original_run=source)
+    assert not result['eligible']
+    assert '/other_experiment/reference.png' in result['remaining_validation']['outside_workspace_command_paths']
+    assert json.loads((copy/'run_manifest.json').read_text())['status'] == 'failed'
+
+
+def test_relocated_alias_projection_rejects_modified_event_history(tmp_path):
+    import pytest
+    from tools.revalidate_audit_failures import recover
+    source, copy = relocation_fixture(tmp_path)
+    (copy/'logs/events.jsonl').write_text('{}\n')
+    with pytest.raises(ValueError, match='Relocated copy differs'):
+        recover(copy, apply=True, original_run=source)
+
+
+def test_relocated_parent_alias_is_resolved_in_original_execution_directory(tmp_path):
+    import shutil
+    from tools.revalidate_audit_failures import recover
+    source, copy = relocation_fixture(tmp_path)
+    command = '/bin/bash -c "ls -ld . ../../original/workspace && python generate.py"'
+    events = [{'type':'item.completed','item':{'type':'command_execution',
+        'command':command,'status':'completed','exit_code':0}}, {'type':'turn.completed'}]
+    (source/'logs/events.jsonl').write_text('\n'.join(map(json.dumps,events)))
+    # This is the same original workspace, but outside the relocated copy.
+    shutil.copy2(source/'logs/events.jsonl', copy/'logs/events.jsonl')
+    assert recover(copy, apply=True, original_run=source)['applied']
+
+
+def test_relocated_parent_reference_to_other_experiment_stays_blocked(tmp_path):
+    import shutil
+    from tools.revalidate_audit_failures import recover
+    source, copy = relocation_fixture(tmp_path)
+    events = [{'type':'item.completed','item':{'type':'command_execution',
+        'command':"python generate.py; cat ../../other/reference.png",'status':'completed','exit_code':0}}, {'type':'turn.completed'}]
+    (source/'logs/events.jsonl').write_text('\n'.join(map(json.dumps,events)))
+    shutil.copy2(source/'logs/events.jsonl', copy/'logs/events.jsonl')
+    result = recover(copy, apply=True, original_run=source)
+    assert not result['eligible']
+    assert 'relative-parent-traversal' in result['remaining_validation']['outside_workspace_command_paths']
+
+
 def test_denied_scratch_in_successful_compound_command_is_warning(tmp_path):
     workspace=tmp_path/'workspace';make_artifacts(workspace)
     path='/tmp/pixelworld_nonexistent_audit_fixture_9e2d/file.py'

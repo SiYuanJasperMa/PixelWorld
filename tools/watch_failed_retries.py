@@ -75,7 +75,11 @@ def unfinished_retry_scope(config):
 def recover_audit_before_retry(config, apply):
     """Defer grants when a valid historical artifact needs writable-host repair."""
     from tools.revalidate_audit_failures import recover
-    restored=[];pending=[]
+    restored=[];pending=[];errors=[];held=set()
+    from pixelworld.supervisor import audit_recovery_holds
+    prior_holds = audit_recovery_holds(config)
+    prefixes = tuple(f'{model.key}/{track}/' for model in config.models for track in model.tracks)
+    held.update(key for key in prior_holds if not key.startswith(prefixes))
     try:groups=json.loads((config.runs_root/'status.json').read_text()).get('groups',{})
     except (OSError,ValueError):groups={}
     for model in config.models:
@@ -83,7 +87,9 @@ def recover_audit_before_retry(config, apply):
             leaf=config.runs_root/model.key/track
             group=groups.get(f'{model.key}/{track}',{})
             if 'exhausted_cases' in group:
-                paths=[p for case in group['exhausted_cases'] for p in leaf.glob(f'case_{case}_attempt_*/run_manifest.json')]
+                prefix=f'{model.key}/{track}/'
+                cases=set(group['exhausted_cases']) | {key[len(prefix):] for key in prior_holds if key.startswith(prefix)}
+                paths=[p for case in cases for p in leaf.glob(f'case_{case}_attempt_*/run_manifest.json')]
             else:paths=leaf.glob('case_*/run_manifest.json')
             for path in paths:
                 try:
@@ -94,12 +100,22 @@ def recover_audit_before_retry(config, apply):
                     if report.get('applied'):restored.append(str(path.parent))
                 except OSError:
                     pending.append(str(path.parent))
-    return {'restored':restored,'pending_writable_host':pending}
+                    case = path.parent.name.removeprefix('case_').rsplit('_attempt_', 1)[0]
+                    held.add(f'{model.key}/{track}/{case}')
+                    error = sys.exc_info()[1]
+                    errors.append({'run': str(path.parent), 'errno': error.errno,
+                                   'filename': error.filename, 'message': str(error)})
+    if apply:
+        atomic_json(config.runs_root/'audit_recovery_pending.json',
+                    {'schema_version': 1, 'cases': sorted(held), 'updated_utc': utc_now()})
+    return {'restored':restored,'pending_writable_host':pending,'write_errors':errors}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, action="append", required=True)
+    parser.add_argument('--model-key', action='append', default=[],
+                        help='Scope recovery and retry grants to these model keys without changing matrix configuration.')
     parser.add_argument("--extra-attempts", type=int, default=1,
                         help='Attempts granted per retry authorization window.')
     parser.add_argument("--max-total-attempts", type=int, default=5,
@@ -132,6 +148,11 @@ def main():
                 atomic_json(args.status, {'updated_utc':utc_now(), 'phase':'checking_config',
                                           'current_config':str(path), 'reports':reports})
             config = load_config(path)
+            if args.model_key:
+                requested = set(args.model_key)
+                if not requested.issubset({model.key for model in config.models}):
+                    raise ValueError('Requested retry model is absent from the matrix')
+                config = replace(config, models=tuple(model for model in config.models if model.key in requested))
             max_total_attempts = args.max_total_attempts
             if max_total_attempts is not None:
                 if config.max_total_attempts is not None and config.max_total_attempts != max_total_attempts:
@@ -148,15 +169,16 @@ def main():
                 continue
             if args.audit_revalidate:
                 audit=recover_audit_before_retry(unfinished_retry_scope(config),args.apply)
-                if audit['pending_writable_host']:
-                    reports.append({'config':str(path),'phase':'awaiting_audit_revalidation','audit_recovery':audit})
-                    continue
             # Continuous monitoring is not permission for unbounded retries.
             # The externally visible policy is the total model-attempt cap.
             # Ledger windows identify new run directories; their ordinals do
             # not measure the number of model attempts.
             result = authorize_failed(unfinished_retry_scope(config), args.extra_attempts, max_rounds,
                                       args.apply, args.cooldown if args.continuous else 0)
+            if args.audit_revalidate:
+                result['audit_recovery'] = audit
+                if audit['pending_writable_host']:
+                    result['phase'] = 'audit_revalidation_deferred_cases'
             if args.retry_all_failed_model:
                 recovery=authorize_near_complete(config, min_fraction=0, max_missing=None,
                     until_first_delivery=True, model_keys=set(args.retry_all_failed_model), apply=args.apply)
@@ -186,6 +208,7 @@ def main():
                 'extra_attempts_per_retry_window': args.extra_attempts,
                 'token_budget_exhausted_counts_as_failed_attempt': True,
                 'infra_failures_count_as_model_attempt': False,
+                'scoped_models': [model.key for model in config.models],
             }
             entry=managers.get(str(config.source))
             if needs_manager(result) and args.apply and entry:

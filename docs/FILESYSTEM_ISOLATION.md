@@ -52,3 +52,25 @@ network access with the pinned Codex sandbox. The audit accepts workspace
 `.tmp` paths. Proven failed writes to nonexistent `/tmp` scratch targets are
 warnings; successful outside reads remain violations. Historical permissions
 are preserved when revalidating old outputs.
+
+## Recovering audit-only rejections
+
+Recovery verifies unchanged code, RGB data and output contracts, and saves the
+original failed manifest and validation report. A quota or read-only failure
+defers only its model/track/case. Other cases keep their existing retry policy;
+a valid candidate waiting for audit recovery is not generated again.
+
+A small evidence-write probe catches storage failures before repeated whole-video
+decoding. Recovery reports the actual errno and filename rather than stopping an
+entire matrix when one record cannot be updated.
+
+For a verified storage copy, recorded paths retain their original execution
+meaning. Recovery can map exact original workspace aliases and literal parent
+paths that resolve inside that original workspace to the copy. The original
+manifest, code, RGB data, event stream and permission profile must match first.
+Raw events stay unchanged; the audit projection and its hashes are stored
+separately. Other experiments, references and scores remain outside the allowed
+workspace. Directory changes with unresolved variables are not guessed.
+
+These are retrospective validation corrections. They do not change the agent's
+filesystem or network isolation, generation prompts, or evaluator/dataset pins.

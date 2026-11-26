@@ -16,6 +16,29 @@ from .util import atomic_json, utc_now
 from .retries import latest_window, infrastructure_failure, model_attempt_cap
 from .scheduling import launch_guard, memory_launch_allowed
 
+_AUDIT_HOLD_CACHE = {}
+
+
+def audit_recovery_holds(config: Benchmark) -> set[str]:
+    """Externally deferred deliveries remain pending without being regenerated."""
+    path = config.runs_root / 'audit_recovery_pending.json'
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return set()
+    signature = (stat.st_mtime_ns, stat.st_size)
+    cached = _AUDIT_HOLD_CACHE.get(path)
+    if cached and cached[0] == signature:
+        return cached[1]
+    data = json.loads(path.read_text())
+    if data.get('schema_version') != 1 or not isinstance(data.get('cases'), list):
+        raise ValueError('Invalid audit recovery deferral record')
+    keys = set(data['cases'])
+    if not all(isinstance(key, str) for key in keys):
+        raise ValueError('Invalid audit recovery case identity')
+    _AUDIT_HOLD_CACHE[path] = (signature, keys)
+    return keys
+
 
 def case_ids(config: Benchmark) -> list[str]:
     if config.case_ids:
@@ -132,6 +155,10 @@ def inspect(config: Benchmark, model: Model, track: str, case_id: str) -> dict:
     if running:
         return {**running,'model_attempts':model_attempts,'infra_attempts':infra_attempts}
     counters={'model_attempts':model_attempts,'infra_attempts':infra_attempts}
+    if f'{model.key}/{track}/{case_id}' in audit_recovery_holds(config):
+        return {'state': 'pending', 'attempt': launch_limit,
+                'run': str(run_path(config, model, track, case_id, launch_limit)),
+                'blocked_by_audit_revalidation': True, **counters}
     cap=model_attempt_cap(config,model,track,case_id)
     if cap is not None and model_attempts >= cap:
         return {'state':'exhausted','attempt':limit,'run':str(run_path(config,model,track,case_id,limit)),
@@ -274,7 +301,8 @@ def run(config: Benchmark, interval: float = 5.0) -> None:
                     continue
                 pending = [(case_id, info[(model.key, track, case_id)])
                            for case_id in case_ids(config)
-                           if info[(model.key, track, case_id)]["state"] == "pending"]
+                           if info[(model.key, track, case_id)]["state"] == "pending"
+                           and not info[(model.key, track, case_id)].get('blocked_by_audit_revalidation')]
                 if settings.get('prioritize_less_attempted_cases'):
                     pending.sort(key=lambda row:(row[1]['attempt'],row[0]))
                 for case_id, item in pending[:available]:
