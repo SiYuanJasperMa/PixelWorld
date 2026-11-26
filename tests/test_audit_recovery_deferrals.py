@@ -1,10 +1,13 @@
 import json
 import sys
+import pytest
+from pathlib import Path
 
 from pixelworld.config import load_config
 from pixelworld.runner import run_path
 from pixelworld.supervisor import inspect
 from tools import revalidate_audit_failures, watch_failed_retries
+from pixelworld.util import sha256
 
 
 def make_cases(tmp_path):
@@ -99,3 +102,33 @@ def test_model_scoped_recovery_preserves_other_models_audit_deferrals(tmp_path, 
     holds = json.loads((config.runs_root/'audit_recovery_pending.json').read_text())['cases']
     assert holds == ['m/text/blocked', 'other/text/blocked']
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize('matches', [True, False])
+def test_writable_host_review_releases_only_the_exact_failed_record(tmp_path, monkeypatch, matches):
+    import pixelworld.audit as audit_module
+    _, config, model = make_cases(tmp_path)
+    run = run_path(config, model, 'text', 'blocked', 1)
+    manifest = run / 'run_manifest.json'
+    original = manifest.read_bytes()
+    (config.runs_root/'audit_recovery_pending.json').write_text(json.dumps(
+        {'schema_version': 1, 'cases': ['m/text/blocked']}))
+    (config.runs_root/'audit_recovery_reviews.json').write_text(json.dumps({'records': {
+        str(run.resolve()): {'eligible': False,
+            'manifest_sha256': sha256(manifest) if matches else 'stale',
+            'audit_sha256': sha256(Path(audit_module.__file__)),
+            'recovery_tool_sha256': sha256(Path(revalidate_audit_failures.__file__))}}}))
+    calls = []
+
+    def read_only(run, *, apply):
+        calls.append(run)
+        raise OSError(30, 'Read-only file system')
+
+    monkeypatch.setattr(revalidate_audit_failures, 'recover', read_only)
+    report = watch_failed_retries.recover_audit_before_retry(config, True)
+    assert bool(calls) is (not matches)
+    assert bool(report['pending_writable_host']) is (not matches)
+    assert bool(report['reviewed_unrecoverable']) is matches
+    assert inspect(config, model, 'text', 'blocked').get('blocked_by_audit_revalidation', False) is (not matches)
+    assert manifest.read_bytes() == original
+    assert json.loads(manifest.read_text())['status'] == 'failed'

@@ -74,3 +74,10 @@ workspace. Directory changes with unresolved variables are not guessed.
 
 These are retrospective validation corrections. They do not change the agent's
 filesystem or network isolation, generation prompts, or evaluator/dataset pins.
+
+A writable host may record that an exact closed failure is ineligible for audit
+recovery. Retry controllers accept this review only when the original manifest,
+audit implementation and recovery-tool hashes match. The record remains failed;
+the review releases a storage deferral so an already authorized fresh attempt can
+run through normal validation. A stale review cannot release the deferral, and
+the review never turns a rejected video into a successful result.

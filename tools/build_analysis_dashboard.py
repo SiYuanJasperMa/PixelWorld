@@ -96,6 +96,10 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
         rows = []
         counts = {"complete": 0, "running": 0, "pending": 0, "exhausted": 0}
         for key in model_labels:
+            if key in runtime.get('scoped_model_keys', []) and not any(
+                    source.get('condition') == spec['id'] and source.get('model_key') == key
+                    for source in runtime_rows):
+                continue
             group_key = f"{key}/{spec['track']}"
             group = groups.get(group_key, {})
             row_counts = normalized(group.get("counts", {}), spec["cases"])
@@ -126,11 +130,14 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
                                  if k in ('completed','expected','updated_utc')},
                 },
             })
-        total = spec["cases"] * len(model_labels)
+        total = spec["cases"] * len(rows)
+        paused_models = set(paused.get(spec["config"], []))
+        unfinished_models = {row["key"] for row in rows if row["complete"] < row["total"]}
+        condition_paused = bool(unfinished_models and unfinished_models <= paused_models)
         conditions.append({
             **spec, "total": total, "counts": counts,
             "page":page,"output_text":output_text,
-            "paused": spec["config"] in paused or status.get("dispatch_paused") is True,
+            "paused": condition_paused or status.get("dispatch_paused") is True,
             "updated_utc": max((x for x in source_updates if isinstance(x,str)),default=None),
             "models": rows,
             "scored_models": sum(row['evaluation']['full_scope_scored'] for row in rows),

@@ -16,7 +16,7 @@ from dataclasses import replace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pixelworld.config import load_config
 from pixelworld.retries import authorize_failed, authorize_near_complete
-from pixelworld.util import atomic_json, utc_now
+from pixelworld.util import atomic_json, utc_now, sha256
 
 
 def ensure_manager(config, entry):
@@ -75,7 +75,15 @@ def unfinished_retry_scope(config):
 def recover_audit_before_retry(config, apply):
     """Defer grants when a valid historical artifact needs writable-host repair."""
     from tools.revalidate_audit_failures import recover
-    restored=[];pending=[];errors=[];held=set()
+    restored=[];pending=[];errors=[];held=set();reviewed=[]
+    import pixelworld.audit as audit_module
+    from tools import revalidate_audit_failures as recovery_module
+    try:
+        reviews = json.loads((config.runs_root/'audit_recovery_reviews.json').read_text()).get('records', {})
+    except (OSError, ValueError):
+        reviews = {}
+    audit_hash = sha256(Path(audit_module.__file__))
+    recovery_hash = sha256(Path(recovery_module.__file__))
     from pixelworld.supervisor import audit_recovery_holds
     prior_holds = audit_recovery_holds(config)
     prefixes = tuple(f'{model.key}/{track}/' for model in config.models for track in model.tracks)
@@ -96,6 +104,17 @@ def recover_audit_before_retry(config, apply):
                     m=json.loads(path.read_text());v=m.get('validation') or {}
                     if m.get('status')!='failed' or not v.get('outside_workspace_command_paths'):continue
                     if v.get('missing_required') or not v.get('frame0_exact') or not v.get('png_tensor_exact'):continue
+                    review = reviews.get(str(path.parent.resolve()), {})
+                    if (review.get('eligible') is False
+                            and review.get('manifest_sha256') == sha256(path)
+                            and review.get('audit_sha256') == audit_hash
+                            and review.get('recovery_tool_sha256') == recovery_hash):
+                        # A writable host has already checked this exact closed
+                        # record and found that it cannot become a valid delivery.
+                        # It remains failed; allow an authorized fresh attempt
+                        # rather than repeatedly trying a read-only backup write.
+                        reviewed.append(str(path.parent))
+                        continue
                     report=recover(path.parent,apply=apply)
                     if report.get('applied'):restored.append(str(path.parent))
                 except OSError:
@@ -108,7 +127,8 @@ def recover_audit_before_retry(config, apply):
     if apply:
         atomic_json(config.runs_root/'audit_recovery_pending.json',
                     {'schema_version': 1, 'cases': sorted(held), 'updated_utc': utc_now()})
-    return {'restored':restored,'pending_writable_host':pending,'write_errors':errors}
+    return {'restored':restored,'pending_writable_host':pending,'write_errors':errors,
+            'reviewed_unrecoverable':reviewed}
 
 
 def main():

@@ -84,3 +84,54 @@ def test_current_worker_source_is_joined_without_exposing_private_paths(tmp_path
     assert row['complete']==35 and row['running']==1
     assert result['conditions'][0]['updated_utc']=='2026-11-26T00:00:00+00:00'
     assert str(worker) not in json.dumps(result)
+
+
+def test_scoped_native_model_only_counts_registered_conditions(tmp_path):
+    bundle = tmp_path / 'bundle'
+    web = tmp_path / 'web'
+    web.mkdir()
+    (bundle / 'configs').mkdir(parents=True)
+    (bundle / 'bundle.json').write_text(json.dumps({'models': [
+        {'key': 'm', 'model': 'model', 'analysis': True}]}))
+    for name in ('physics_iq_text_analysis.json', 'pcve_text_analysis.json'):
+        (bundle / 'configs' / name).write_text('{}')
+    worker = tmp_path / 'native'
+    worker.mkdir()
+    config = tmp_path / 'native.json'
+    config.write_text(json.dumps({'runs_root': str(worker),
+        'case_ids': [str(i) for i in range(198)],
+        'models': [{'key': 'native-model', 'tracks': ['text']}]}))
+    (worker / 'status.json').write_text(json.dumps({'groups': {
+        'native-model/text': {'counts': {'complete': 3, 'running': 1, 'pending': 194}}}}))
+    (bundle / 'analysis_runtime_sources.json').write_text(json.dumps({
+        'model_labels': {'native-model': 'Native model'},
+        'scoped_model_keys': ['native-model'], 'sources': [{
+            'condition': 'physics_iq_text', 'model_key': 'native-model', 'config': str(config)}]}))
+    result = build(web, bundle)
+    physics = next(c for c in result['conditions'] if c['id'] == 'physics_iq_text')
+    pcve = next(c for c in result['conditions'] if c['id'] == 'pcve_text')
+    assert physics['total'] == 396
+    assert physics['counts']['complete'] == 3
+    assert pcve['total'] == 129
+    assert [m['key'] for m in pcve['models']] == ['m']
+    assert result['totals']['total'] == 525
+
+
+@pytest.mark.parametrize('paused_models, expected', [(['native'], False), (['native', 'active'], True)])
+def test_one_paused_model_does_not_pause_a_running_condition(tmp_path, paused_models, expected):
+    bundle = tmp_path / 'bundle'
+    web = tmp_path / 'web'
+    web.mkdir()
+    (bundle / 'configs').mkdir(parents=True)
+    (bundle / 'bundle.json').write_text(json.dumps({'models': [
+        {'key': key, 'model': key, 'analysis': True} for key in ('native', 'active')]}))
+    (bundle / 'configs/rbench_text_analysis.json').write_text('{}')
+    (bundle / 'configs/scheduling_limits.json').write_text(json.dumps({
+        'paused_models_by_config': {'rbench_text_analysis.json': paused_models}}))
+    runs = bundle / 'analysis_generations/rbench_text'
+    runs.mkdir(parents=True)
+    (runs / 'status.json').write_text(json.dumps({'groups': {
+        'native/text': {'counts': {'pending': 50}},
+        'active/text': {'counts': {'complete': 10, 'running': 2, 'pending': 38}}}}))
+    condition = next(c for c in build(web, bundle)['conditions'] if c['id'] == 'rbench_text')
+    assert condition['paused'] is expected
