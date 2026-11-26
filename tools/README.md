@@ -4,6 +4,22 @@ Launch coding agents through the installed `pixelworld` CLI. Utilities here
 prepare inputs, evaluate outputs, publish sanitized records and operate the
 experiment services. They do not change the generation boundary.
 
+## Operator entry
+
+Read [the experiment runbook](../docs/EXPERIMENT_RUNBOOK.md) first. Current
+operator code lives in `tools/ops/`; exact private runtime locations are supplied
+through `runtime.local.json`, outside Git.
+
+```bash
+python -m tools.ops.status --map runtime.local.json
+# Run on the CPU worker to verify CPU-owned processes:
+python -m tools.ops.status --map runtime.local.json --role cpu --verify-processes
+```
+
+This command does not dispatch, score, upload or change a run. It distinguishes
+saved counters from live processes and refuses duplicate or mismatched cohorts.
+Existing `tools.MODULE` paths remain stable for archived configs and receipts.
+
 ## Current entry points
 
 | Task | Module |

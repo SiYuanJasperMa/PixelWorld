@@ -13,6 +13,8 @@ runs/
 site/
 evaluation_outputs/
 configs/*.local.json
+EXPERIMENT_HANDOFF.local.md
+runtime.local.json
 *.log
 *.pid
 

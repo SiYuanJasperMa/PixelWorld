@@ -5,7 +5,7 @@ defects, and finish once the task is complete reduce token use while preserving
 Physics-IQ quality. The baseline generation interface remains in use.
 
 Only the baseline sentence `Aim for high-quality output while considering
-efficiency.` is replaced by [EFFICIENCY_GUIDANCE.md](../pixelworld/assets/EFFICIENCY_GUIDANCE.md).
+efficiency.` is replaced by [EFFICIENCY_GUIDANCE.md](../../../pixelworld/assets/EFFICIENCY_GUIDANCE.md).
 The task introduction, generation rules, scratch instructions, model tools,
 image access, reasoning effort, output-token allowance, and RGB contract are
 preserved. There is no fixed command count or candidate count and no automatic

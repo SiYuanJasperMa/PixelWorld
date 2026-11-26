@@ -4,10 +4,20 @@ Current code: https://github.com/SiYuanJasperMa/PixelWorld
 
 Results: https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html
 
+## Start here
+
+[Experiment runbook](EXPERIMENT_RUNBOOK.md) covers main/analysis experiments,
+physical evaluation, FVD, subjective quality, video/record storage, progress,
+publication and cleanup. On the owner's machine, repository-root
+`EXPERIMENT_HANDOFF.local.md` adds exact private paths and the latest operator
+decisions. `runtime.local.json` powers `python -m tools.ops.status`; neither
+local file belongs in Git.
+
 ## Run main experiments
 
 | Task | Guide |
 |---|---|
+| Inspect registered snapshots and actual owner processes without starting work | `python -m tools.ops.status --map runtime.local.json` |
 | Understand the four benchmarks and protocol pins | [Current main suite](MAIN_SUITE_20261124.md) |
 | Run an exact model with Codex 0.169.0 | [Add-model runbook](ADD_MODEL_RUNBOOK.md) |
 | Claude collaborator: 537 Vision samples | [Claude assignment](RUN_CLAUDE_MAIN.md) |

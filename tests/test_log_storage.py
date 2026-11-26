@@ -112,6 +112,28 @@ def test_managed_logging_does_not_rescan_the_growing_directory(tmp_path, monkeyp
     assert all((tmp_path / (str(i) + '.input.json')).read_bytes() == b'complete original input' for i in range(8))
 
 
+def test_managed_requests_do_not_enumerate_the_namespace_each_time(tmp_path, monkeypatch):
+    import pixelworld.log_storage as storage
+    scans = []
+    original = storage.os.scandir
+
+    def counted(path):
+        scans.append(path)
+        return original(path)
+
+    monkeypatch.setattr(storage.os, 'scandir', counted)
+    budget = SpoolBudget(tmp_path, 1024**3)
+    for i in range(30):
+        request = str(i)
+        budget.acquire(request, 10, timeout=0)
+        budget.write(request, request+'.input.json', b'original request')
+        budget.append_summary(request, {'id': request})
+        budget.release(request)
+        assert budget.capacity_status(refresh=False)['ready']
+    assert len(scans) == 1
+    assert (tmp_path/'29.input.json').read_bytes() == b'original request'
+
+
 def test_new_external_closed_files_trigger_capacity_reconciliation(tmp_path):
     budget = SpoolBudget(tmp_path, 100 * 1024**2)
     assert budget.capacity_status()['ready']

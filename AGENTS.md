@@ -1,5 +1,8 @@
 # PixelWorld repository instructions
 
+- Start operational work with `docs/EXPERIMENT_RUNBOOK.md`. On the owner's shared workspace, read `EXPERIMENT_HANDOFF.local.md` and `runtime.local.json` when present; they contain private locations and current pause decisions and must never be committed. Check the latest user instruction before launching work.
+- Use `python -m tools.ops.status --map runtime.local.json` for a read-only inventory. Verify processes on their owning host before treating snapshot `running` counters as live work. A host reboot does not invalidate successful artifacts or authorize rerunning them.
+
 - This repository evaluates coding agents that directly write RGB pixels. Do not add an image/video generation model, learned renderer, reference continuation, or physics engine to the generation path.
 - New experiments default to Text and Vision-Agent. Text has no attached image and no visual output tool; Vision-Agent has both and decides autonomously whether to inspect/refine. Do not launch Vision-Input by default. Preserve its original boundary and results for explicit legacy configurations and v1 experiment continuation.
 - Minimal v2 requires code/RGB outputs and saving intermediate candidates, without mandatory observation, event-plan or method reports. Record candidate artifacts, code revisions and tool logs externally. Keep legacy v1 task/rule text in assets/legacy_v1 unchanged.

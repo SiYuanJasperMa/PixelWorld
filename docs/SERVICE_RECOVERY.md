@@ -1,51 +1,35 @@
 # Benchmark service recovery
 
-Generation tasks, candidate history, budgets and successful submissions remain
-unchanged. Service recovery operates outside agent workspaces.
-
-Run the service chain from an explicit local specification:
+Use [EXPERIMENT_RUNBOOK.md](EXPERIMENT_RUNBOOK.md), then the owner's local
+handoff for exact paths and current pause decisions.
 
 ```bash
-python tools/watch_benchmark_services.py --spec path/to/benchmark_services.json
+python -m tools.watch_benchmark_services --spec "$SERVICE_SPEC"
 ```
 
-The specification lists each service's command, working directory, PID file,
-log, exact command-line identity, dependencies, and optional pause marker.
-Credentials are read from environment files; do not place their contents in the
-specification or commit the local specification. The watchdog checks actual
-process identity, rejects zombie/reused PIDs, and holds a single-instance lock.
+The local specification records commands, cwd, PID receipts, logs, identities,
+dependencies and optional stop markers. Credentials come from private files.
+Choose only authorized services: an old combined specification may include
+scoring or retired routes. Keep specifications outside Git and agent workspaces.
 
-The current approved service chain covers Physics-IQ, RoboJudge and
-PCVE-RigidBench: the loopback model API relay, failed-case retry watcher,
-benchmark evaluators, and GitHub Pages publisher. Completed groups are reused.
-Explicit VBench/PhyGenBench generation and evaluation pause markers are retained.
+The watchdog checks PID identity, excludes zombies and uses a single-instance
+lock. After reboot, inspect actual owners before restarting. Verify CPU-owned
+work on the CPU worker. Detached services require an explicit restart or a host
+process manager after a reboot.
 
-Failed-case retry monitoring preserves all attempts and uses the existing
-two-attempt, 1M-token retry windows with a 300-second cooldown. It skips groups
-already reported complete, updates its heartbeat between configurations, and
-locks manager creation to prevent duplicate restarts. Model-visible prompts
-and generation rules are unaffected.
+Use registered continuation configs and `tools.watch_failed_retries`. Five real
+attempts are the general allowance; RBench's original allowance is one. Infra
+records are exempt. Owner-authorized recovery is separate and stops at first
+valid delivery. Preserve history and accepted-case reuse.
 
-Recovery may enable `prioritize_less_attempted_cases` in the local scheduling
-limits. A repeatedly failing early case then cannot occupy every new slot while
-later cases have never been attempted. Existing attempts stay recorded, failed
-cases remain eligible for retry, and no continuation prompt or evaluation
-feedback is added to the agent conversation.
+Model proxies use 64 GiB log capacity and a 20 GiB filesystem reserve. Test real
+durable writes because network-filesystem free space can disagree with quota.
+Check `/ready`, forwarding and response records; `/health` alone is insufficient.
+Preserve raw request/response bodies when relocating a cloud spool.
 
-Final-video previews use `quick.html`, with the same RGB tensor player as the
-rich review pages. They can be published before detailed candidate/trace pages
-finish rendering. Failed/unvalidated submissions cannot receive these previews.
-Preview receipts are invalidated if the submitted tensor or contract changes.
-Final video and rich trace publication progress are recorded separately.
-Rich pages render in at most two detached local workers into staging; publication
-consumes ready pages and does not wait for a long candidate/trace render.
+The publication chain exports sanitized records, uploads cases/media/traces,
+updates HF progress and publishes the static HF Space. It is independent of
+generation and scoring. See [HF_PUBLISHING.md](HF_PUBLISHING.md).
 
-Paused benchmark trace backlogs do not block currently active suites. A local
-`preview_priority.json` may temporarily prioritize unfinished groups during
-recovery; its deadline restores completed-group trace catchup automatically.
-Only changed case directories and overview files are staged for core refreshes.
-
-A detached watchdog survives terminal closure, but not an entire host reboot.
-Use the host's available process manager to restart it, or a durable TRAE task
-that runs recovery when the owning daemon/session is restored. TRAE recurring
-tasks have a seven-day lifetime; they are not an unconditional OS boot service.
+The original guide is retained in
+[the archive](archive/2026-11/SERVICE_RECOVERY_PRE_20261127.md).

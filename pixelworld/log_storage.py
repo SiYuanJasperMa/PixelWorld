@@ -80,8 +80,10 @@ class SpoolBudget:
     def _current_usage(self, *, check_namespace=False):
         if self._used is None:
             return self.used_bytes()
-        if check_namespace and {entry.name for entry in os.scandir(self.root)} != self._known_names:
-            return self.used_bytes()
+        if check_namespace and self.root.stat().st_mtime_ns != self._directory_stamp:
+            if {entry.name for entry in os.scandir(self.root)} != self._known_names:
+                return self.used_bytes()
+            self._directory_stamp = self.root.stat().st_mtime_ns
         return self._used
 
     def _record_change(self, difference, *, created=None, removed=None):

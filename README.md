@@ -9,6 +9,12 @@ learned renderer, physics engine or reference continuation.
 [Videos and traces](https://huggingface.co/datasets/HuggingFriends/PixelWorld) ·
 [Documentation](docs/INDEX.md)
 
+**Agent/operator entry:** [Experiment runbook](docs/EXPERIMENT_RUNBOOK.md).
+On the owner's shared workspace, read `EXPERIMENT_HANDOFF.local.md` for the
+exact run/video/evaluation paths, current pause decisions and recovery commands.
+Use `python -m tools.ops.status --map runtime.local.json` for a read-only status
+report. These local files are private and ignored by Git.
+
 ## Main experiments
 
 | Benchmark | Task | Full scope | Main setting | Physical score |
@@ -79,7 +85,7 @@ missing usage as unavailable. Do not feed evaluator results into generation.
 
 | Analysis | Comparison |
 |---|---|
-| Text versus Vision | Physics-IQ, PhyGenBench and PCVE |
+| Text versus Vision | Physics-IQ, RBench Common Manipulation, PhyGenBench and PCVE |
 | Resolution | Physics-IQ: 480p / 720p / 1080p, fixed 24 FPS |
 | FPS | Physics-IQ: 12 / 24 / 48 FPS, fixed 720p and five seconds |
 | Thinking effort | Physics-IQ: low / high / verified higher or maximum setting |

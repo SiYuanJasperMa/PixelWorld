@@ -55,9 +55,11 @@ constraints. Image-conditioned generation preserves the prescribed initial
 frame, while PCVE editing retains the source timeline and applies the intervention
 at its specified original-frame index. PhyGenBench evaluates text-conditioned
 scene construction with an explicit photographic target. Benchmark evaluators
-operate independently of agent execution. Physics-IQ, RoboJudge and PCVE use
-pinned original scoring code; the current PhyGenBench comparison uses an
-explicitly labeled GPT-5.5 judge adaptation, not hierarchical PhyGenEval.
+operate independently of agent execution. Physics-IQ and PCVE use pinned
+original scoring code. RBench Common Manipulation uses the pinned official
+GPT branch with GPT-6.1-Sol. PhyGenBench uses an explicitly labeled three-stage
+GPT-6.1-Sol MCQ adaptation. Older RoboJudge and GPT-5.5 results retain their
+historical provenance.
 
 ### Agent execution and visual access
 

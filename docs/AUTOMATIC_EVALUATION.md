@@ -33,9 +33,10 @@ case count. Missing cache counters remain unknown, and partial cost pools cannot
 price a full score. Token prices are explicitly labeled reference assumptions;
 70/80% cache scenarios remain separate from reported cache usage.
 
-PhyGenBench's chart uses the PixelWorld GPT-5.5 scale. Baselines evaluated under
-a different judge stay in the main table as labeled references and are excluded
-from that chart's shared score axis.
+PhyGenBench's current physical chart uses the selected GPT-6.1-Sol three-stage
+MCQ adapter. Older GPT-5.5 and original-model judge scores remain separately
+labeled. Baselines evaluated under a different judge stay as references and
+are excluded from a chart that requires a shared score protocol.
 
 ## PCVE
 
