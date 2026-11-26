@@ -11,6 +11,7 @@ Results: https://huggingfriends-pixelworld-dashboard.static.hf.space/index.html
 | Understand the four benchmarks and protocol pins | [Current main suite](MAIN_SUITE_20261124.md) |
 | Run an exact model with Codex 0.169.0 | [Add-model runbook](ADD_MODEL_RUNBOOK.md) |
 | Claude collaborator: 537 Vision samples | [Claude assignment](RUN_CLAUDE_MAIN.md) |
+| Claude Code 2.1.304 on a Claude subscription (sandboxed native tools) | [Subscription runbook](RUN_CLAUDE_CODE_SUBSCRIPTION.md) |
 | Kimi/Qwen collaborator: 537 samples each | [Kimi + Qwen assignment](RUN_KIMI_QWEN_MAIN.md) |
 | Hand a task to another collaborator | [Handoff template](COLLABORATOR_HANDOFF.md) |
 | Choose configuration templates | [Configuration guide](../configs/README.md) |

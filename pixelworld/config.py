@@ -19,6 +19,9 @@ class Provider:
     env_key: str | None = None
     model_catalog_json: str | None = None
     stream_idle_timeout_ms: int | None = None
+    # anthropic_subscription only: "native" (Claude Code's own tools, whole
+    # process sandboxed; the default) or "mcp" (no built-in tools, case MCP server).
+    tool_mode: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,8 +98,14 @@ def load_config(path: str | Path) -> Benchmark:
                 not isinstance(provider.stream_idle_timeout_ms, int) or isinstance(provider.stream_idle_timeout_ms, bool)
                 or provider.stream_idle_timeout_ms <= 0):
             raise ValueError('stream_idle_timeout_ms must be a positive integer')
-        if provider.type not in ("builtin", "responses", "oss"):
+        if provider.type not in ("builtin", "responses", "oss", "anthropic_subscription"):
             raise ValueError(f"Unsupported provider type for {key}: {provider.type}")
+        if provider.type == "anthropic_subscription" and (
+                value.get("cli_backend") != "claude_code" or not provider.env_key):
+            raise ValueError(f"Subscription provider {key} needs the pinned claude_code backend and env_key")
+        if provider.tool_mode is not None and (
+                provider.type != "anthropic_subscription" or provider.tool_mode not in ("native", "mcp")):
+            raise ValueError(f"tool_mode for {key} must be native or mcp on an anthropic_subscription provider")
         if provider.type == "responses" and not all(
                 (provider.id, provider.name, provider.base_url, provider.env_key)):
             raise ValueError(f"Responses provider {key} needs id, name, base_url, and env_key")
@@ -105,10 +114,14 @@ def load_config(path: str | Path) -> Benchmark:
         if cli_backend not in ("codex", "trae", "pi", *CONTROLLED_CLI_VERSIONS):
             raise ValueError(f"Unknown CLI backend for {key}: {cli_backend}")
         cli_version=value.get('cli_version')
+        subscription = provider.type == 'anthropic_subscription'
         if cli_backend in CONTROLLED_CLI_VERSIONS and (
-            cli_version != CONTROLLED_CLI_VERSIONS[cli_backend] or protocol != CONTROLLED_PHYSICS_PROTOCOL or
-            tracks != ('vision-agent',) or token_budget is None or provider.type != 'responses' or
-            not provider.model_catalog_json or filesystem_policy != 'case-only-v1' or harness_variant != 'baseline'
+            cli_version != CONTROLLED_CLI_VERSIONS[cli_backend] or
+            (protocol != CONTROLLED_PHYSICS_PROTOCOL and not subscription) or
+            tracks != ('vision-agent',) or token_budget is None or
+            (provider.type != 'responses' and not subscription) or
+            (not provider.model_catalog_json and not subscription) or
+            filesystem_policy != 'case-only-v1' or harness_variant != 'baseline'
         ):
             raise ValueError('Controlled native clients require the frozen Physics-IQ Vision protocol, Responses, and a budget')
         if cli_backend=='pi' and (cli_version!='1.6.0' or provider.type!='responses'

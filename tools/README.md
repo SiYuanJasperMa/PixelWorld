@@ -23,6 +23,7 @@ experiment services. They do not change the generation boundary.
 | Publish and verify the main dashboard | `tools.publish_main_suite_hf` |
 | Publish and verify HF repository cards | `tools.publish_hf_readmes` |
 | Archive original I/O and attempts privately | `tools.archive_recent_registered_runs` |
+| Claude Code subscription route: launchers, quota guard, cost report, HF bundle | `tools/claude_code/` ([runbook](../docs/RUN_CLAUDE_CODE_SUBSCRIPTION.md)) |
 
 Use `python -m tools.MODULE --help` for arguments. Follow the supplied frozen
 configs and [main protocol](../docs/MAIN_SUITE_20261124.md). A tool whose filename

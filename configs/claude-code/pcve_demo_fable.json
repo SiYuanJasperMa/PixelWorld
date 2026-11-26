@@ -1,0 +1,36 @@
+{
+  "_draft_note": "Fable 5.2 demo: first 3 official cases of pcve (owner request 2026-11-26).",
+  "protocol": "DRAFT-OWNER-CONFIRM-pixelworld-pcve-edit-v1-20261111-standard720p24fps",
+  "inputs_root": "<PIXELWORLD_HOME>/inputs/pcve",
+  "runs_root": "<PIXELWORLD_HOME>/runs_claude_fable/pcve",
+  "filesystem_policy": "case-only-v1",
+  "harness_variant": "baseline",
+  "max_concurrency": 2,
+  "max_per_config": 2,
+  "max_attempts": 1,
+  "max_total_attempts": 1,
+  "output_token_budget": 1000000,
+  "case_ids": [
+    "pcve_0000",
+    "pcve_0001",
+    "pcve_0002"
+  ],
+  "models": [
+    {
+      "key": "claude-fable-5-2",
+      "model": "claude-fable-5-2",
+      "reasoning_effort": "high",
+      "cli_backend": "claude_code",
+      "cli_version": "2.1.304",
+      "tracks": [
+        "vision-agent"
+      ],
+      "provider": {
+        "type": "anthropic_subscription",
+        "id": "anthropic_subscription",
+        "name": "Operator Claude subscription via pinned Claude Code",
+        "env_key": "CLAUDE_CODE_OAUTH_TOKEN"
+      }
+    }
+  ]
+}

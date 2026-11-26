@@ -433,7 +433,8 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         prior_output, prior_unknown, ignored_prior_usage = 0, False, []
     source = config.inputs_root / case_id
     spec = contract(source)
-    if controlled and (spec['task_type'],spec['width'],spec['height'],spec['fps'],spec['frames']) != ('i2v',1280,720,24,120):
+    if (controlled and model.provider.type != 'anthropic_subscription'
+            and (spec['task_type'],spec['width'],spec['height'],spec['fps'],spec['frames']) != ('i2v',1280,720,24,120)):
         raise ValueError('Controlled native clients require the standard Physics-IQ media contract')
     has_image = spec["task_type"] in ("i2v", "v2v", "video_edit")
     if (has_image and not (source / "first_frame.png").is_file()) or not (source / "prompt.txt").is_file():
