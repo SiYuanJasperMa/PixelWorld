@@ -134,7 +134,7 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
             "updated_utc": max((x for x in source_updates if isinstance(x,str)),default=None),
             "models": rows,
             "scored_models": sum(row['evaluation']['full_scope_scored'] for row in rows),
-            "primary_metric": {'physics_iq':'Verified','robojudge':'Mean','pcve':'PES','phygenbench':'Overall','rbench':'GPT branch'}[bench],
+            "primary_metric": {'physics_iq':'Verified','robojudge':'Mean','pcve':'PES','phygenbench':'Overall','rbench':'Normalized score'}[bench],
         })
         for name in totals:
             totals[name] += counts.get(name, 0)

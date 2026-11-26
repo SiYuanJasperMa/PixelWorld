@@ -11,7 +11,7 @@ def test_matched_rbench_video_baseline_requires_protocol_and_complete_scope():
               'judge': JUDGE, 'official_code_commit': UPSTREAM, 'full_common50': True,
               'expected_cases': 50, 'scored_cases': 50, 'failed_cases': [], 'mean': 3.0,
               'official_combined_gpt_qwen_leaderboard_equivalent': False}
-    assert rbench_baseline_score(report, source) == 3.0
+    assert rbench_baseline_score(report, source) == 0.5
     assert rbench_baseline_score({**report, 'scored_cases': 49}, source) is None
     assert rbench_baseline_score({**report, 'judge': 'different-judge'}, source) is None
     assert rbench_baseline_score({**report, 'official_combined_gpt_qwen_leaderboard_equivalent': True}, source) is None
@@ -78,14 +78,15 @@ def test_appearance_requires_both_orders_on_the_full_benchmark():
 
 
 def test_rbench_never_displays_a_partial_or_failed_cohort_mean():
-    row = {'scored': 49, 'expected': 50, 'full_common50': True, 'mean': 0.71}
+    row = {'scored': 49, 'expected': 50, 'full_common50': True, 'mean': 3.84}
     report = {'protocol': 'rbench-common-official-gpt-branch-gpt61-sol-v1',
               'judge': JUDGE, 'models': {'example': row}}
     assert rbench_score(report, 'example') == (49, None)
     row.update(scored=50, judge_errors=['0049'])
     assert rbench_score(report, 'example') == (50, None)
     row['judge_errors'] = []
-    assert rbench_score(report, 'example') == (50, 0.71)
+    count, score = rbench_score(report, 'example')
+    assert count == 50 and score == pytest.approx(0.71)
     report['judge'] = 'legacy'
     assert rbench_score(report, 'example') == (0, None)
 

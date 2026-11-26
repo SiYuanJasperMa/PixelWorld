@@ -20,7 +20,7 @@ from tools.prepare_hf_delivery import TRACE_FORMAT_VERSION
 
 BENCHMARKS = {
     'physics_iq': ('physics_iq_720p24fps', 198, 'Verified'),
-    'rbench': ('rbench_common_manipulation', 50, 'GPT branch'),
+    'rbench': ('rbench_common_manipulation', 50, 'Normalized score'),
     'phygenbench': ('phygenbench_t2v_main720p24fps', 160, 'Overall'),
     'pcve': ('pcve_standard720p24fps', 129, 'PES'),
 }
@@ -508,7 +508,11 @@ def rbench_score(report, model):
     scored = row.get('scored', 0)
     full = (row.get('full_common50') is True and scored == row.get('expected') == 50
             and not any(row.get(field) for field in ('waiting', 'generation_failures', 'judge_errors')))
-    return scored, finite_score(row.get('mean')) if full else None
+    raw = finite_score(row.get('mean')) if full else None
+    # Official eval/5_tasks/summary_scores.py applies this to every valid
+    # per-video score before averaging. Linear normalization also applies to
+    # the complete cohort's unrounded raw mean; raw judge records stay intact.
+    return scored, (raw - 1) / 4 if raw is not None and 1 <= raw <= 5 else None
 
 
 def rbench_baseline_score(report, source):
@@ -527,7 +531,7 @@ def rbench_baseline_score(report, source):
             and report.get('official_combined_gpt_qwen_leaderboard_equivalent') is False):
         return None
     value = finite_score(report.get('mean'))
-    return value if value is not None and 1 <= value <= 5 else None
+    return (value - 1) / 4 if value is not None and 1 <= value <= 5 else None
 
 
 def appearance_scores(report):
@@ -1090,15 +1094,9 @@ def render(status):
 <p class="muted">Vision · 720p / 24 FPS · 数据快照 <time datetime="{escape(status['updated_utc'])}">{escape(status['updated_utc'])}</time></p>
 <p class="small muted">蓝色：成功 · 红色：确认失败 · 黄色：运行中 · 灰色：待生成。已处理 = 成功 + 确认失败；确认失败按当前授权重试窗口统计，infra 中断待恢复。</p>
 <div class="table"><table><thead><tr><th>模型</th>{heads}</tr></thead><tbody>{rows}</tbody></table></div>
-<p class="small muted">只有评完全部样本才显示总分。RBench 只生成一个候选，使用 GPT-6.1-Sol 的官方 GPT 分支适配，不是 GPT + Qwen 联合榜分。
+<p class="small muted">只有评完全部样本才显示总分。RBench 使用官方 GPT 评测流程，VLM替换为 GPT-6.1-Sol；五项rubric、覆盖规则和分数计算保持官方代码。主分按官方汇总归一化：(原始分−1)/4，范围0–1。
 PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混排。PCVE 采用 Full 129；PES 校准与论文参照见详情页。</p>
 <p class="small muted">原生 GPT-6.2-Astra 单独标记 Codex 0.172.0 / high / default；其余主队列冻结为 Codex 0.169.0。原生进度按跨批次去重样本计数，未完成官方全套评测时不显示总分。待补齐不代表已发任务，继续生成需在已授权额度内。</p>
-{harness_section}
-{baseline_section}
-{upload_section}
-{smoke_section}
-{study_section}
-{video_progress_section}
 <h2>成本与物理分 · 主实验和分析设置</h2>
 <p><a href="cost_score_plots.html">查看四个 benchmark 的成本—分数图及数据 →</a></p>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
@@ -1108,6 +1106,12 @@ PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混�
 <img style="width:100%" loading="lazy" src="cost_score_charts/pcve_scale.svg" alt="PCVE cost versus score">
 </div>
 <p class="small muted">横轴为单视频 API 成本估计，纵轴为当前物理分；70% 缓存为统一假设。只画全量评分与用量齐全的条件，不外推缺失分数。</p>
+{harness_section}
+{baseline_section}
+{upload_section}
+{smoke_section}
+{study_section}
+{video_progress_section}
 <h2>视频质量 · 独立于物理分</h2><p>GPT-6.1-Sol 画质判分进度：{photo.get('completed_calls') or 0} / {photo.get('expected_calls') or 0} 次调用。</p>
 {photo_table}
 <h3>FVD（越低越好）</h3>

@@ -10,7 +10,7 @@ from pathlib import Path
 from pixelworld.util import atomic_json, utc_now
 
 BENCHMARKS = {'physics_iq': ('Physics-IQ · I2V', 'Verified (%)', 'Verified'),
-              'rbench': ('RBench Common Manipulation · I2V', 'GPT branch score', 'Score'),
+              'rbench': ('RBench Common Manipulation · I2V', 'Official normalized score (0–1)', 'Score'),
               'phygenbench': ('PhyGenBench · T2V', 'Overall · GPT-6.1-Sol MCQ', 'Overall'),
               'pcve': ('PCVE-RigidBench · V2V', 'PES', 'PES')}
 LABELS = {'gpt61-sol': 'GPT-6.1-Sol', 'gpt62-sol': 'GPT-6.2-Sol',
@@ -150,7 +150,15 @@ def build(web, main_path, output=None):
             f'<p>当前可绘制 {len(rows)} 个实测设置；{len(excluded)} 个设置待完整评测或用量核验。PhyGenBench 只使用当前 GPT-6.1-Sol 适配，旧 GPT-5.5 分不混入。'
             'Video baseline 的论文分数保留在主表；未核实其同批生成设置与费用对应前，不把服务价与本地 H3 分数拼成成本点。</p>'
             '<div class="plots">' + panels + '</div><p><a href="cost_score_charts/plot_data.json">数据与排除原因</a></p></main></html>')
+    table_rows = ''.join('<tr>' + ''.join('<td>' + html.escape(str(value)) + '</td>' for value in
+        [r['benchmark'], LABELS[r['model']], r['condition'], f"{r['score']:.4f}",
+         f"${r['cost_usd']:.4f}", f"{r['complete']}/{r['expected']}"]) + '</tr>' for r in rows)
+    details = ('<h2>实测设置明细</h2><div style="overflow:auto"><table style="width:100%;border-collapse:collapse">'
+               '<thead><tr><th>Benchmark</th><th>Model</th><th>Setting</th><th>Score</th><th>Cost/video</th><th>Coverage</th></tr></thead>'
+               '<tbody>' + table_rows + '</tbody></table></div>')
+    body = body.replace('</main>', details + '</main>')
     (web / 'cost_score_plots.html').write_text(body)
+    (web / 'cost_effects.html').write_text(body)
     return proof
 
 

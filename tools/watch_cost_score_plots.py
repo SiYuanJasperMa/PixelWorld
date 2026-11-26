@@ -26,7 +26,8 @@ def main():
             digest = hashlib.sha256(b''.join(p.read_bytes() for p in paths)).hexdigest()
             if digest != previous:
                 proof = build(args.web_root, args.main_status)
-                files = [args.web_root / 'cost_score_plots.html', *sorted((args.web_root / 'cost_score_charts').glob('*'))]
+                files = [args.web_root / 'cost_score_plots.html', args.web_root / 'cost_effects.html',
+                         *sorted((args.web_root / 'cost_score_charts').glob('*'))]
                 operations = []
                 for path in files:
                     body = path.read_bytes()
