@@ -47,7 +47,9 @@ def _stop_snapshot_watcher(watcher, stop_file: Path) -> None:
         except subprocess.TimeoutExpired:
             watcher.kill()
             watcher.wait()
-    if marker_error is not None:
+    if (marker_error is not None and not (
+            os.environ.get('PIXELWORLD_PERSIST_STORAGE_WAIT') == '1'
+            and marker_error.errno in (122, 28, 30))):
         raise marker_error
 
 

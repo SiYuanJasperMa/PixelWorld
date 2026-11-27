@@ -27,7 +27,7 @@ from . import claude_process_sandbox as cps
 from .cloudcode_relay import cloudcode_relay, output_tokens
 from .egress_allowlist_proxy import ANTIGRAVITY_HOSTS, egress_proxy
 from .token_budget import ResponseUsageBudget, stop_agent
-from .util import atomic_json, sha256, utc_now
+from .util import atomic_bytes, atomic_json, sha256, utc_now, write_stream_bytes
 
 PROVIDER = 'google_subscription'
 BACKEND = 'antigravity'
@@ -209,7 +209,7 @@ class AcpDriver:
             # The raw ACP log lands in the run directory: never let a credential string reach it.
             for value in self.secrets():
                 line = line.replace(value.encode(), b'<redacted-credential>')
-            sink.write(line)
+            write_stream_bytes(sink, line)
             sink.flush()
             try:
                 self.queue.put(json.loads(line))
@@ -261,7 +261,7 @@ class AcpDriver:
     def run(self, blocks, pid_file=None):
         """Return (exit status, stop reason, prompt result, session info)."""
         info = {}
-        with (self.out/'events.native.jsonl').open('wb') as sink, (self.out/'stderr.log').open('wb') as stderr:
+        with (self.out/'events.native.jsonl').open('wb', buffering=0) as sink, (self.out/'stderr.log').open('wb', buffering=0) as stderr:
             if not self.budget.can_dispatch:
                 return 125, 'budget_already_exhausted', None, info
             self.proc = subprocess.Popen(self.command, cwd=self.cwd, env=self.env, stdin=subprocess.PIPE,
@@ -330,7 +330,7 @@ class AcpDriver:
 
 def _copy(source, sink):
     for chunk in iter(lambda: source.read1(65536), b''):
-        sink.write(chunk)
+        write_stream_bytes(sink, chunk)
         sink.flush()
 
 
@@ -463,9 +463,10 @@ def prepared_rollout(wire: Path, logs: Path, events, budget, terminal):
     seen, tools, totals = set(), set(), {}
     auxiliary, declared = [], set()
     rollout = logs/'full_rollout.jsonl'
-    with rollout.open('w') as f:
+    atomic_bytes(rollout, b'')
+    with rollout.open('r+b', buffering=0) as f:
         def add(kind, item, stamp):
-            f.write(json.dumps({'type': kind, 'timestamp': stamp, 'payload': item}) + '\n')
+            write_stream_bytes(f, (json.dumps({'type': kind, 'timestamp': stamp, 'payload': item}) + '\n').encode())
         add('session_meta', {'id': session, 'source': 'controlled-native Cloud Code wire (verbatim relay)'}, utc_now())
         for directory in sorted(wire.glob('[0-9]*')):
             try:
@@ -510,7 +511,7 @@ def prepared_rollout(wire: Path, logs: Path, events, budget, terminal):
         events.append(event)
     payload = ''.join(json.dumps(e) + '\n' for e in events)
     for name in ('events.jsonl', 'events.raw.jsonl'):
-        (logs/name).write_text(payload)
+        atomic_bytes(logs/name, payload.encode())
     return {**extract_tools(rollout, logs), 'source': 'native Cloud Code wire and ACP event projection',
             'requests': len(seen), 'thread_id': session, 'refused_model_calls': auxiliary,
             'model_declared_tools': sorted(declared), 'model_tools_within_allowlist': declared <= ALLOWED_TOOLS}

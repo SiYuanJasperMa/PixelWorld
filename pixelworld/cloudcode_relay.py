@@ -23,7 +23,7 @@ from threading import Lock, Thread
 from urllib.parse import urlsplit
 
 from .token_budget import ResponseUsageBudget
-from .util import atomic_json, utc_now
+from .util import atomic_bytes, atomic_json, fsync_stream, utc_now, write_stream_bytes
 
 UPSTREAM = 'https://daily-cloudcode-pa.googleapis.com'
 SECRET_HEADERS = {'authorization', 'x-api-key', 'x-goog-api-key', 'cookie', 'proxy-authorization'}
@@ -178,7 +178,9 @@ def cloudcode_relay(*, wire: Path, model: str, budget: ResponseUsageBudget, upst
             if leaked:
                 receipt['request_sha256'] = hashlib.sha256(body).hexdigest()
             elif model_call:
-                (folder / 'input.body').write_bytes(body)
+                atomic_bytes(folder / 'input.body', body)
+                # Create the response inode before sending the paid request.
+                atomic_bytes(folder / 'response.raw', b'')
             else:
                 # Session methods (loadCodeAssist, fetchUserInfo, quota, ...) carry account
                 # data such as the operator's e-mail: record only their size and digest.
@@ -248,15 +250,18 @@ def cloudcode_relay(*, wire: Path, model: str, budget: ResponseUsageBudget, upst
                     self.send_header('Connection', 'close')
                     self.end_headers()
                     raw = bytearray()
-                    with ((folder / 'response.raw').open('wb') if model_call else open(os.devnull, 'wb')) as sink:
+                    with ((folder / 'response.raw').open('r+b', buffering=0) if model_call else open(os.devnull, 'wb')) as sink:
                         while True:
                             chunk = upstream_reply.read1(65536)
                             if not chunk:
                                 break
                             raw.extend(chunk)
-                            sink.write(chunk)
+                            if model_call:
+                                write_stream_bytes(sink, chunk)
                             self.wfile.write(chunk)
                             self.wfile.flush()
+                        if model_call:
+                            fsync_stream(sink)
                     conn.close()
                     if not model_call:
                         receipt.update(response_bytes=len(raw), response_sha256=hashlib.sha256(raw).hexdigest())

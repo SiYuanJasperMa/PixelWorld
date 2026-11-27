@@ -123,6 +123,20 @@ After harness edits, run `pytest -q`, the pinned `pixelworld doctor` with
 [retry policy](RETRY_POLICY.md), [provider recovery](PROVIDER_FAILURE_RECOVERY.md)
 and [isolation](FILESYSTEM_ISOLATION.md).
 
+For shared-storage recovery, set `PIXELWORLD_PERSIST_STORAGE_WAIT=1` in the
+operator environment. Atomic records wait on quota, no-space and read-only
+filesystem errors while retaining the exact buffered bytes. The native
+Antigravity recorder also waits on these errors when saving raw response
+chunks and ACP events. It creates request/response records before sending a
+model request. These are storage retries, and do not invoke the model again.
+Permission errors and other unrelated failures still propagate. Restore
+storage while an affected process waits; do not launch a duplicate case.
+
+An observer is always reaped even if its stop marker cannot be written. In
+persistent-storage mode, that marker failure does not prevent final run records
+from being saved. Check the actual generation, private login state, recorder
+and controller paths with durable write probes before restoring dispatch.
+
 ## 5. Physical evaluation, FVD and subjective quality
 
 Keep all three measurements separate. Scoring consumes accepted outputs and

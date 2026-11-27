@@ -56,6 +56,28 @@ def test_unresponsive_observer_is_reaped_without_a_model_process(tmp_path):
     assert events == ['terminate', 'kill', 'reaped']
 
 
+def test_persistent_run_can_finalize_after_stop_marker_quota_error(monkeypatch, tmp_path):
+    events = []
+
+    class Observer:
+        def poll(self):
+            return None
+
+        def terminate(self):
+            events.append('terminate')
+
+        def wait(self, timeout=None):
+            events.append('reaped')
+
+    def denied(*args, **kwargs):
+        raise OSError(errno.EDQUOT, 'Disk quota exceeded')
+
+    monkeypatch.setenv('PIXELWORLD_PERSIST_STORAGE_WAIT', '1')
+    monkeypatch.setattr(Path, 'touch', denied)
+    _stop_snapshot_watcher(Observer(), tmp_path / 'stop')
+    assert events == ['terminate', 'reaped']
+
+
 def test_observer_exits_when_its_owner_is_gone_without_a_stop_marker(tmp_path):
     workspace = tmp_path / 'workspace'
     workspace.mkdir()
