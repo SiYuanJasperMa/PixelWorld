@@ -512,6 +512,9 @@ def _denied_ffmpeg_crop(path: str, item: dict) -> bool:
             chunks[-1].append(token)
     outputs = []
     for args in chunks:
+        # This informational flag changes neither the input nor the crop output.
+        if args[1:2] == ['-hide_banner']:
+            args = [args[0], *args[2:]]
         # Only a single-frame input-image crop/scale is recognized. Unknown
         # options, inputs, filters and shell expansions retain the hard block.
         if (len(args) != 9 or Path(args[0]).name != 'ffmpeg'
