@@ -25,7 +25,7 @@ from .responses_budget_proxy import responses_relay
 from .token_budget import ResponseUsageBudget, stop_agent
 from .util import atomic_json, sha256, utc_now
 
-VERSION = {'opencode': '1.19.6', 'claude_code': '2.1.304 (Claude Code)'}
+VERSION = {'opencode': '1.19.6', 'claude_code': '2.1.304 (Claude Code)', 'antigravity': '1.5.18'}
 TOOL_NAMES = {x['name'] for x in tool_list()}
 
 
@@ -444,6 +444,11 @@ def run_prepared(*, model, workspace, logs, task, environment, limit, prior_outp
     runtime = Path(environment['PIXELWORLD_CONTROLLED_RUNTIME']).resolve(strict=True)
     locks = Path(environment['PIXELWORLD_CONTROLLED_LOCKS'])
     client,digest = pinned_client(locks,model.cli_backend)
+    if model.provider.type == 'google_subscription':
+        from .antigravity_harness import run_prepared_antigravity
+        return run_prepared_antigravity(model=model, workspace=workspace, logs=logs, task=task,
+            environment=environment, limit=limit, prior_output=prior_output, runtime=runtime,
+            client=client, digest=digest)
     if model.provider.type == SUBSCRIPTION_PROVIDER:
         return run_prepared_subscription(model=model, workspace=workspace, logs=logs, task=task,
             environment=environment, limit=limit, prior_output=prior_output, runtime=runtime,
@@ -634,7 +639,7 @@ def run(args):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--backend',choices=VERSION,required=True)
+    p.add_argument('--backend',choices=('opencode','claude_code'),required=True)
     for name in ('locks','runtime','source','output'):
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--upstream',required=True)

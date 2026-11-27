@@ -103,6 +103,10 @@ def _inside(workspace: Path, value: str) -> bool:
     path = path if path.is_absolute() else workspace / path
     if private_tmp_granted() and (path == Path('/tmp') or Path('/tmp') in path.parents):
         return True
+    # Antigravity route: agy's own per-session scratch area lives in the sandbox's private,
+    # per-attempt HOME (deleted afterwards) and is treated like the private /tmp.
+    if private_tmp_granted() and Path('/home/agent/.gemini/antigravity-cli/brain') in path.parents:
+        return True
     try:
         path.resolve().relative_to(workspace.resolve())
         return True

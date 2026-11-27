@@ -1,0 +1,37 @@
+{
+  "_draft_note": "Gemini route (pcve smoke5): copied from configs_claude/pcve_smoke5.json; model gemini-4-neon-high (effort high via slug) through pinned agy 1.5.18 on the operator Google AI subscription. Same protocol, inputs, case ids and budget.",
+  "protocol": "DRAFT-OWNER-CONFIRM-pixelworld-pcve-edit-v1-20261111-standard720p24fps",
+  "inputs_root": "<PIXELWORLD_HOME>/inputs/pcve",
+  "runs_root": "<PIXELWORLD_HOME>/runs_gemini/pcve",
+  "filesystem_policy": "case-only-v1",
+  "harness_variant": "baseline",
+  "max_concurrency": 4,
+  "max_per_config": 4,
+  "max_attempts": 1,
+  "max_total_attempts": 1,
+  "output_token_budget": 1000000,
+  "case_ids": [
+    "pcve_0000",
+    "pcve_0001",
+    "pcve_0002",
+    "pcve_0003",
+    "pcve_0004"
+  ],
+  "models": [
+    {
+      "key": "gemini-4-neon-high",
+      "model": "gemini-4-neon-high",
+      "reasoning_effort": "high",
+      "cli_backend": "antigravity",
+      "cli_version": "1.5.18",
+      "tracks": [
+        "vision-agent"
+      ],
+      "provider": {
+        "type": "google_subscription",
+        "id": "google_subscription",
+        "name": "Operator Google AI subscription via pinned Antigravity CLI"
+      }
+    }
+  ]
+}

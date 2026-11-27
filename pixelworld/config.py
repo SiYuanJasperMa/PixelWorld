@@ -6,7 +6,9 @@ from pathlib import Path
 
 from .constants import TRACKS, DEFAULT_TRACKS, DEFAULT_PROTOCOL, LEGACY_TRACK_PROTOCOLS
 
-CONTROLLED_CLI_VERSIONS = {'opencode': '1.19.6', 'claude_code': '2.1.304'}
+CONTROLLED_CLI_VERSIONS = {'opencode': '1.19.6', 'claude_code': '2.1.304', 'antigravity': '1.5.18'}
+# Operator-subscription providers and the one pinned client each may use.
+SUBSCRIPTION_BACKENDS = {'anthropic_subscription': 'claude_code', 'google_subscription': 'antigravity'}
 CONTROLLED_PHYSICS_PROTOCOL = 'pixelworld-physics_iq_720p24fps-native-source-v1'
 
 
@@ -98,8 +100,12 @@ def load_config(path: str | Path) -> Benchmark:
                 not isinstance(provider.stream_idle_timeout_ms, int) or isinstance(provider.stream_idle_timeout_ms, bool)
                 or provider.stream_idle_timeout_ms <= 0):
             raise ValueError('stream_idle_timeout_ms must be a positive integer')
-        if provider.type not in ("builtin", "responses", "oss", "anthropic_subscription"):
+        if provider.type not in ("builtin", "responses", "oss", *SUBSCRIPTION_BACKENDS):
             raise ValueError(f"Unsupported provider type for {key}: {provider.type}")
+        if provider.type == "google_subscription" and value.get("cli_backend") != "antigravity":
+            raise ValueError(f"Subscription provider {key} needs the pinned antigravity backend")
+        if value.get("cli_backend") == "antigravity" and provider.type != "google_subscription":
+            raise ValueError(f"The antigravity backend for {key} requires a google_subscription provider")
         if provider.type == "anthropic_subscription" and (
                 value.get("cli_backend") != "claude_code" or not provider.env_key):
             raise ValueError(f"Subscription provider {key} needs the pinned claude_code backend and env_key")
@@ -114,7 +120,7 @@ def load_config(path: str | Path) -> Benchmark:
         if cli_backend not in ("codex", "trae", "pi", *CONTROLLED_CLI_VERSIONS):
             raise ValueError(f"Unknown CLI backend for {key}: {cli_backend}")
         cli_version=value.get('cli_version')
-        subscription = provider.type == 'anthropic_subscription'
+        subscription = provider.type in SUBSCRIPTION_BACKENDS
         if cli_backend in CONTROLLED_CLI_VERSIONS and (
             cli_version != CONTROLLED_CLI_VERSIONS[cli_backend] or
             (protocol != CONTROLLED_PHYSICS_PROTOCOL and not subscription) or
