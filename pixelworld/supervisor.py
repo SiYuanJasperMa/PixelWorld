@@ -58,6 +58,10 @@ def configurations(config: Benchmark) -> list[tuple[Model, str]]:
     return [(model, track) for model in config.models for track in model.tracks]
 
 
+def launch_pid_path(config: Benchmark, model: Model, track: str, case_id: str) -> Path:
+    return config.runs_root / '.launches' / model.key / track / (case_id + '.pid')
+
+
 def _matches_case_runner(arguments: list[str], expected_arguments: tuple[str, ...]) -> bool:
     def contains(expected):
         return any(tuple(arguments[i:i + len(expected)]) == expected for i in range(len(arguments)))
@@ -123,6 +127,24 @@ def inspect(config: Benchmark, model: Model, track: str, case_id: str) -> dict:
     floor = grant["start_attempt"] if grant else 1
     pending = None
     running = None
+    # The dispatcher records ownership immediately after Popen. A case may
+    # still be importing dependencies or collecting prior usage, before it can
+    # create its run directory or write logs/supervisor.pid.
+    launched = launch_pid_path(config, model, track, case_id)
+    expected = ('-m', 'pixelworld.cli', 'run-case', '--config', str(config.source),
+                '--model', model.key, '--track', track, '--case', case_id)
+    if _pid_alive(launched, expected):
+        attempt = 1
+        try:
+            pid = int(launched.read_text().strip())
+            args = (Path('/proc') / str(pid) / 'cmdline').read_bytes().decode().rstrip('\0').split('\0')
+            if '--attempt' in args:
+                attempt = int(args[args.index('--attempt') + 1])
+        except (OSError, ValueError, IndexError):
+            pass
+        running = {'state': 'running', 'attempt': attempt,
+                   'run': str(run_path(config, model, track, case_id, attempt)),
+                   'phase': 'preparing_or_finalizing'}
     budget_terminal = None
     for attempt in range(1, limit + 1):
         run = run_path(config, model, track, case_id, attempt)
@@ -241,6 +263,8 @@ def fairness_key(counts: dict) -> tuple[int, int]:
 
 
 def _launch(config: Benchmark, model: Model, track: str, case_id: str, attempt: int) -> int:
+    owner = launch_pid_path(config, model, track, case_id)
+    owner.parent.mkdir(parents=True, exist_ok=True)
     log_root = config.runs_root / "_supervisor"
     log_root.mkdir(parents=True, exist_ok=True)
     log = (log_root / f"{model.key}__{track}__{case_id}__a{attempt:02d}.log").open("ab")
@@ -251,6 +275,9 @@ def _launch(config: Benchmark, model: Model, track: str, case_id: str, attempt: 
     ]
     process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
                                start_new_session=True, close_fds=True)
+    temporary = owner.with_name(owner.name + '.tmp.' + str(os.getpid()))
+    temporary.write_text(str(process.pid) + '\n')
+    temporary.replace(owner)
     return process.pid
 
 

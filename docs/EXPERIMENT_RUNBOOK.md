@@ -203,6 +203,28 @@ continuation and provenance. Do not weaken model, prompt, scope or media checks.
 Public tables use the source of each score explicitly; published paper values
 and local re-evaluations remain labeled.
 
+### Local API routing and launch ownership
+
+When an API bridge uses a loopback URL, keep that traffic out of an external
+HTTP proxy. Export both forms before starting or recovering a controller:
+
+```bash
+export NO_PROXY="${NO_PROXY:+$NO_PROXY,}127.0.0.1,localhost,::1"
+export no_proxy="$NO_PROXY"
+```
+
+A `403 Forbidden` HTML response for a loopback `/v1/responses` URL can come
+from the external proxy before the request reaches the model bridge. Compare
+direct `/ready` with the same request under the controller's actual proxy
+environment. Preserve the rejected attempt's events, repair routing and
+classify a proven pre-model rejection as infrastructure failure.
+
+The dispatcher records a launch PID before the child creates its artifact
+directory. That PID remains a case owner during preparation and finalization;
+an ended retry window must not start another attempt while it is alive.
+Attempt directories are claimed atomically, so concurrent launches cannot
+overwrite an existing run's native records or RGB artifacts.
+
 ## 8. Cleanup and handoff
 
 Inventory the registered data first. Distinguish original records, independent

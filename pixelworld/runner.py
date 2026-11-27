@@ -459,6 +459,9 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     run = run_path(config, model, track, case_id, attempt)
     if run.exists():
         raise FileExistsError(f"Run already exists: {run}")
+    # Claim the attempt atomically; concurrent manual launches must never
+    # replace each other's native records or candidate artifacts.
+    run.mkdir(parents=True, exist_ok=False)
     workspace, logs, trace = run / "workspace", run / "logs", run / "trace"
     codex_home = run / "empty-codex-home"
     for path in (workspace / ".tmp", logs, trace, codex_home):
