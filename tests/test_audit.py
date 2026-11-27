@@ -81,6 +81,24 @@ def make_artifacts(workspace: Path, time_first=False):
             (workspace / name).write_text("ok")
 
 
+def test_versioned_python_arithmetic_is_not_an_outside_path(tmp_path):
+    command = "/bin/bash -c \"python3.11 - <<'PY'\nshape=np.stack((xx/60,yy/50),axis=2)\nPY\""
+    assert outside_command_paths(command, tmp_path) == []
+    real_path = command.replace('shape=np.stack((xx/60,yy/50),axis=2)',
+                                "shape=np.stack((xx/60,yy/50),axis=2)\npath='/outside/reference.png'")
+    assert outside_command_paths(real_path, tmp_path) == ['/outside/reference.png']
+    workspace = tmp_path/'workspace'
+    make_artifacts(workspace)
+    events = tmp_path/'events.jsonl'
+    events.write_text('\n'.join(map(json.dumps, [
+        {'type': 'item.completed', 'item': {'type': 'command_execution',
+                                          'command': 'python3.11 generate.py', 'exit_code': 0}},
+        {'type': 'turn.completed'},
+    ])))
+    result = validate(workspace, events, 0, 'vision-agent', require_reports=False)
+    assert result['pass'] and result['generate_runs'] == 1
+
+
 def test_audit_recovery_preserves_original_pixels_and_rejects_real_outside_paths(tmp_path):
     from tools.revalidate_audit_failures import recover
     from pixelworld.media import DEFAULT_MEDIA

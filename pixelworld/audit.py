@@ -118,7 +118,7 @@ def _unwrap_shell(command: str) -> str:
 
 
 def _python_sections(command: str, include_written: bool = False, *, compound: bool = False):
-    executable = r"python(?:3)?\s+-"
+    executable = r"python(?:3(?:\.\d+)?)?\s+-"
     written = r"cat\s*>>?\s*(?:'[^'\n]+\.py'|\"[^\"\n]+\.py\"|[^\s<>;'\"]+\.py)"
     prefix = f"(?:{executable}|{written})" if include_written else executable
     boundary=r"(?:^|[;&|])" if compound else r"^"
@@ -735,7 +735,7 @@ def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
         path_checks.append(([path for path in blocked if path not in denied], warnings))
     outside_command_values = sorted({value for blocked, _ in path_checks for value in blocked})
     failed_directory_probes = sorted({value for _, warnings in path_checks for value in warnings})
-    generate_runs = sum(bool(re.search(r"\bpython(?:3)?\s+(?:\./)?(?:generate|pixelworld_run)\.py\b", command))
+    generate_runs = sum(bool(re.search(r"\bpython(?:3(?:\.\d+)?)?\s+(?:\./)?(?:generate|pixelworld_run)\.py\b", command))
                         for command in commands)
     track_violation = None
     if track in ("text", "vision-input") and visual_calls:
