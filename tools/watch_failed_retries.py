@@ -104,7 +104,10 @@ def recover_audit_before_retry(config, apply):
                 try:
                     m=json.loads(path.read_text());v=m.get('validation') or {}
                     if m.get('status')!='failed' or not v.get('outside_workspace_command_paths'):continue
-                    if v.get('missing_required') or not v.get('frame0_exact') or not v.get('png_tensor_exact'):continue
+                    media = v.get('media_contract') or m.get('media_contract') or {}
+                    frame0_ok = (v.get('frame0_exact') is True or
+                        (media.get('task_type') in ('v2v', 't2v') and v.get('first_frame_constraint_satisfied') is True))
+                    if v.get('missing_required') or not frame0_ok or not v.get('png_tensor_exact'):continue
                     review = reviews.get(str(path.parent.resolve()), {})
                     if (review.get('eligible') is False
                             and review.get('manifest_sha256') == sha256(path)

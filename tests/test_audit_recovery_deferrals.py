@@ -79,6 +79,30 @@ def test_valid_delivery_wins_over_stale_audit_deferral(tmp_path):
     assert inspect(config, model, 'text', 'blocked')['state'] == 'complete'
 
 
+@pytest.mark.parametrize('task,exact,satisfied,expected', [
+    ('v2v', None, True, True), ('t2v', None, True, True),
+    ('i2v', False, True, False), ('v2v', None, False, False),
+])
+def test_recovery_uses_the_task_specific_initial_frame_contract(tmp_path, monkeypatch, task, exact, satisfied, expected):
+    _, config, model = make_cases(tmp_path)
+    run = run_path(config, model, 'text', 'blocked', 1)
+    path = run/'run_manifest.json'
+    manifest = json.loads(path.read_text())
+    manifest['validation'].update(frame0_exact=exact, first_frame_constraint_satisfied=satisfied,
+                                  media_contract={'task_type':task})
+    path.write_text(json.dumps(manifest))
+    calls=[]
+
+    def recovered(candidate, *, apply):
+        calls.append(candidate)
+        return {'run':str(candidate), 'eligible':True, 'applied':apply}
+
+    monkeypatch.setattr(revalidate_audit_failures, 'recover', recovered)
+    result = watch_failed_retries.recover_audit_before_retry(config, True)
+    assert calls == ([run] if expected else [])
+    assert result['restored'] == ([str(run)] if expected else [])
+
+
 def test_model_scoped_recovery_preserves_other_models_audit_deferrals(tmp_path, monkeypatch):
     path, config, model = make_cases(tmp_path)
     raw = json.loads(path.read_text())

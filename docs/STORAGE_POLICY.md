@@ -128,6 +128,12 @@ a later unique literal top-level save did not run. Earlier reads, existing
 files, repeated path uses, exception handlers and compound commands remain
 outside this exception. These checks do not grant host `/tmp` access.
 
+Recovery candidate selection follows the existing task-specific first-frame
+contract. I2V requires an exact first frame. T2V and V2V report `frame0_exact`
+as null and use `first_frame_constraint_satisfied`; null alone must not prevent
+review of their closed artifacts. Recovery still validates every required frame,
+tensor, code hash, media setting and access boundary before restoring a delivery.
+
 Literal `PATH`, `PYTHONPATH` and `LD_LIBRARY_PATH` assignments are checked as
 lists of directories. Every component must already be readable; a colon does
 not turn two granted library directories into an outside filename. Actual file
