@@ -1,0 +1,9 @@
+{
+ "harnesses": {
+  "claude_code": {
+   "binary": "<PIXELWORLD_HOME>/cc2304/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+   "sha256": "ea0f135784631619a7a409d07322ecec964f9cc4fd377508ed1ba3f141f27912",
+   "version": "2.1.304 (Claude Code)"
+  }
+ }
+}

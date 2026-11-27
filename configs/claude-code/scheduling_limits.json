@@ -1,0 +1,35 @@
+{
+  "max_per_model_overrides": {
+    "claude-opus-5-5": 8,
+    "claude-fable-5-2": 2
+  },
+  "paused_models_by_config": {
+    "physics_iq_main_opus.json": [
+      "claude-fable-5-2"
+    ],
+    "rbench_main_opus.json": [
+      "claude-fable-5-2"
+    ],
+    "phygenbench_main_opus.json": [
+      "claude-fable-5-2"
+    ],
+    "pcve_main_opus.json": [
+      "claude-fable-5-2"
+    ],
+    "physics_iq_main_fable.json": [
+      "claude-fable-5-2"
+    ],
+    "rbench_main_fable.json": [
+      "claude-fable-5-2"
+    ],
+    "rbench_demo_fable.json": [
+      "claude-fable-5-2"
+    ],
+    "phygenbench_demo_fable.json": [
+      "claude-fable-5-2"
+    ],
+    "pcve_demo_fable.json": [
+      "claude-fable-5-2"
+    ]
+  }
+}

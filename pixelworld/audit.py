@@ -4,6 +4,7 @@ from pathlib import Path
 import ast
 import io
 import json
+import os
 import re
 import shlex
 import shutil
@@ -89,11 +90,23 @@ def canonicalize_tensor(workspace: Path, logs: Path, media: dict | None = None) 
     return report
 
 
+def private_tmp_granted() -> bool:
+    """Claude Code native route: /tmp is a per-case, empty, private tmpfs inside the
+    whole-process sandbox (owner decision 2026-11-25), so it counts as case scratch."""
+    return os.environ.get('PIXELWORLD_PRIVATE_TMP') == '1'
+
+
 def _inside(workspace: Path, value: str) -> bool:
     if not value:
         return True
     path = Path(value)
     path = path if path.is_absolute() else workspace / path
+    if private_tmp_granted() and (path == Path('/tmp') or Path('/tmp') in path.parents):
+        return True
+    # Antigravity route: agy's own per-session scratch area lives in the sandbox's private,
+    # per-attempt HOME (deleted afterwards) and is treated like the private /tmp.
+    if private_tmp_granted() and Path('/home/agent/.gemini/antigravity-cli/brain') in path.parents:
+        return True
     try:
         path.resolve().relative_to(workspace.resolve())
         return True
@@ -137,11 +150,12 @@ def permitted_tool_roots(workspace: Path) -> list[Path]:
     only entries actually granted to the agent become allowed command paths.
     """
     path = workspace.parent / 'permissions_profile.json'
+    extra = [Path('/tmp')] if private_tmp_granted() else []
     try:
         profile = json.loads(path.read_text())
     except (OSError, ValueError):
-        return []
-    roots = []
+        return extra
+    roots = list(extra)
     for value, mode in (profile.get('filesystem') or {}).items():
         if not isinstance(value, str) or value.startswith(':') or mode != 'read':
             continue
@@ -854,6 +868,12 @@ def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
         failed_scratch.extend(denied)
         path_checks.append(([path for path in blocked if path not in denied], warnings))
     outside_command_values = sorted({value for blocked, _ in path_checks for value in blocked})
+    sandbox_waived_command_paths = []
+    if os.environ.get('PIXELWORLD_SANDBOX_ENFORCED') == '1':
+        # Claude Code native route (owner decision 2026-11-25): the whole agent process runs in a
+        # kernel sandbox that only exposes this case, so the static command-text path scan is
+        # recorded but not enforced. Real file reads/changes are still audited below.
+        sandbox_waived_command_paths, outside_command_values = outside_command_values, []
     failed_directory_probes = sorted({value for _, warnings in path_checks for value in warnings})
     generate_runs = sum(bool(re.search(r"\bpython(?:3(?:\.\d+)?)?\s+(?:\./)?(?:generate|pixelworld_run)\.py\b", command))
                         for command in commands)
@@ -891,6 +911,7 @@ def validate(workspace: Path, events_path: Path, exit_status: int, track: str,
         "network_commands": network_commands,
         "subagent_commands": subagent_commands,
         "outside_workspace_command_paths": outside_command_values,
+        "sandbox_waived_command_paths": sandbox_waived_command_paths,
         "failed_outside_directory_probes": failed_directory_probes,
         "failed_outside_scratch_operations": sorted(set(failed_scratch)),
         "visual_tool_calls": visual_calls,

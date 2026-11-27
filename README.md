@@ -74,10 +74,12 @@ pixelworld matrix status --config "$BENCHMARK_CONFIG"
 | Assignment | Instructions |
 |---|---|
 | Claude model: four full Vision benchmarks, 537 cases | [Claude main experiments](docs/RUN_CLAUDE_MAIN.md) |
+| Claude Code 2.1.304 on the operator's Claude subscription, four Vision benchmarks | [Claude Code subscription runbook](docs/RUN_CLAUDE_CODE_SUBSCRIPTION.md) |
 | Kimi and Qwen: four full Vision benchmarks each, 1,074 tasks | [Kimi + Qwen main experiments](docs/RUN_KIMI_QWEN_MAIN.md) |
 | Another exact model/version | [Add-model runbook](docs/ADD_MODEL_RUNBOOK.md) · [Handoff template](docs/COLLABORATOR_HANDOFF.md) |
 
-These assignments use the Codex harness. Claude Code is a separate harness
+These assignments use the Codex harness, except the Claude Code subscription
+route (its own runbook). Claude Code is otherwise a separate harness
 analysis. Retain all attempts, reuse compatible accepted videos and record
 missing usage as unavailable. Do not feed evaluator results into generation.
 

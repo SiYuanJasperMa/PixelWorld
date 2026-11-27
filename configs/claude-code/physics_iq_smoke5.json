@@ -1,0 +1,38 @@
+{
+  "_draft_note": "DRAFT, not run. Protocol label is the repo CONTROLLED_PHYSICS_PROTOCOL / physics-iq-720p24fps example. Smoke variant: first 5 official case IDs, same runs_root as full so accepted smokes are reused.",
+  "protocol": "pixelworld-physics_iq_720p24fps-native-source-v1",
+  "inputs_root": "<PIXELWORLD_HOME>/inputs/physics_iq",
+  "runs_root": "<PIXELWORLD_HOME>/runs_claude/physics_iq",
+  "filesystem_policy": "case-only-v1",
+  "harness_variant": "baseline",
+  "max_concurrency": 1,
+  "max_per_config": 1,
+  "max_attempts": 1,
+  "max_total_attempts": 1,
+  "output_token_budget": 1000000,
+  "case_ids": [
+    "0001",
+    "0002",
+    "0003",
+    "0004",
+    "0005"
+  ],
+  "models": [
+    {
+      "key": "claude-opus-5-5",
+      "model": "claude-opus-5-5",
+      "reasoning_effort": "high",
+      "cli_backend": "claude_code",
+      "cli_version": "2.1.304",
+      "tracks": [
+        "vision-agent"
+      ],
+      "provider": {
+        "type": "anthropic_subscription",
+        "id": "anthropic_subscription",
+        "name": "Operator Claude subscription via pinned Claude Code",
+        "env_key": "CLAUDE_CODE_OAUTH_TOKEN"
+      }
+    }
+  ]
+}

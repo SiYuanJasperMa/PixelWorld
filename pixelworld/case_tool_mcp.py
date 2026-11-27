@@ -10,6 +10,7 @@ import argparse
 import base64
 import json
 from pathlib import Path
+import os
 import subprocess
 import sys
 
@@ -82,7 +83,7 @@ class CaseTools:
     def _execute(self, args, data=None):
         return subprocess.run(sandbox_command(self.workspace,self.runtime,args), input=data or b'',
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              timeout=60, env={'PATH':'/usr/bin:/bin'})
+                              timeout=int(os.environ.get('PIXELWORLD_CASE_TOOL_TIMEOUT','60')), env={'PATH':'/usr/bin:/bin'})
 
     def call(self, name: str, arguments: dict) -> dict:
         if name not in _TOOL_SPECS or not isinstance(arguments, dict):
