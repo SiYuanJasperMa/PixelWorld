@@ -37,6 +37,22 @@
       "model": "traex/Seed-2.1-Pro-0915",
       "reasoning_effort": "high",
       "analysis": false
+    },
+    {
+      "key": "gemini-4-hydrogen-high",
+      "model": "gemini-4-hydrogen-high",
+      "reasoning_effort": "high",
+      "analysis": false,
+      "cli_backend": "antigravity",
+      "cli_version": "1.5.18",
+      "tracks": [
+        "vision-agent"
+      ],
+      "provider": {
+        "type": "google_subscription",
+        "id": "google_subscription",
+        "name": "Native Google Antigravity subscription"
+      }
     }
   ],
   "provider": {

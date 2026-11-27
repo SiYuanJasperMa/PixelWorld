@@ -15,7 +15,8 @@
     "gpt56-terra": "traex/GPT-5.6-Terra",
     "gpt56-luna": "traex/GPT-5.6-Luna",
     "deepseek-v41": "traex/DeepSeek-V4.1-Flash",
-    "seed21-pro": "traex/Seed-2.1-Pro-0915"
+    "seed21-pro": "traex/Seed-2.1-Pro-0915",
+    "gemini-4-hydrogen-high": "google_subscription/gemini-4-hydrogen-high"
   },
   "benchmarks": {
     "physics_iq": {
@@ -81,6 +82,7 @@
     "text_vs_vision": {
       "benchmarks": [
         "physics_iq",
+        "rbench_common_manipulation",
         "phygenbench",
         "pcve"
       ],
@@ -135,6 +137,17 @@
       "paper_main": false,
       "generation_discontinued": true,
       "retain_results_and_traces": true
+    }
+  },
+  "main_harness_overrides": {
+    "gemini-4-hydrogen-high": {
+      "provider": "google_subscription",
+      "cli_backend": "antigravity",
+      "cli_version": "1.5.18",
+      "reasoning_effort": "high",
+      "output_token_budget": 1000000,
+      "media_contract": "same per-benchmark main contract",
+      "scope": "four full main benchmarks, 537 cases"
     }
   }
 }

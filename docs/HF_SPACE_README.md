@@ -24,7 +24,10 @@ search, attempt history, video candidates, recorded tokens and trace links.
 Old benchmark URLs with `?model=...` remain usable. The native GPT-6.2-Astra
 cohort is labeled Codex 0.172.0/high/default; the TRAEX main baseline remains
 Codex 0.169.0. Full benchmark scores require complete matching evaluator
-coverage. Physical QA, subjective video quality and FVD are separate.
+coverage. **Gemini 4 Hydrogen High** is a normal main model, using native
+Antigravity CLI 1.5.18 ACP and the same four main media contracts. Its main
+cells open the same sample browser, with video, trace, token and publication
+coverage records. Physical QA, subjective video quality and FVD are separate.
 
 The dataset is the data source. The main page polls
 `metadata/main_suite_status.json` every 60 seconds and replaces its content with

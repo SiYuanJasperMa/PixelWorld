@@ -112,6 +112,22 @@ quota change as insufficient evidence for unlimited capacity. A five-hour quota
 pause is infrastructure state; retain active records and resume after the quota
 reset without calling it model failure.
 
+### Current full main model
+
+Gemini 4 Hydrogen High (`gemini-4-hydrogen-high`) is registered as a normal
+main model across Physics-IQ (198), RBench Common Manipulation (50),
+PhyGenBench (160), and PCVE (129): 537 cases in total. The four portable
+configs are in `configs/gemini-hydrogen/`; replace the storage placeholders
+with the supplied input and durable output roots. Valid smoke deliveries are
+reused. Requested reasoning is high, output budget is 1M per real attempt,
+and the native CLI remains pinned to 1.5.18.
+
+Register full cohorts and their worker status sources in the normal publication
+index. The homepage, benchmark sample browser and HF dataset use the same
+model key; no separate smoke-only catalogue is needed for full results. Keep
+quota reset times and aggregate quota changes alongside tokens. Shared
+concurrency must respect worker memory, storage admission and account quota.
+
 ### Native shell startup compatibility
 
 Some AGY 1.5.18 `run_command` calls fail inside the built-in terminal sandbox

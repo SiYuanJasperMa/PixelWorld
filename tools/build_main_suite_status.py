@@ -25,7 +25,7 @@ BENCHMARKS = {
     'pcve': ('pcve_standard720p24fps', 129, 'PES'),
 }
 ROSTER = ('gpt62-sol', 'gpt61-sol', 'gpt56-sol', 'gpt56-terra',
-          'gpt56-luna', 'deepseek-v41', 'seed21-pro', 'gpt62-astra-native')
+          'gpt56-luna', 'deepseek-v41', 'seed21-pro', 'gpt62-astra-native', 'gemini-4-hydrogen-high')
 COUNT_FIELDS = ('complete', 'running', 'pending', 'exhausted')
 RETIRED_MODELS = frozenset(('gpt6-astra','glm54'))
 JUDGE = 'traex/GPT-6.1-Sol'
@@ -774,6 +774,7 @@ LABELS = {
     'gpt56-sol': 'GPT-5.6-Sol', 'gpt56-terra': 'GPT-5.6-Terra', 'gpt56-luna': 'GPT-5.6-Luna',
     'deepseek-v41': 'DeepSeek-V4.1-Flash', 'seed21-pro': 'Seed-2.1-Pro-0915',
     'gpt62-astra-native': 'GPT-6.2-Astra', 'glm54': 'GLM-5.4',
+    'gemini-4-hydrogen-high': 'Gemini 4 Hydrogen High · AGY',
 }
 HEADER = {
     'physics_iq': ('Physics-IQ Verified', 'I2V · 198 cases', 'physics_iq_baseline.html'),

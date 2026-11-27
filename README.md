@@ -33,7 +33,11 @@ tracked separately and stops at the first valid delivery; successful videos
 are never rerolled for a better score. See [retry accounting](docs/RETRY_POLICY.md).
 
 The main roster is GPT-6.2-Sol, GPT-6.1-Sol, GPT-5.6-Sol,
-GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash and Seed-2.1-Pro-0915.
+GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash, Seed-2.1-Pro-0915
+and **Gemini 4 Hydrogen High**. Gemini is a normal full-scope main model using
+the separately pinned Antigravity CLI **1.5.18** ACP route, the same benchmark
+inputs and media settings, and a 1M output-token budget. Its videos, traces,
+generation progress and scores use the same main dashboard and HF dataset.
 The dashboard reports their actual generation, evaluation and publication
 coverage. Native GPT-6.2-Astra is a separate cohort using Codex 0.172.0; its
 version and quota records are kept separate from the main harness. Historical

@@ -23,8 +23,13 @@ Manipulation (50 I2V cases), PhyGenBench (160 T2V prompts), and PCVE-RigidBench
 editing timeline, the other tasks use 5 seconds. The code repository documents
 protocol versions and judge adaptations.
 
-The roster includes GPT-6.2-Sol, GPT-6.1-Sol, GPT-6-Astra, GPT-5.6-Sol,
-GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash, and Seed-2.1-Pro-0915.
+The main roster includes GPT-6.2-Sol, GPT-6.1-Sol, GPT-5.6-Sol,
+GPT-5.6-Terra, GPT-5.6-Luna, DeepSeek-V4.1-Flash, Seed-2.1-Pro-0915,
+and **Gemini 4 Hydrogen High** (`gemini-4-hydrogen-high`). Hydrogen uses
+the pinned native **Antigravity CLI 1.5.18** ACP harness, the same four
+main benchmark inputs and media contracts, and a 1M output-token budget.
+It appears in the normal main matrix and per-case video/trace browser.
+Historical GPT-6-Astra results remain separate from the current main roster.
 A registered model may still be generating or uploading. Use the coverage
 report, not this card or the repository file count, to check completeness.
 
@@ -58,14 +63,14 @@ and scoring coverage: a config or queued condition is not a completed run.
 
 | Analysis | Scope |
 |---|---|
-| Text versus Vision | Physics-IQ, PhyGenBench and PCVE; main Vision outputs are reused |
+| Text versus Vision | Physics-IQ, RBench Common Manipulation, PhyGenBench and PCVE; main Vision outputs are reused |
 | Resolution | Physics-IQ: 480p / 720p / 1080p at 24 FPS |
 | FPS | Physics-IQ: 12 / 24 / 48 FPS at 720p and a fixed five-second duration |
 | Thinking | Physics-IQ: low / high / the model's verified higher or maximum mode |
 | Agent harness | Physics-IQ, the same model and 720p/24 FPS: Codex 0.169.0 / OpenCode 1.19.6 / Claude Code 2.1.304 |
 | Video quality | Separate GPT-6.1-Sol appearance scores and benchmark-specific FVD |
 
-RBench currently has only its main Vision cohort. Harness effects require
+Harness effects require
 matched cases, model settings and evaluator provenance; delivery counts alone
 are not an effect score. Transport/usage-recording failures retain their
 original evidence and must be separated from model-quality failures.
@@ -89,7 +94,7 @@ This supervised uploader atomically publishes ready case records, playable
 media and sanitized traces, retaining hash/commit receipts and reusing matching
 uploads. A separate progress watcher and dataset-first dashboard publisher
 refresh the index and paired HTML snapshot. The browser reads HF every 60
-seconds; snapshot publication checks every five minutes. Media and trace
+seconds; snapshot publication checks every minute. Media and trace
 readiness are separate from generation completion. The complete workflow is
 [HF_PUBLISHING.md](https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/HF_PUBLISHING.md),
 with a [collaborator assignment](https://github.com/SiYuanJasperMa/PixelWorld/blob/main/docs/COLLABORATOR_HANDOFF.md).
@@ -106,8 +111,8 @@ Infrastructure records do not spend those caps and may produce a later record
 ordinal. Failed attempts retain evidence and have no fabricated video.
 
 The dashboard fetches the dataset status every 60 seconds and updates its main
-table when the paired snapshot is available. The publisher checks every five
-minutes. Video/trace uploads run independently; the coverage report describes
+table when the paired snapshot is available. The publisher checks every
+minute. Video/trace uploads run independently; the coverage report describes
 matching upload receipts, rather than a full remote byte audit.
 
 Public exports exclude credentials, private machine paths, licensed standalone
