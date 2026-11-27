@@ -97,6 +97,13 @@ The exporter reads `$BUNDLE/live_sources.json` and writes
 `$PUBLICATION_SOURCE/catalogue.json`, group details and previews/posters.
 `--local-only` prevents Git publication. Use `--once` for one export pass.
 
+Source projections must preserve the `cases` total in `status.json` so the
+exporter can discover older deliveries as well as currently running cases.
+For independently exported immutable case records, add
+`--external-cache "$BUNDLE/accepted_cache_import.json"`; this option may be
+repeated. The exporter merges these records on every pass, preserving its
+current live entries even when an importer finishes during a cache write.
+
 ### 2. Upload closed cases, media and traces
 
 ```bash

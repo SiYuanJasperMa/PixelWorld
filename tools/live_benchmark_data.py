@@ -853,6 +853,8 @@ def main():
     p.add_argument('--once', action='store_true')
     p.add_argument('--local-only', action='store_true',
                    help='Refresh the live website independently of Git uploads')
+    p.add_argument('--external-cache', type=Path, action='append', default=[],
+                   help='Merge immutable exported case records without racing the live cache writer')
     args = p.parse_args()
     if args.render_workers < 1:
         p.error('--render-workers must be positive')
@@ -908,6 +910,8 @@ def main():
             if disk_stamp!=cache_stamp:
                 merge_external_cache(cache, read(cache_path))
                 cache_stamp=disk_stamp
+            for import_path in args.external_cache:
+                merge_external_cache(cache, read(import_path))
             published_revision = (None if args.local_only else subprocess.check_output(
                 ['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip())
             async_update(args.run_root.resolve(),destination,cache,pool,pending,render_root,
