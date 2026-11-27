@@ -121,6 +121,13 @@ Closed deliveries rejected by an earlier false path flag can be revalidated
 with `tools.revalidate_audit_failures`, which backs up the original manifest
 and checks that generated code and pixel hashes remain unchanged.
 
+A missing `convert` executable is a warning only for the observed standalone
+literal crop of `first_frame.png`; it cannot create its scratch output. An
+uncaught Pillow save error at a verified top-level stdin line also proves that
+a later unique literal top-level save did not run. Earlier reads, existing
+files, repeated path uses, exception handlers and compound commands remain
+outside this exception. These checks do not grant host `/tmp` access.
+
 Literal `PATH`, `PYTHONPATH` and `LD_LIBRARY_PATH` assignments are checked as
 lists of directories. Every component must already be readable; a colon does
 not turn two granted library directories into an outside filename. Actual file

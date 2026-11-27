@@ -435,7 +435,59 @@ def failed_scratch_path(path: str, item: dict) -> bool:
                     for line in lines)):
         return True
     return (_failed_python_scratch(path, item) or _denied_python_write(path, item)
-            or _denied_ffmpeg_crop(path, item))
+            or _denied_ffmpeg_crop(path, item) or _missing_convert_crop(path, item)
+            or _unexecuted_pillow_save(path, item))
+
+
+def _missing_convert_crop(path: str, item: dict) -> bool:
+    """A missing executable cannot create the sole literal crop output."""
+    if item.get('exit_code') != 127:
+        return False
+    try:
+        args = shlex.split(_unwrap_shell(str(item.get('command', ''))))
+    except ValueError:
+        return False
+    if (len(args) != 5 or args[:3] != ['convert', 'first_frame.png', '-crop']
+            or not re.fullmatch(r'\d+x\d+\+\d+\+\d+', args[3]) or args[4] != path
+            or not re.fullmatch(r'/tmp/[A-Za-z0-9_.-]+\.png', path)):
+        return False
+    return any(re.fullmatch(r'(?:/bin/bash|bash|/bin/sh|sh): line \d+: convert: command not found', line)
+               for line in str(item.get('aggregated_output', '')).splitlines())
+
+
+def _unexecuted_pillow_save(path: str, item: dict) -> bool:
+    """Prove a later literal top-level save was skipped by an uncaught save error."""
+    if item.get('exit_code') in (None, 0):
+        return False
+    output = str(item.get('aggregated_output', ''))
+    errors = re.findall(r"(?m)^(?:FileNotFoundError|PermissionError):[^\n]*['\"](/tmp/[^'\"\n]+)['\"]\s*$", output)
+    traces = re.findall(r'File "<stdin>", line (\d+), in <module>', output)
+    if len(errors) != 1 or len(traces) != 1 or '/PIL/Image.py' not in output:
+        return False
+    command = _unwrap_shell(str(item.get('command', '')))
+    section = re.fullmatch(r"python(?:3(?:\.\d+)?)?[ \t]+-[ \t]+<<[ \t]*(?P<quote>['\"]?)(?P<tag>[A-Za-z_]\w*)(?P=quote)\r?\n(?P<body>[\s\S]*?)\r?\n(?P=tag)[ \t]*", command)
+    if not section:
+        return False
+    try:
+        tree = ast.parse(section.group('body'))
+    except SyntaxError:
+        return False
+    if any(isinstance(n, (ast.Try, ast.TryStar, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+           or (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ('exec', 'eval', 'compile'))
+           for n in ast.walk(tree)):
+        return False
+    def literal_save(statement, target):
+        if not isinstance(statement, ast.Expr) or not isinstance(statement.value, ast.Call):
+            return False
+        call = statement.value
+        return (isinstance(call.func, ast.Attribute) and call.func.attr == 'save'
+                and bool(call.args) and isinstance(call.args[0], ast.Constant) and call.args[0].value == target)
+    failed_line = int(traces[0])
+    failed = [s for s in tree.body if s.lineno == failed_line and literal_save(s, errors[0])]
+    later = [s for s in tree.body if s.lineno > failed_line and literal_save(s, path)]
+    uses = [n for n in ast.walk(tree) if isinstance(n, ast.Constant) and n.value == path]
+    # A prior read, alias or repeated use is not covered by this proof.
+    return len(failed) == 1 and len(later) == 1 and len(uses) == 1
 
 
 def _denied_ffmpeg_crop(path: str, item: dict) -> bool:

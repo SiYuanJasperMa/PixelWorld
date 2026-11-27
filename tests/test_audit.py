@@ -24,6 +24,32 @@ def test_failed_scratch_denial_does_not_hide_existing_or_reference_reads(tmp_pat
     assert not failed_scratch_path(str(existing),{'aggregated_output':str(existing)+': Read-only file system'})
 
 
+def test_missing_convert_crop_cannot_create_scratch_but_does_not_grant_other_inputs():
+    path='/tmp/pixelworld_missing_convert_crop_b91c.png'
+    item={'command':f'convert first_frame.png -crop 560x720+720+0 {path}',
+          'exit_code':127,'aggregated_output':'/bin/bash: line 1: convert: command not found\n'}
+    assert failed_scratch_path(path,item)
+    assert not failed_scratch_path(path,{**item,'exit_code':0})
+    assert not failed_scratch_path(path,{**item,'command':'touch /tmp/prior.png; '+item['command']})
+    assert not failed_scratch_path('/other/case/reference.png',item)
+    assert not failed_scratch_path(path,{**item,'command':item['command'].replace('first_frame.png','/other/reference.png')})
+
+
+def test_uncaught_pillow_save_error_skips_only_later_literal_save():
+    first='/tmp/pixelworld_denied_first_pil_62f9.png'
+    later='/tmp/pixelworld_unexecuted_second_pil_62f9.png'
+    body=f"from PIL import Image\nim=Image.open('first_frame.png')\nim.crop((0,0,4,4)).save({first!r})\nim.crop((1,1,4,4)).save({later!r})"
+    command="python - <<'PY'\n"+body+"\nPY"
+    output=f'Traceback (most recent call last):\n  File "<stdin>", line 3, in <module>\n  File "/runtime/site-packages/PIL/Image.py", line 2583, in save\nFileNotFoundError: [Errno 2] No such file or directory: {first!r}\n'
+    item={'command':command,'exit_code':1,'aggregated_output':output}
+    assert failed_scratch_path(later,item)
+    assert not failed_scratch_path(later,{**item,'exit_code':0})
+    assert not failed_scratch_path(later,{**item,'aggregated_output':output.replace('line 3,','line 5,')})
+    assert not failed_scratch_path(later,{**item,'command':command.replace('im=Image.open(\'first_frame.png\')',f'im=Image.open({later!r})')})
+    assert not failed_scratch_path(later,{**item,'command':command+'\npython more.py'})
+    assert not failed_scratch_path(later,{**item,'command':command.replace("from PIL import Image", "try:\n from PIL import Image\nexcept Exception:\n pass")})
+
+
 def test_shell_denied_creation_and_missing_python_scratch_is_not_access(tmp_path):
     path='/tmp/pixelworld_denied_creation_fixture_57c8.py'
     item={'exit_code':2,'command':f"cat > {path} <<'PY'\nprint(1)\nPY\npython {path}",
