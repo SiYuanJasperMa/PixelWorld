@@ -808,7 +808,7 @@ def render(status):
         return f'{score:.{digits}f}'
 
     def viewer_href(key, model):
-        if model == 'gpt62-astra-native':
+        if model in ('gpt62-astra-native', 'gemini-4-hydrogen-high'):
             return f'videos.html?benchmark={key}&amp;model={model}'
         suite = BENCHMARKS[key][0]
         if key == 'rbench': suite += '_' + model
