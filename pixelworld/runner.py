@@ -285,7 +285,8 @@ def _wait(agent: subprocess.Popen, events: Path, logs: Path,
           stall_seconds: int = FILE_CHANGE_STALL_SECONDS,
           token_monitor=None,
           teardown_grace_seconds: int = CLI_TEARDOWN_GRACE_SECONDS,
-          first_token_stall_seconds: int = FIRST_TOKEN_STALL_SECONDS) -> tuple[int, dict | None]:
+          first_token_stall_seconds: int = FIRST_TOKEN_STALL_SECONDS,
+          capture_state: dict | None = None) -> tuple[int, dict | None]:
     watchdog = None
     last_records = -1
     started = time.monotonic()
@@ -318,6 +319,13 @@ def _wait(agent: subprocess.Popen, events: Path, logs: Path,
                 from .token_budget import stop_agent
                 stop_agent(agent)
                 break
+        if capture_state is not None and capture_state.get('status') == 'failed':
+            watchdog = {'kind': 'stream_capture', 'reason': 'recording_infrastructure_failure',
+                        'triggered_utc': utc_now(), 'capture_state': dict(capture_state)}
+            from .token_budget import stop_agent
+            stop_agent(agent)
+            atomic_json(logs/'stream_capture_failure.json', watchdog)
+            break
         time.sleep(min(WATCHDOG_POLL_SECONDS, .25) if token_monitor is not None else WATCHDOG_POLL_SECONDS)
         if agent.poll() is not None:
             break
@@ -667,6 +675,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
             environment['TRAE_HOME'] = str(codex_home)
             environment['TRAECLI_HOME'] = os.environ.get('TRAECLI_HOME', str(Path.home()/'.trae/cli'))
         native_budget = None
+        capture_state = {'status': 'not_used', 'storage_waits': 0}
         full_trace = {'status': 'not_recorded', 'reason': 'Legacy ephemeral launch settings preserved'}
         try:
             if controlled:
@@ -692,13 +701,18 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
                 with task_snapshot.open('rb') as stdin, (logs/'stderr.log').open('wb') as stderr:
                     agent = subprocess.Popen(command, stdin=stdin, stdout=subprocess.PIPE, stderr=stderr, env=environment,
                                              start_new_session=token_limit is not None)
-                    logger = threading.Thread(target=capture_stream, args=(agent.stdout, logs/'events.raw.jsonl', logs/'events.jsonl'), daemon=True)
+                    logger = threading.Thread(target=capture_stream, args=(agent.stdout, logs/'events.raw.jsonl', logs/'events.jsonl', capture_state), daemon=True)
                     logger.start()
                     (logs/'agent.pid').write_text(str(agent.pid)+'\n')
                     (logs/'supervisor.pid').write_text(str(os.getpid())+'\n')
-                    exit_status, watchdog = _wait(agent, logs/'events.jsonl', logs, token_monitor=token_monitor)
-                    logger.join(timeout=10)
-                    stream_finished = not logger.is_alive()
+                    exit_status, watchdog = _wait(agent, logs/'events.jsonl', logs, token_monitor=token_monitor,
+                                                  capture_state=capture_state)
+                    # The CLI may exit while storage is recovering. Do not close
+                    # the run or discard its buffered final events after 10s.
+                    while logger.is_alive():
+                        logger.join(timeout=1)
+                    stream_finished = capture_state.get('status') == 'complete'
+                    atomic_json(logs/'stream_capture_state.json', capture_state)
         finally:
             stop_file.touch()
             try:
@@ -779,6 +793,9 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     provider_infra_failure = (
         None if budget_stopped or validation["pass"] else _provider_infra_failure(logs / "events.jsonl")
     )
+    if not budget_stopped and watchdog and watchdog.get('kind') == 'stream_capture':
+        provider_infra_failure = 'recording_infrastructure_failure'
+        validation['pass'] = False
     if not provider_infra_failure and not budget_stopped and not validation['pass']:
         provider_infra_failure = _execution_infra_failure(logs)
     if (not provider_infra_failure and not budget_stopped and not validation["pass"]
@@ -798,6 +815,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         "full_trace": full_trace,
         "recording_coverage": {
             "stdout_stream_finished": stream_finished,
+            "stdout_capture_state": capture_state,
             "full_rollout_status": full_trace.get('status'),
             "unresolved_blobs": full_trace.get('unresolved_blobs'),
             "interrupted_by_budget": budget_stopped,

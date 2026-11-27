@@ -91,3 +91,13 @@ draining. An observed directory timestamp change still reconciles immediately;
 when a filesystem reuses the timestamp, the bounded scan recovers the change.
 Explicit fresh inspection remains available. Capacity denial starts no upstream
 sampling and does not remove any original records.
+
+Codex stdout capture also waits through quota, full-disk, read-only-filesystem
+and I/O errors. It retains the current event in memory until both the original
+and annotated copies are fsynced. A retry rolls back only that event's partial
+writes, preserving earlier records and its original receive timestamp. The
+agent's pipe provides backpressure while storage recovers. The run waits for
+capture to finish after the CLI exits; it cannot discard final events after a
+fixed join timeout. Capture recovery is recorded in `logs/stream_capture_state.json`.
+An unrecoverable capture failure is exposed to the supervisor, which stops its
+own agent and records an infrastructure failure rather than leaving an orphan.
