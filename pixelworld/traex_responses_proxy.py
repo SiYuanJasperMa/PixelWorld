@@ -148,6 +148,21 @@ def queue_aware_events(initial, reopen, wait, retry_delay):
         wait(retry_delay)
         current=reopen();attempt+=1
 
+def release_log_marker(server, request_id, budget, leased):
+    """Release a finished request's lease even if transient cleanup fails."""
+    try:
+        writer = getattr(server, 'cloud_log_writer', None)
+        if writer is not None:
+            writer.remove_marker(request_id+'.active.json')
+        elif budget:
+            budget.remove_record(request_id+'.active.json')
+        else:
+            (server.log_dir/(request_id+'.active.json')).unlink(missing_ok=True)
+    finally:
+        if leased:
+            budget.release(request_id)
+
+
 class Bridge(BaseHTTPRequestHandler):
     protocol_version='HTTP/1.1'
     def log_message(self,*args): pass
@@ -378,15 +393,7 @@ class Bridge(BaseHTTPRequestHandler):
                     with self.server.lock:
                         with (self.server.log_dir/'requests.jsonl').open('a') as f:f.write(json.dumps(record,ensure_ascii=False)+'\n')
             finally:
-                writer=getattr(self.server,'cloud_log_writer',None)
-                if writer is not None:
-                    writer.remove_marker(rid+'.active.json')
-                else:
-                    if budget:
-                        budget.remove_record(rid+'.active.json')
-                    else:
-                        (self.server.log_dir/(rid+'.active.json')).unlink(missing_ok=True)
-                if leased:budget.release(rid)
+                release_log_marker(self.server, rid, budget, leased)
             print(json.dumps(record,ensure_ascii=False),flush=True)
             self.close_connection=True
 

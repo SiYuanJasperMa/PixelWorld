@@ -117,3 +117,9 @@ not turn two granted library directories into an outside filename. Actual file
 operands with colons remain subject to path checks. The bounded interpreter
 lookup also recognizes the observed name-only Python/OpenCV package query;
 find actions and content-reading pipelines remain outside this exception.
+
+Completed bridge requests release their capacity reservation in a final cleanup
+guard, even if removing the transient active marker fails with quota or I/O
+errors. A failed marker removal leaves diagnostics intact; original request and
+response files are not deleted. An unreleased reservation must not be mistaken
+for proof that upstream sampling is still active.
