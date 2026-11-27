@@ -134,6 +134,11 @@ a later unique literal top-level save did not run. Earlier reads, existing
 files, repeated path uses, exception handlers and compound commands remain
 outside this exception. These checks do not grant host `/tmp` access.
 
+The evidenced ffmpeg crop denial applies to a literal crop of `first_frame.png`
+with or without a following literal scale. Other inputs, filters and shell
+actions retain the read/write boundary. A codec's generic "Input/output error"
+for an unopenable `/tmp` crop is not proof that the cloud volume is full.
+
 Recovery candidate selection follows the existing task-specific first-frame
 contract. I2V requires an exact first frame. T2V and V2V report `frame0_exact`
 as null and use `first_frame_constraint_satisfied`; null alone must not prevent

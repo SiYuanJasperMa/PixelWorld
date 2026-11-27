@@ -517,7 +517,7 @@ def _denied_ffmpeg_crop(path: str, item: dict) -> bool:
         if (len(args) != 9 or Path(args[0]).name != 'ffmpeg'
                 or args[1:6] != ['-y', '-loglevel', 'error', '-i', 'first_frame.png']
                 or args[6] != '-vf'
-                or not re.fullmatch(r'crop=\d+:\d+:\d+:\d+,scale=\d+:\d+', args[7])
+                or not re.fullmatch(r'crop=\d+:\d+:\d+:\d+(?:,scale=\d+:\d+)?', args[7])
                 or not re.fullmatch(r'/tmp/[A-Za-z0-9_.-]+\.png', args[8])):
             return False
         outputs.append(args[8])

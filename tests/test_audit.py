@@ -587,6 +587,18 @@ def test_denied_first_loop_write_after_builtin_lookups_is_a_warning():
     assert not failed_scratch_path(prefix, {**item,'command':'command -v ffmpeg; cat '+prefix+'secret; '+body})
 
 
+def test_denied_ffmpeg_crop_without_scale_preserves_input_boundary():
+    path='/tmp/pixelworld_denied_crop_no_scale_71a9.png'
+    command=f"ffmpeg -y -loglevel error -i first_frame.png -vf 'crop=760:280:260:440' {path}"
+    item={'command':command,'exit_code':251,
+          'aggregated_output':f'[image2 @ 0xabc] Could not open file : {path}\nError muxing a packet\n'}
+    assert failed_scratch_path(path,item)
+    assert not failed_scratch_path(path,{**item,'exit_code':0})
+    assert not failed_scratch_path(path,{**item,'command':command.replace('first_frame.png','/other/reference.png')})
+    assert not failed_scratch_path(path,{**item,'command':command.replace('crop=760:280:260:440','movie=/other/reference.png')})
+    assert not failed_scratch_path(path,{**item,'command':command+'; cat /other/reference.png'})
+
+
 def test_denied_ffmpeg_image_crop_and_short_circuited_crop_are_warnings():
     first='/tmp/pixelworld_denied_ffmpeg_first_613948.png'
     second='/tmp/pixelworld_denied_ffmpeg_second_613948.png'
