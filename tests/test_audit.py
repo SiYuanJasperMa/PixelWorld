@@ -34,6 +34,19 @@ def test_shell_denied_creation_and_missing_python_scratch_is_not_access(tmp_path
     assert not failed_scratch_path(path,{**item,'aggregated_output':'an unrelated file: No such file or directory'})
 
 
+def test_uncaught_image_processing_failure_precedes_unexecuted_scratch_outputs():
+    path = '/tmp/pixelworld_unexecuted_cv2_scratch_29a1.png'
+    command = "python - <<'PY'\nimport cv2\ncv2.grabCut(None)\ncv2.imwrite('"+path+"', mask)\nPY"
+    output = 'Traceback (most recent call last):\n  File "<stdin>", line 2, in <module>\ncv2.error: failed image processing\n'
+    item = {'command': command, 'exit_code': 1, 'aggregated_output': output}
+    assert failed_scratch_path(path, item)
+    assert not failed_scratch_path(path, {**item, 'exit_code': 0})
+    assert not failed_scratch_path(path, {**item, 'aggregated_output': 'unrelated failure'})
+    assert not failed_scratch_path(path, {**item, 'command': command.replace('cv2.grabCut(None)', "cv2.imread('"+path+"')")})
+    controlled = command.replace('cv2.grabCut(None)', 'try:\n cv2.grabCut(None)\nexcept Exception:\n pass')
+    assert not failed_scratch_path(path, {**item, 'command': controlled})
+
+
 def test_installed_browser_cache_is_tool_software_only(tmp_path):
     assert outside_command_paths(f'python "{PLAYWRIGHT_SOFTWARE_CACHE}/browser/chrome"',tmp_path)==[]
     assert outside_command_paths(f'cat "{PLAYWRIGHT_SOFTWARE_CACHE}_other/reference.png"',tmp_path)

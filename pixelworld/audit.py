@@ -572,10 +572,25 @@ def _failed_python_scratch(path: str, item: dict) -> bool:
                 return isinstance(value, ast.Constant) and value.value == path
             return False
         writes = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and n.args and target(n.args[0])
-                  and isinstance(n.func, ast.Attribute) and n.func.attr in ('VideoWriter', 'get_writer')]
+                  and isinstance(n.func, ast.Attribute) and n.func.attr in ('VideoWriter', 'get_writer', 'imwrite')]
         if len(writes) != 1:
             continue
         write = writes[0]
+        if write.func.attr == 'imwrite':
+            # An uncaught error in preceding straight-line image processing
+            # can prove a later scratch output was never attempted. Restrict
+            # this to direct cv2 calls; loops/handlers/dynamic execution can
+            # invalidate that execution-order inference.
+            if not (isinstance(write.func.value, ast.Name) and write.func.value.id == 'cv2'
+                    and any(isinstance(statement, ast.Expr) and statement.value is write for statement in tree.body)):
+                continue
+            preceding = [statement for statement in tree.body if statement.lineno < write.lineno]
+            if any(isinstance(n, (ast.Try, ast.For, ast.While, ast.FunctionDef, ast.AsyncFunctionDef,
+                                  ast.ClassDef, ast.With, ast.AsyncWith)) for statement in preceding for n in ast.walk(statement)):
+                continue
+            if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ('exec','eval','compile')
+                   for statement in preceding for n in ast.walk(statement)):
+                continue
         # A traceback before the sole later path expression proves it never ran.
         trace_lines = re.findall(r'File "<stdin>", line (\d+)', output)
         if item.get('exit_code') not in (None, 0) and trace_lines and int(trace_lines[-1]) < write.lineno:
