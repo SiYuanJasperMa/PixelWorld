@@ -29,6 +29,28 @@ WATCHDOG_POLL_SECONDS = 10
 CLI_TEARDOWN_GRACE_SECONDS = 60
 
 
+def _stop_snapshot_watcher(watcher, stop_file: Path) -> None:
+    """Reap the external observer even when storage cannot create its marker."""
+    marker_error = None
+    try:
+        stop_file.touch()
+    except OSError as error:
+        marker_error = error
+        if watcher.poll() is None:
+            watcher.terminate()
+    try:
+        watcher.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        watcher.terminate()
+        try:
+            watcher.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            watcher.kill()
+            watcher.wait()
+    if marker_error is not None:
+        raise marker_error
+
+
 def _toml(value: str) -> str:
     return json.dumps(value)
 
@@ -682,6 +704,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
             sys.executable, "-m", "pixelworld.snapshot", "--workspace", str(workspace),
             "--trace", str(trace), "--stop-file", str(stop_file),
             "--spec-file", str(run / "media_contract.json"),
+            "--owner-pid", str(os.getpid()),
         ], stdout=watcher_out, stderr=watcher_err)
         environment = os.environ.copy()
         environment["TMPDIR"] = str(workspace / ".tmp")
@@ -732,12 +755,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
                     stream_finished = capture_state.get('status') == 'complete'
                     atomic_json(logs/'stream_capture_state.json', capture_state)
         finally:
-            stop_file.touch()
-            try:
-                watcher.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                watcher.terminate()
-                watcher.wait(timeout=10)
+            _stop_snapshot_watcher(watcher, stop_file)
 
     if full_trace_enabled and not controlled:
         from .full_trace import capture_rollout

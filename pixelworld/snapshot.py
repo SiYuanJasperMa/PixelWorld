@@ -5,6 +5,7 @@ import argparse
 import ast
 import hashlib
 import json
+import os
 import shutil
 import time
 import zipfile
@@ -158,10 +159,13 @@ def record_code(workspace: Path, trace: Path, prior: str | None) -> str | None:
         return prior
 
 
-def watch(workspace: Path, trace: Path, stop_file: Path, interval: float = .5, media: dict | None = None) -> None:
+def watch(workspace: Path, trace: Path, stop_file: Path, interval: float = .5,
+          media: dict | None = None, owner_pid: int | None = None) -> None:
     trace.mkdir(parents=True,exist_ok=True)
     seen = set();index = 0;last_code = None
     while True:
+        if owner_pid is not None and os.getppid() != owner_pid:
+            break
         last_code = record_code(workspace,trace,last_code)
         try:
             key = candidate_key(workspace, media)
@@ -184,8 +188,11 @@ def main() -> None:
     parser.add_argument('--stop-file',type=Path,required=True)
     parser.add_argument('--interval',type=float,default=.5)
     parser.add_argument('--spec-file',type=Path)
+    parser.add_argument('--owner-pid', type=int,
+                        help='Exit when the launching supervisor is no longer the parent')
     args = parser.parse_args()
-    watch(args.workspace.resolve(),args.trace.resolve(),args.stop_file.resolve(),args.interval,contract(args.spec_file) if args.spec_file else None)
+    watch(args.workspace.resolve(),args.trace.resolve(),args.stop_file.resolve(),args.interval,
+          contract(args.spec_file) if args.spec_file else None, args.owner_pid)
 
 
 if __name__=='__main__':main()

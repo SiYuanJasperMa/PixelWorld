@@ -198,6 +198,12 @@ successful HF upload does not establish that a public URL is fresh: fetch the
 public JSON and HTML, compare timestamps/commits, and test a case/video link.
 Open tabs refresh HF every 60 seconds. See [publishing commands](HF_PUBLISHING.md).
 
+External snapshot observers receive the launching supervisor PID and exit when
+that parent disappears. Runner cleanup also reaps the observer if storage
+cannot create its stop marker, while retaining the storage error. Recovering
+an orphan observer requires checking that its run is terminal and its agent
+and supervisor have exited; existing candidates and token records stay intact.
+
 A publisher contract mismatch is corrected by registering the exact approved
 continuation and provenance. Do not weaken model, prompt, scope or media checks.
 Public tables use the source of each score explicitly; published paper values
