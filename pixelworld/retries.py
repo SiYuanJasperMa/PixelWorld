@@ -221,7 +221,8 @@ def authorize_near_complete(config: Benchmark, *, extra_attempts: int = 2,
                 row=info[case];consumed=row.get('model_attempts',0)
                 cap=model_attempt_cap(config,model,track,case)
                 if consumed<cap or (not until_first_delivery and consumed>=config.max_total_attempts+extra_attempts):continue
-                existing=[int(p.name.rsplit('_attempt_',1)[1])for p in (config.runs_root/model.key/track).glob(f'case_{case}_attempt_*')]
+                existing=[int(match.group(1)) for p in (config.runs_root/model.key/track).glob(f'case_{case}_attempt_*')
+                          if (match:=re.fullmatch(r'case_'+re.escape(case)+r'_attempt_(\d+)',p.name))]
                 start=max([config.max_attempts,*existing])+1
                 key=prefix+case;history=data['cases'].setdefault(key,[])
                 item={'round':len(history)+1,'start_attempt':start,'end_attempt':start,

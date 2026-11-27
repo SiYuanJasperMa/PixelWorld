@@ -474,6 +474,13 @@ def _prior_attempt_usage(config: Benchmark, model: Model, track: str, case_id: s
     return prior_output, prior_unknown, ignored
 
 
+def _attempt_budget_usage(config: Benchmark, model: Model, track: str, case_id: str,
+                          attempt: int) -> tuple[int, bool, list[dict]]:
+    if config.output_token_budget_scope == 'attempt':
+        return 0, False, []
+    return _prior_attempt_usage(config, model, track, case_id, attempt)
+
+
 def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attempt: int = 1,
              codex_binary: str | None = None, dry_run: bool = False,
              task_file: Path | None = None, rules_file: Path | None = None,
@@ -484,7 +491,7 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
     retry_window = budget_window(config, model, track, case_id, attempt)
     token_limit = config.output_token_budget
     if token_limit is not None:
-        prior_output, prior_unknown, ignored_prior_usage = _prior_attempt_usage(
+        prior_output, prior_unknown, ignored_prior_usage = _attempt_budget_usage(
             config, model, track, case_id, attempt)
     else:
         prior_output, prior_unknown, ignored_prior_usage = 0, False, []
@@ -678,10 +685,12 @@ def run_case(config: Benchmark, model_key: str, track: str, case_id: str, attemp
         "extra_input_files": list(extra_inputs),
         "full_trace_capture_enabled": full_trace_enabled,
         "output_token_budget": token_limit,
+        "output_token_budget_scope": config.output_token_budget_scope,
         "prior_attempt_output_tokens": prior_output,
         "prior_attempt_usage_ignored": ignored_prior_usage,
         "retry_authorization": retry_window,
-        "budget_scope_start_attempt": retry_window["start_attempt"] if retry_window else 1,
+        "budget_scope_start_attempt": (attempt if config.output_token_budget_scope == 'attempt'
+                                       else retry_window["start_attempt"] if retry_window else 1),
         "token_usage": collect_usage(logs / "events.jsonl", finished=False),
     }
     atomic_json(run / "run_manifest.json", manifest)

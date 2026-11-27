@@ -57,6 +57,11 @@ as provenance; it is not a new matrix to launch.
   preserve this execution provenance rather than merging harness versions.
 - Each real model attempt has a 1M reported output-token budget. Standard
   allowance is five real attempts; RBench's original allowance is one.
+- Current configs default to `output_token_budget_scope: "attempt"`. Retry
+  grants select future directory ordinals and never reduce a fresh attempt's
+  budget by previous output or missing previous usage. Explicit `retry_window`
+  preserves historical cumulative accounting; old run records retain their
+  original budget scope and usage.
 - Owner-authorized recovery is recorded separately and stops at the first valid
   delivery. Native continuation configs can carry a larger recovery cap; it is
   not a change to the normal protocol. Directory attempt ordinals are not counts
@@ -150,6 +155,13 @@ quota refusal after an unsuccessful native turn; an assistant's text alone
 does not. Retain raw requests, responses and reported usage. Gate new dispatch
 on the native five-hour and weekly quota readings, allow existing work to
 finish, and resume only after a fresh reading confirms available quota.
+
+Set `PIXELWORLD_WORKER_MEMORY_LIMIT_BYTES` from the worker's declared memory
+allocation when its cgroup files are unavailable. Admission then uses container
+process proportional memory, with RSS as a conservative fallback. Node-wide
+free RAM is not the worker allocation. Missing process accounting holds new
+admissions under an explicit limit. Temporary migration links and deletion
+quarantines never count as attempt directories.
 
 ## 5. Physical evaluation, FVD and subjective quality
 

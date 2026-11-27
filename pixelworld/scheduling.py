@@ -2,12 +2,31 @@
 from contextlib import contextmanager
 import fcntl
 import json
+import os
 import shlex
 import subprocess
 from pathlib import Path
 
 
-def cgroup_memory() -> tuple[int, int] | None:
+def process_memory(root: Path) -> int | None:
+    """Use proportional memory where available, and conservative RSS otherwise."""
+    total=0;observed=0
+    for proc in root.iterdir():
+        if not proc.name.isdecimal():continue
+        try:
+            try:
+                rows=(proc/'smaps_rollup').read_text().splitlines()
+                amount=next(int(line.split()[1]) for line in rows if line.startswith('Pss:'))
+            except (OSError,ValueError,StopIteration):
+                rows=(proc/'status').read_text().splitlines()
+                amount=next(int(line.split()[1]) for line in rows if line.startswith('VmRSS:'))
+            total+=amount*1024;observed+=1
+        except (FileNotFoundError,ProcessLookupError,StopIteration):continue
+        except OSError:return None
+    return total if observed else None
+
+
+def cgroup_memory(*, proc_root: Path = Path('/proc'), environment=None) -> tuple[int, int] | None:
     """Return non-reclaimable working-set usage and hard limit for cgroup v1/v2."""
     candidates = [
         (Path('/sys/fs/cgroup/memory/memory.usage_in_bytes'),
@@ -26,9 +45,17 @@ def cgroup_memory() -> tuple[int, int] | None:
             # PNG/NPZ reads as committed process memory.
             usage=max(0,usage-stats.get('total_inactive_file',stats.get('inactive_file',0)))
             # cgroup v1 reports a very large sentinel when no limit is active.
-            if 0 <= usage < limit < 1 << 60:return usage,limit
+            if 0 <= usage and 0 < limit < 1 << 60:return usage,limit
         except (OSError,ValueError):
             continue
+    declared=(os.environ if environment is None else environment).get('PIXELWORLD_WORKER_MEMORY_LIMIT_BYTES')
+    if declared is not None:
+        limit=int(declared)
+        if not 0 < limit < 1 << 60:raise ValueError('Invalid declared worker memory limit')
+        usage=process_memory(proc_root)
+        # Missing process accounting must not turn an explicit worker limit
+        # into an unrestricted launch allowance.
+        return (limit if usage is None else usage),limit
     return None
 
 
