@@ -292,6 +292,24 @@ def test_native_shell_launch_failure_is_not_a_backgrounded_success(tmp_path):
     assert not item.get('backgrounded')
 
 
+def test_command_guard_denies_connections_and_preserves_private_process_ipc(tmp_path):
+    import shlex, subprocess, sys
+    guard = ags.prepare_command_guard(tmp_path/'guard')
+    source = ags.COMMAND_GUARD.replace('/opt/pixelworld-command', str(guard))
+    probe = '''import socket,json,subprocess,sys
+result={}
+try:socket.socket();result['socket_blocked']=False
+except PermissionError:result['socket_blocked']=True
+left,right=socket.socketpair();left.send(b'ok');result['pair']=right.recv(2).decode()
+child=subprocess.run([sys.executable,'-c','import socket; socket.socket()'],capture_output=True)
+result['child_blocked']=child.returncode!=0 and b'Operation not permitted' in child.stderr
+print(json.dumps(result))'''
+    command = shlex.quote(sys.executable)+' -c '+shlex.quote(probe)
+    result = subprocess.run([sys.executable,'-c',source,'-c',command],capture_output=True,text=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {'socket_blocked': True, 'pair': 'ok', 'child_blocked': True}
+
+
 def test_wire_tool_items_carry_returned_images():
     data = base64.b64encode(b'png').decode()
     request = {'request': {'contents': [
@@ -319,11 +337,11 @@ def test_permission_policy_and_settings():
     assert agh.permission_decision({'toolCall': {'name': 'run_command'}})[0] == 'allow'
     assert agh.permission_decision({'toolCall': {'name': 'invoke_subagent'}})[0] == 'reject'
     settings = agh.agy_settings()
-    assert settings['enableTerminalSandbox'] is True and settings['allowNonWorkspaceAccess'] is False
+    assert settings['enableTerminalSandbox'] is False and settings['allowNonWorkspaceAccess'] is False
     deny = settings['permissions']['deny']
     assert 'read_file(/home/agent)' in deny and 'write_file(/home/agent)' in deny and 'read_url(*)' in deny
     args = agh.client_arguments()
-    assert args[0] == 'acp' and '--dangerously-skip-permissions' in args and '--sandbox' in args
+    assert args[0] == 'acp' and '--dangerously-skip-permissions' in args and '--sandbox' not in args
     assert args[args.index('--agent') + 1] == 'pixelworld'
     assert args[args.index('--cloud_code_endpoint') + 1] == f'http://127.0.0.1:{ags.RELAY_PORT}'
     assert 'tools:\n  - read_file\n  - run_command\n  - write_file\n  - edit_file\n' in agh.AGENT_MARKDOWN
@@ -368,6 +386,7 @@ def test_sandbox_arguments_isolate_the_case(tmp_path):
     assert '--unshare-net' in args and '--unshare-user' in args and '--clearenv' in args
     assert '--proc' not in args
     assert args[args.index('--tmpfs') + 1] == '/proc'
+    assert '/opt/agy/agy' in args
     writable = [args[i + 1] for i, a in enumerate(args) if a == '--bind']
     assert writable == [str(home.resolve()), str(ws.resolve())]
     assert ['--ro-bind', str((home/'s.json').resolve()), '/home/agent/s.json'] == args[args.index(str((home/'s.json').resolve())) - 1:][:3]

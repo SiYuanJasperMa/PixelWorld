@@ -111,3 +111,24 @@ quota support the requested scope, with a stated reserve. Treat a rounded zero
 quota change as insufficient evidence for unlimited capacity. A five-hour quota
 pause is infrastructure state; retain active records and resume after the quota
 reset without calling it model failure.
+
+### Native shell startup compatibility
+
+Some AGY 1.5.18 `run_command` calls fail inside the built-in terminal sandbox
+before launching any shell (`fork/exec .../agy: no such file or directory`).
+Neon sometimes works around this by choosing `BypassSandbox=true`; Hydrogen
+may stop after the same infrastructure error. Such exits are not evidence of
+a model generation failure. Preserve the original requests and usage, repair
+the runtime, and retry under the existing infrastructure retry policy.
+
+The adapter disables that inner sandbox and runs every Bash/sh command through
+an external guard, including commands marked `BypassSandbox`. The whole client
+filesystem namespace remains in place. The command guard installs an inherited
+seccomp filter: new sockets/connections, parent descriptor access and io_uring
+network bypasses are denied; private socketpair IPC remains available. The client
+can reach its recording relay, while command processes cannot. No task prompt,
+model, media setting or evaluator pin changes are needed.
+
+Validate both native bypass choices, local file writes, private IPC, and denied
+network access on the actual worker before a matrix. Infrastructure failures
+retain their records and token cost and do not consume real model attempts.

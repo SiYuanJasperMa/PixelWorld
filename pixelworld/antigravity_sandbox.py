@@ -9,6 +9,7 @@ host relay. The terminal sandbox further restricts agent shell commands.
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 from .claude_process_sandbox import bwrap_binary
 
@@ -16,10 +17,57 @@ INNER_WORKSPACE = '/workspace'
 INNER_HOME = '/home/agent'
 INNER_RUNTIME = '/opt/runtime'
 INNER_CLIENT = '/opt/agy'
+INNER_COMMAND_GUARD = '/opt/pixelworld-command'
 INNER_BRIDGES = '/run/pixelworld'
 SOCKET = 'relay.sock'
 PROXY_PORT = 8787
 RELAY_PORT = 8788
+
+COMMAND_GUARD = r'''#!/opt/runtime/bin/python
+import ctypes, errno, os, platform, sys
+libc = ctypes.CDLL(None, use_errno=True)
+if libc.syscall(436,3,ctypes.c_uint(0xffffffff),0):
+    os.closerange(3,65536)
+class Filter(ctypes.Structure):
+    _fields_ = [('code', ctypes.c_ushort), ('jt', ctypes.c_ubyte), ('jf', ctypes.c_ubyte), ('k', ctypes.c_uint)]
+class Program(ctypes.Structure):
+    _fields_ = [('length', ctypes.c_ushort), ('filters', ctypes.POINTER(Filter))]
+arch = platform.machine()
+if arch == 'x86_64':
+    audit_arch = 0xc000003e
+    denied = [41,42,43,49,50,288,101,310,311,425,426,427,438]
+elif arch == 'aarch64':
+    audit_arch = 0xc00000b7
+    denied = [198,200,201,202,203,242,117,270,271,425,426,427,438]
+else:
+    raise RuntimeError('Command network guard requires Linux x86_64 or aarch64')
+ops = [(0x20,0,0,4),(0x15,1,0,audit_arch),(0x06,0,0,0x80000000),(0x20,0,0,0)]
+if arch == 'x86_64':
+    ops += [(0x45,0,1,0x40000000),(0x06,0,0,0x00050000 | errno.EPERM)]
+for number in denied:
+    ops += [(0x15,0,1,number),(0x06,0,0,0x00050000 | errno.EPERM)]
+ops += [(0x06,0,0,0x7fff0000)]
+filters = (Filter * len(ops))(*(Filter(*op) for op in ops))
+program = Program(len(ops), filters)
+libc = ctypes.CDLL(None, use_errno=True)
+if libc.prctl(38,1,0,0,0) or libc.prctl(22,2,ctypes.byref(program),0,0):
+    raise OSError(ctypes.get_errno(), 'Could not enforce the command network guard')
+# socketpair remains available for private process IPC. Named sockets,
+# connections, io_uring network operations and parent descriptor theft are blocked.
+real = '/opt/pixelworld-command/sh.real' if os.path.basename(sys.argv[0]) == 'sh' else '/opt/pixelworld-command/bash.real'
+os.execv(real, [real, *sys.argv[1:]])
+'''
+
+
+def prepare_command_guard(path: Path) -> Path:
+    """Supply real system shells and a namespace guard outside the run directory."""
+    path.mkdir(mode=0o700)
+    for name in ('bash', 'sh'):
+        shutil.copyfile(Path('/bin') / name, path / (name + '.real'))
+        (path / (name + '.real')).chmod(0o755)
+    (path / 'shell').write_text(COMMAND_GUARD)
+    (path / 'shell').chmod(0o755)
+    return path
 
 # Forward several loopback ports to unix sockets, then run argv.
 LAUNCHER = r'''
@@ -83,7 +131,7 @@ def sandbox_environment(extra: dict[str, str] | None = None) -> dict[str, str]:
 
 def sandbox_arguments(*, client: Path, runtime: Path, workspace: Path, home: Path, bridges: dict[str, Path],
                       ports: dict[str, int], client_args: list[str], env: dict[str, str],
-                      read_only_home: list[Path] = ()) -> list[str]:
+                      read_only_home: list[Path] = (), command_guard: Path | None = None) -> list[str]:
     """bwrap argv running the launcher (bridges + agy) for one case.
 
     ``bridges`` maps a name to a host directory holding ``relay.sock``;
@@ -100,6 +148,14 @@ def sandbox_arguments(*, client: Path, runtime: Path, workspace: Path, home: Pat
     for part in ('bin', 'lib'):
         command += ['--ro-bind', str(runtime / part), f'{INNER_RUNTIME}/{part}']
     command += ['--ro-bind', str(client.parent), INNER_CLIENT]
+    if command_guard is not None:
+        command_guard = command_guard.resolve(strict=True)
+        command += ['--ro-bind', str(command_guard), INNER_COMMAND_GUARD]
+        for name in ('bash', 'sh'):
+            for parent in ('/bin', '/usr/bin'):
+                target = Path(parent) / name
+                if target.exists():
+                    command += ['--ro-bind', str(command_guard / 'shell'), str(target)]
     for name, folder in sorted(bridges.items()):
         command += ['--ro-bind', str(folder), f'{INNER_BRIDGES}/{name}']
     command += ['--bind', str(home), INNER_HOME]

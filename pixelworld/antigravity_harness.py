@@ -52,7 +52,6 @@ tools:
   - edit_file
 subagent: false
 mainAgent: true
-commandExecutionPolicy: sandbox
 ---
 
 # System Prompt
@@ -73,7 +72,7 @@ def agy_settings():
     deny = ['read_url(*)', 'execute_url(*)', 'download_url(*)', 'mcp(*)', 'unsandboxed(*)']
     deny += [f'{action}({target})' for path in DENIED_TOOL_PATHS for target in (path, path + '/**')
              for action in ('read_file', 'write_file')]
-    return {'enableTerminalSandbox': True, 'allowNonWorkspaceAccess': False,
+    return {'enableTerminalSandbox': False, 'allowNonWorkspaceAccess': False,
             'disableSlashCommands': True, 'artifactReviewPolicy': 'always-proceed',
             'useG1Credits': False, 'showFeedbackSurvey': False, 'notifications': False,
             'permissions': {'allow': [], 'ask': [], 'deny': deny}}
@@ -85,7 +84,7 @@ def client_arguments():
     # (in default/accept-edits/auto ACP modes /workspace is read-only for commands).
     # File-tool deny rules are not reliable in this mode. No real credentials
     # are placed in the client's filesystem; the host relay owns authentication.
-    return ['acp', '--disable-telemetry', '--include-default-customizations=false', '--sandbox',
+    return ['acp', '--disable-telemetry', '--include-default-customizations=false',
             '--dangerously-skip-permissions', '--agent', AGENT_NAME,
             '--cloud_code_endpoint', f'http://127.0.0.1:{ags.RELAY_PORT}']
 
@@ -539,6 +538,7 @@ def run_prepared_antigravity(*, model, workspace, logs, task, environment, limit
         home = state/'home'
         home.mkdir(mode=0o700)
         prepared = prepare_home(home, source)
+        command_guard = ags.prepare_command_guard(state / 'command-guard')
         with ExitStack() as stack:
             proxy = stack.enter_context(egress_proxy(log_path=out/'egress.jsonl', allowed_hosts=()))
             relay = stack.enter_context(cloudcode_relay(wire=out/'cloudcode_wire', model=model.model, budget=budget,
@@ -551,7 +551,7 @@ def run_prepared_antigravity(*, model, workspace, logs, task, environment, limit
             args = ags.sandbox_arguments(client=client, runtime=runtime, workspace=workspace, home=home,
                                          bridges=bridges, ports={'proxy': ags.PROXY_PORT, 'relay': ags.RELAY_PORT},
                                          client_args=client_arguments(), env=ags.sandbox_environment(),
-                                         read_only_home=prepared['read_only'])
+                                         read_only_home=prepared['read_only'], command_guard=command_guard)
             command = cps.sandbox_command(args, state/'sandbox.args')
             launch = {'backend': BACKEND, 'version': VERSION, 'executable_sha256': digest, 'model': model.model,
                       'reasoning_effort': model.reasoning_effort, 'effort_source': 'model slug (agy thinkingLevel)',
@@ -564,7 +564,7 @@ def run_prepared_antigravity(*, model, workspace, logs, task, environment, limit
                       'transport': 'Cloud Code recording relay (--cloud_code_endpoint) + CONNECT allowlist proxy '
                                    f'{sorted(ANTIGRAVITY_HOSTS)} via unix-socket bridges into a network-less sandbox',
                       'sandbox': 'bwrap whole-process (user/pid/net/ipc/uts namespaces; workspace at '
-                                 f'{ags.INNER_WORKSPACE} is the only writable host path) + agy terminal sandbox for '
+                                 f'{ags.INNER_WORKSPACE} is the only writable host path) + inherited seccomp network guard for '
                                  'agent commands',
                       'private_tmp': 'per-case empty tmpfs, counted as case scratch by the audit',
                       'projection_scratch_aliases': {'/tmp': '.agy-private-tmp',
