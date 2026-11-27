@@ -82,3 +82,12 @@ reconciliation at the capacity boundary. Do not append or restore files into
 a live leased directory; stop its writer first, or explicitly reconcile before
 resuming admission. `capacity_status()` performs a fresh inspection by default;
 `refresh=False` is the single-writer runtime snapshot.
+
+Blocked admissions share a full reconciliation at most once every 30 seconds.
+They continue checking reservations between scans, so completed requests can
+write and release their leases. Repeating a full directory scan for every
+waiting request holds the writer lock and can prevent a full segment from
+draining. An observed directory timestamp change still reconciles immediately;
+when a filesystem reuses the timestamp, the bounded scan recovers the change.
+Explicit fresh inspection remains available. Capacity denial starts no upstream
+sampling and does not remove any original records.

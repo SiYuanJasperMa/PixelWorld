@@ -13,6 +13,7 @@ import uuid
 
 DEFAULT_PROXY_LOG_MAX_BYTES = 64 * 1024**3
 DEFAULT_PROXY_MIN_FREE_BYTES = 20 * 1024**3
+CAPACITY_RECONCILE_INTERVAL_SECONDS = 30
 
 
 def add_storage_arguments(parser):
@@ -58,6 +59,7 @@ class SpoolBudget:
         self._used = None
         self._directory_stamp = None
         self._known_names = set()
+        self._last_reconciled_at = 0.0
 
     def used_bytes(self):
         """Explicit reconciliation; ordinary managed writes update the ledger."""
@@ -75,6 +77,7 @@ class SpoolBudget:
             self._used = total
             self._known_names = names
             self._directory_stamp = self.root.stat().st_mtime_ns
+            self._last_reconciled_at = time.monotonic()
             return total
 
     def _current_usage(self, *, check_namespace=False):
@@ -138,9 +141,13 @@ class SpoolBudget:
             with self.lock:
                 used = self._current_usage(check_namespace=True)
                 free = shutil.disk_usage(self.root).free
-                if used + sum(self.reservations.values()) + reserve > self.max_bytes - 1024**2:
+                if (used + sum(self.reservations.values()) + reserve > self.max_bytes - 1024**2
+                        and time.monotonic() - self._last_reconciled_at >= CAPACITY_RECONCILE_INTERVAL_SECONDS):
                     # Closed immutable logs may have been archived and removed.
-                    # Reconcile only at the boundary, never on every write.
+                    # Observed namespace changes reconcile above. At capacity,
+                    # throttle additional scans for in-place external changes:
+                    # every waiting request scanning under this lock prevents
+                    # existing requests from writing and releasing their leases.
                     used = self.used_bytes()
                 if (used + sum(self.reservations.values()) + reserve
                         <= self.max_bytes - 1024**2

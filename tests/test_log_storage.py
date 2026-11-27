@@ -52,6 +52,75 @@ def test_admission_reserves_capacity_across_concurrent_requests(tmp_path):
     budget.acquire('three',100,timeout=0)
 
 
+def test_waiting_admissions_share_capacity_reconciliation(tmp_path, monkeypatch):
+    import pixelworld.log_storage as storage
+    clock = [100.0]
+    monkeypatch.setattr(storage.time, 'monotonic', lambda: clock[0])
+    budget = SpoolBudget(tmp_path, 150 * 1024**2)
+    original = budget.used_bytes
+    scans = []
+
+    def counted():
+        scans.append(clock[0])
+        return original()
+
+    monkeypatch.setattr(budget, 'used_bytes', counted)
+    budget.acquire('one', 100, timeout=0)
+    budget.acquire('two', 100, timeout=0)
+    for i in range(40):
+        with pytest.raises(StorageBackpressure):
+            budget.acquire('waiting_'+str(i), 100, timeout=0)
+    assert len(scans) == 1
+    clock[0] += storage.CAPACITY_RECONCILE_INTERVAL_SECONDS
+    with pytest.raises(StorageBackpressure):
+        budget.acquire('waiting_next', 100, timeout=0)
+    assert len(scans) == 2
+    budget.write('one', 'resp_one.input.json', b'exact original input')
+    budget.release('one')
+    budget.acquire('waiting_next', 100, timeout=0)
+    assert len(scans) == 2
+    assert (tmp_path/'resp_one.input.json').read_bytes() == b'exact original input'
+
+
+def test_external_removal_reclaims_capacity_without_waiting_for_scan_interval(tmp_path, monkeypatch):
+    import os
+    import pixelworld.log_storage as storage
+    monkeypatch.setattr(storage.time, 'monotonic', lambda: 100.0)
+    retained = tmp_path/'retained.input.json'
+    with retained.open('wb') as stream:
+        stream.truncate(40 * 1024**2)
+    budget = SpoolBudget(tmp_path, 100 * 1024**2)
+    with pytest.raises(StorageBackpressure):
+        budget.acquire('one', 100, timeout=0)
+    retained.unlink()
+    # Some filesystems share one timestamp across operations in the same tick.
+    # Model an observed directory update without relying on a wall-clock sleep.
+    os.utime(tmp_path, ns=(tmp_path.stat().st_atime_ns, budget._directory_stamp + 1))
+    budget.acquire('one', 100, timeout=0)
+    assert budget.capacity_status(0, refresh=False)['used_bytes'] == 0
+
+
+def test_capacity_reconciliation_recovers_removal_with_unchanged_directory_timestamp(tmp_path, monkeypatch):
+    import os
+    import pixelworld.log_storage as storage
+    clock = [100.0]
+    monkeypatch.setattr(storage.time, 'monotonic', lambda: clock[0])
+    retained = tmp_path/'retained.input.json'
+    with retained.open('wb') as stream:
+        stream.truncate(40 * 1024**2)
+    budget = SpoolBudget(tmp_path, 100 * 1024**2)
+    with pytest.raises(StorageBackpressure):
+        budget.acquire('one', 100, timeout=0)
+    stamp = budget._directory_stamp
+    retained.unlink()
+    os.utime(tmp_path, ns=(tmp_path.stat().st_atime_ns, stamp))
+    with pytest.raises(StorageBackpressure):
+        budget.acquire('one', 100, timeout=0)
+    clock[0] += storage.CAPACITY_RECONCILE_INTERVAL_SECONDS
+    budget.acquire('one', 100, timeout=0)
+    assert budget.capacity_status(0, refresh=False)['used_bytes'] == 0
+
+
 def test_readiness_includes_retained_logs_and_active_reservations(tmp_path):
     budget=SpoolBudget(tmp_path,100*1024**2)
     assert budget.capacity_status(100)['ready']
