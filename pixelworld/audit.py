@@ -515,9 +515,10 @@ def _denied_ffmpeg_crop(path: str, item: dict) -> bool:
         # Only a single-frame input-image crop/scale is recognized. Unknown
         # options, inputs, filters and shell expansions retain the hard block.
         if (len(args) != 9 or Path(args[0]).name != 'ffmpeg'
-                or args[1:6] != ['-y', '-loglevel', 'error', '-i', 'first_frame.png']
+                or args[1:6] not in (['-y', '-loglevel', 'error', '-i', 'first_frame.png'],
+                                     ['-loglevel', 'error', '-y', '-i', 'first_frame.png'])
                 or args[6] != '-vf'
-                or not re.fullmatch(r'crop=\d+:\d+:\d+:\d+(?:,scale=\d+:\d+)?', args[7])
+                or not re.fullmatch(r'crop=\d+:\d+:\d+:\d+(?:,scale=\d+:\d+(?::flags=(?:neighbor|bilinear|bicubic|lanczos|spline|area|fast_bilinear))?)?', args[7])
                 or not re.fullmatch(r'/tmp/[A-Za-z0-9_.-]+\.png', args[8])):
             return False
         outputs.append(args[8])

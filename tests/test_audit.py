@@ -599,6 +599,45 @@ def test_denied_ffmpeg_crop_without_scale_preserves_input_boundary():
     assert not failed_scratch_path(path,{**item,'command':command+'; cat /other/reference.png'})
 
 
+def test_denied_ffmpeg_crop_accepts_safe_option_order_and_interpolation():
+    path = '/tmp/pixelworld_denied_neighbor_crop_fixture_529b.png'
+    command = f"ffmpeg -loglevel error -y -i first_frame.png -vf 'crop=620:500:300:220,scale=1240:1000:flags=neighbor' {path}"
+    item = {'command':command,'exit_code':251,
+            'aggregated_output':f'[image2 @ 0xabc] Could not open file : {path}\nError muxing a packet\n'}
+    assert failed_scratch_path(path,item)
+    assert not failed_scratch_path(path,{**item,'exit_code':0})
+    assert not failed_scratch_path(path,{**item,'command':command.replace('first_frame.png','/other/reference.png')})
+    assert not failed_scratch_path(path,{**item,'command':command.replace('flags=neighbor','flags=neighbor,movie=/other/reference.png')})
+    assert not failed_scratch_path(path,{**item,'command':command+'; cat /other/reference.png'})
+
+
+def test_audit_recovery_accepts_verified_teardown_without_changing_exit(tmp_path):
+    from tools.revalidate_audit_failures import recover
+    from pixelworld.media import DEFAULT_MEDIA
+    run = tmp_path/'run';run.mkdir();workspace=run/'workspace';make_artifacts(workspace)
+    logs=run/'logs';logs.mkdir()
+    output='/tmp/pixelworld_recovery_neighbor_crop_7236.png'
+    command=f"ffmpeg -loglevel error -y -i first_frame.png -vf 'crop=10:10:0:0,scale=20:20:flags=neighbor' {output}"
+    events=[{'type':'item.completed','item':{'type':'command_execution','command':command,'exit_code':251,
+             'aggregated_output':f'[image2 @ 0xabc] Could not open file : {output}\n'}},
+            {'type':'turn.completed','usage':{'output_tokens':123}}]
+    event_path=logs/'events.jsonl';event_path.write_text('\n'.join(map(json.dumps,events))+'\n')
+    receipt={'kind':'cli_shutdown','events_sha256':sha256(event_path),'process_exit_status':-15,'usage_output_tokens':123}
+    (logs/'cli_shutdown.json').write_text(json.dumps(receipt))
+    manifest={'status':'failed','exit_status':-15,'track':'text','media_contract':DEFAULT_MEDIA,
+              'validation':{'pass':False,'planning_and_method_reports_required':False,
+                            'outside_workspace_command_paths':[output]}}
+    path=run/'run_manifest.json';path.write_text(json.dumps(manifest));before=path.read_bytes()
+    code_hash=sha256(workspace/'generate.py');pixel_hash=sha256(workspace/'pixels.npz')
+    assert recover(run,apply=True)['applied']
+    restored=json.loads(path.read_text())
+    assert restored['exit_status']==-15 and restored['validation']['terminal_shutdown_verified']
+    assert sha256(workspace/'generate.py')==code_hash and sha256(workspace/'pixels.npz')==pixel_hash
+    assert (logs/'run_manifest_before_audit_revalidation.json').read_bytes()==before
+    path.write_bytes(before);event_path.write_text(event_path.read_text()+json.dumps({'type':'item.started'})+'\n')
+    assert not recover(run,apply=False)['eligible']
+
+
 def test_denied_ffmpeg_image_crop_and_short_circuited_crop_are_warnings():
     first='/tmp/pixelworld_denied_ffmpeg_first_613948.png'
     second='/tmp/pixelworld_denied_ffmpeg_second_613948.png'

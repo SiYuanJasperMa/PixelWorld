@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import tempfile
 
-from pixelworld.audit import validate, _unwrap_shell
+from pixelworld.audit import validate, _unwrap_shell, terminal_shutdown_verified
 from pixelworld.submission import safe_outputs
 from pixelworld.util import atomic_json, sha256, utc_now
 
@@ -16,8 +16,9 @@ from pixelworld.util import atomic_json, sha256, utc_now
 def recover(run: Path, *, apply=False, original_run: Path | None = None) -> dict:
     run=run.resolve();path=run/'run_manifest.json';before=path.read_bytes();m=json.loads(before)
     old=m.get('validation') or {};row={'run':str(run),'eligible':False,'applied':False}
+    exit_status = m.get('exit_status', old.get('exit_status'))
     if (m.get('status')!='failed' or not old.get('outside_workspace_command_paths')
-            or m.get('exit_status',old.get('exit_status'))!=0
+            or (exit_status != 0 and not terminal_shutdown_verified(run/'logs/events.jsonl', exit_status))
             or old.get('infra_error') or m.get('stop_reason')
             or type(old.get('planning_and_method_reports_required')) is not bool):
         return row
@@ -109,7 +110,7 @@ def recover(run: Path, *, apply=False, original_run: Path | None = None) -> dict
             'original_events_sha256': sha256(events), 'projected_events_sha256': sha256(projected),
             'original_events_changed': False}
         events = projected
-    result=validate(workspace,events,0,m['track'],
+    result=validate(workspace,events,exit_status,m['track'],
                     require_reports=old['planning_and_method_reports_required'],media=spec)
     if not result['pass']:return {**row,'remaining_validation':result}
     if path.read_bytes()!=before or any(sha256(workspace/n)!=digest for n,digest in hashes.items()):
