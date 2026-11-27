@@ -6,6 +6,8 @@ __pycache__/
 .coverage
 .DS_Store
 data/physics_iq/
+data/phycove/
+data/phyground/
 data/openve/
 data/pcve-rigid*/
 vendor/
@@ -14,6 +16,7 @@ site/
 evaluation_outputs/
 configs/*.local.json
 EXPERIMENT_HANDOFF.local.md
+/*.local.md
 runtime.local.json
 *.log
 *.pid

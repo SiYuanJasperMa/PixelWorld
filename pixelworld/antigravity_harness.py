@@ -521,6 +521,20 @@ def relay_model_matches(model):
     return lambda requested: requested == model
 
 
+def last_pinned_upstream_status(wire: Path, model: str):
+    """Only recorded replies for the requested model attest provider refusal."""
+    replies=[]
+    for path in wire.glob('[0-9]*/receipt.json'):
+        try:
+            receipt=json.loads(path.read_text())
+        except (OSError,ValueError):
+            continue
+        if (receipt.get('model_call') is True and receipt.get('requested_model') == model
+                and type(receipt.get('upstream_status')) is int and receipt.get('completed_utc')):
+            replies.append((receipt['completed_utc'],int(path.parent.name),receipt['upstream_status']))
+    return max(replies)[2] if replies else None
+
+
 def run_prepared_antigravity(*, model, workspace, logs, task, environment, limit, prior_output, runtime, client, digest):
     if model.cli_backend != BACKEND:
         raise ValueError('The Google subscription route is only defined for the pinned Antigravity client')
@@ -588,6 +602,10 @@ def run_prepared_antigravity(*, model, workspace, logs, task, environment, limit
     events, terminal, calls = project(records, workspace, rc, result)
     if not budget.can_dispatch and stop is None:
         stop = 'token_usage_unavailable' if budget.unavailable else 'output_token_budget_exhausted'
+    if not terminal and stop is None and last_pinned_upstream_status(out/'cloudcode_wire',model.model)==429:
+        stop='provider_quota_exceeded'
+        events.append({'type':'error','code':'provider_quota_exceeded',
+                       'message':'The native provider refused the pinned model request with HTTP 429.'})
     trace = prepared_rollout(out/'cloudcode_wire', logs, events, budget, terminal and stop is None)
     if not trace['model_tools_within_allowlist']:
         # A model offered extra tools (web search, subagents, ...) is outside the protocol.

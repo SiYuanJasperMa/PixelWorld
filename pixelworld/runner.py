@@ -266,6 +266,8 @@ def _provider_infra_failure(events: Path) -> str | None:
             continue
         if event.get('type') not in ('error', 'turn.failed'):
             continue
+        if event.get('code') == 'provider_quota_exceeded':
+            return 'provider_quota_exceeded'
         error = json.dumps(event, ensure_ascii=False).lower()
         if 'disk quota exceeded' in error:
             return 'storage_infrastructure_failure'

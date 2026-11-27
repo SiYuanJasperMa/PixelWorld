@@ -137,6 +137,20 @@ persistent-storage mode, that marker failure does not prevent final run records
 from being saved. Check the actual generation, private login state, recorder
 and controller paths with durable write probes before restoring dispatch.
 
+Preserve an endpoint used by existing agent processes until those processes
+finish. Updating a continuation config changes future launches; an already
+running client keeps its original endpoint and local credential. When moving
+recorders, retain a compatible listener and preserve the original URL-to-request
+archive join. Rotate log storage with the same local credential at a zero-lease
+boundary.
+
+Native Antigravity quota refusals are infrastructure outcomes. A recorded
+HTTP 429 for the pinned model, with no later successful pinned reply, identifies
+quota refusal after an unsuccessful native turn; an assistant's text alone
+does not. Retain raw requests, responses and reported usage. Gate new dispatch
+on the native five-hour and weekly quota readings, allow existing work to
+finish, and resume only after a fresh reading confirms available quota.
+
 ## 5. Physical evaluation, FVD and subjective quality
 
 Keep all three measurements separate. Scoring consumes accepted outputs and

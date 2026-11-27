@@ -17,6 +17,21 @@ from pixelworld.egress_allowlist_proxy import egress_proxy
 from pixelworld.token_budget import ResponseUsageBudget
 
 
+def test_latest_pinned_reply_distinguishes_quota_from_recovered_or_auxiliary_calls(tmp_path):
+    wire=tmp_path/'wire'
+    def receipt(number,model,status):
+        p=wire/f'{number:04d}'/'receipt.json';p.parent.mkdir(parents=True)
+        p.write_text(json.dumps({'model_call':True,'requested_model':model,
+            'upstream_status':status,'completed_utc':f'2026-11-28T00:00:{number:02d}Z'}))
+    model='gemini-4-hydrogen-high'
+    receipt(1,model,429)
+    receipt(2,'gemini-3.5-flash-lite',400)
+    assert agh.last_pinned_upstream_status(wire,model)==429
+    receipt(3,model,200)
+    assert agh.last_pinned_upstream_status(wire,model)==200
+    assert agh.last_pinned_upstream_status(wire,'another-model') is None
+
+
 def sse(chunks):
     return ''.join(f'data: {json.dumps(c)}\r\n\r\n' for c in chunks).encode()
 

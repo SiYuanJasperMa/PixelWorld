@@ -8,6 +8,16 @@ from pixelworld.log_storage import SpoolBudget, StorageBackpressure
 from pixelworld.runner import _provider_infra_failure
 
 
+def test_attested_native_quota_refusal_is_infrastructure(tmp_path):
+    events=tmp_path/'events.jsonl'
+    events.write_text(json.dumps({'type':'error','code':'provider_quota_exceeded',
+        'message':'The native provider refused the pinned model request with HTTP 429.'})+'\n')
+    from pixelworld.retries import infrastructure_failure
+    reason=_provider_infra_failure(events)
+    assert reason=='provider_quota_exceeded'
+    assert infrastructure_failure({'status':'failed','stop_reason':reason,'validation':{'infra_error':reason}})
+
+
 def test_native_4055_is_infrastructure_not_model_non_delivery(tmp_path):
     import json
     events=tmp_path/'events.jsonl'
