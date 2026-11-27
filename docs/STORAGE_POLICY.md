@@ -102,6 +102,12 @@ steady stream of small requests from occupying the last available slot forever.
 A legacy process without the `draining` readiness field does not support this
 control and must first reach its ordinary idle boundary.
 
+Draining admissions keep the same bounded wait as a full buffer (60 seconds
+by default), without leasing capacity or sampling upstream. Returning an error
+immediately can exhaust CLI reconnect retries before leased requests finish.
+The wait releases the writer lock between checks; existing responses still
+finish durably, and the client can reconnect to the fresh segment after rotation.
+
 Codex stdout capture also waits through quota, full-disk, read-only-filesystem
 and I/O errors. It retains the current event in memory until both the original
 and annotated copies are fsynced. A retry rolls back only that event's partial

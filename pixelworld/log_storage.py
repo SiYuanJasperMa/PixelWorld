@@ -142,25 +142,23 @@ class SpoolBudget:
         deadline = time.monotonic() + timeout
         while True:
             with self.lock:
-                if (self.root / DRAIN_MARKER).exists():
-                    raise StorageBackpressure('storage_backpressure: durable log segment draining; no upstream sampling started')
-                used = self._current_usage(check_namespace=True)
-                free = shutil.disk_usage(self.root).free
-                if (used + sum(self.reservations.values()) + reserve > self.max_bytes - 1024**2
-                        and time.monotonic() - self._last_reconciled_at >= CAPACITY_RECONCILE_INTERVAL_SECONDS):
-                    # Closed immutable logs may have been archived and removed.
-                    # Observed namespace changes reconcile above. At capacity,
-                    # throttle additional scans for in-place external changes:
-                    # every waiting request scanning under this lock prevents
-                    # existing requests from writing and releasing their leases.
-                    used = self.used_bytes()
-                if (used + sum(self.reservations.values()) + reserve
-                        <= self.max_bytes - 1024**2
-                        and free >= self.min_free_bytes + reserve):
-                    self.reservations[request] = reserve
-                    return
+                draining = (self.root / DRAIN_MARKER).exists()
+                if not draining:
+                    used = self._current_usage(check_namespace=True)
+                    free = shutil.disk_usage(self.root).free
+                    if (used + sum(self.reservations.values()) + reserve > self.max_bytes - 1024**2
+                            and time.monotonic() - self._last_reconciled_at >= CAPACITY_RECONCILE_INTERVAL_SECONDS):
+                        # Waiting callers share reconciliation so leased writers
+                        # can finish and release their reservations.
+                        used = self.used_bytes()
+                    if (used + sum(self.reservations.values()) + reserve
+                            <= self.max_bytes - 1024**2
+                            and free >= self.min_free_bytes + reserve):
+                        self.reservations[request] = reserve
+                        return
             if time.monotonic() >= deadline:
-                raise StorageBackpressure('storage_backpressure: durable log buffer full; no upstream sampling started')
+                reason = 'segment draining' if draining else 'buffer full'
+                raise StorageBackpressure('storage_backpressure: durable log '+reason+'; no upstream sampling started')
             time.sleep(min(1, max(0, deadline - time.monotonic())))
 
     def release(self, request: str):

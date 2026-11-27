@@ -79,16 +79,24 @@ def test_waiting_admission_observes_drain_without_taking_a_lease(tmp_path, monke
     budget = SpoolBudget(tmp_path, 100*1024**2)
     budget.acquire('active', 100, timeout=0)
     sleeps = []
+    clock = [100.0]
+    monkeypatch.setattr(storage.time, 'monotonic', lambda: clock[0])
 
     def request_drain(delay):
         sleeps.append(delay)
         (tmp_path/DRAIN_MARKER).write_text('drain')
+        if len(sleeps) == 2:
+            # The wait does not hold the writer lock or consume another lease.
+            budget.write('active', 'active.response.json', b'complete original response')
+            budget.release('active')
+        clock[0] += delay
 
     monkeypatch.setattr(storage.time, 'sleep', request_drain)
     with pytest.raises(StorageBackpressure, match='segment draining'):
-        budget.acquire('waiting', 100, timeout=60)
-    assert len(sleeps) == 1
-    assert set(budget.reservations) == {'active'}
+        budget.acquire('waiting', 100, timeout=2)
+    assert clock[0] == 102.0 and len(sleeps) == 2
+    assert not budget.reservations
+    assert (tmp_path/'active.response.json').read_bytes() == b'complete original response'
 
 
 def test_drain_does_not_transfer_to_a_new_segment(tmp_path):
