@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import errno
 
 def alive(pid, required_arguments=()):
     try:
@@ -28,7 +29,18 @@ def read(path):
     except (OSError,ValueError):return {}
 
 def write(path,value):
-    temp=path.with_suffix('.tmp');temp.write_text(json.dumps(value,indent=2));temp.replace(path)
+    temp=path.with_suffix('.tmp')
+    try:
+        temp.write_text(json.dumps(value,indent=2));temp.replace(path)
+        return True
+    except OSError as error:
+        if error.errno not in (errno.EDQUOT, errno.ENOSPC, errno.EROFS):
+            raise
+        try:temp.unlink(missing_ok=True)
+        except OSError:pass
+        try:print(json.dumps({'event':'manager_state_storage_wait','errno':error.errno}),flush=True)
+        except OSError:pass
+        return False
 
 def dispatcher_disk_stall(pid, status_path, required_arguments, stale_seconds=900,
                           proc_root=Path('/proc'), now=None):
@@ -95,7 +107,10 @@ def main():
             cfg=latest
         status=read(root/'status.json');counts=status.get('totals',{});total=status.get('total_runs',0)
         if completed_scope(cfg,status) and authoritative_scope_complete(a.config,a.code_root):
-            write(a.state,{'phase':'processed_all_requested_tasks','counts':counts,'total':total,'failures_preserved':True,'updated_utc':dt.datetime.now(dt.timezone.utc).isoformat()});return
+            if write(a.state,{'phase':'processed_all_requested_tasks','counts':counts,'total':total,'failures_preserved':True,'updated_utc':dt.datetime.now(dt.timezone.utc).isoformat()}):
+                return
+            time.sleep(30)
+            continue
         owner=status.get('supervisor_pid')
         identity=('pixelworld.cli','matrix','run',str(a.config.resolve()))
         recovering=False

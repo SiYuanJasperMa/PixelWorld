@@ -11,6 +11,7 @@ import os
 import subprocess
 import signal
 import fcntl
+import errno
 from dataclasses import replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -131,7 +132,7 @@ def recover_audit_before_retry(config, apply):
             'reviewed_unrecoverable':reviewed}
 
 
-def main():
+def run():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, action="append", required=True)
     parser.add_argument('--model-key', action='append', default=[],
@@ -243,6 +244,23 @@ def main():
         if not args.watch:
             break
         time.sleep(args.interval)
+
+
+def main():
+    while True:
+        try:
+            return run()
+        except OSError as error:
+            if '--watch' not in sys.argv or error.errno not in (errno.EDQUOT, errno.ENOSPC, errno.EROFS):
+                raise
+            try:
+                print(json.dumps({'event':'retry_controller_storage_wait','errno':error.errno,
+                                  'generation_attempts_reclassified':False}),flush=True)
+            except OSError:
+                pass
+            try:interval=float(sys.argv[sys.argv.index('--interval')+1])
+            except (ValueError,IndexError):interval=60
+            time.sleep(max(1,min(interval,60)))
 
 
 if __name__ == "__main__":
