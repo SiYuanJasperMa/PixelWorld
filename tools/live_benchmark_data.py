@@ -699,6 +699,16 @@ def merge_render_jobs(destination,cache,pending,render_root,published_assets=Non
         except Exception:
             rows = []
         for name,relative,stamp,detail in rows:
+            # A completed render can reference files removed while recovering
+            # storage. Re-render that row instead of blocking all progress on
+            # the same completed Future forever. Never publish broken links.
+            missing = [asset for asset in referenced_assets(detail)
+                       if (published_assets is None or asset not in published_assets)
+                       and not (destination/asset).is_file()
+                       and not (render_root/asset).is_file()]
+            if missing:
+                cache.setdefault(identity, {}).pop(name, None)
+                continue
             for asset in referenced_assets(detail):
                 if published_assets is not None and asset in published_assets:
                     continue  # Immutable asset is already in the committed public tree.

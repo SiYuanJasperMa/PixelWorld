@@ -111,6 +111,24 @@ def test_published_asset_reuse_needs_no_local_media_copy(tmp_path):
     assert not pending
 
 
+def test_lost_render_asset_does_not_block_other_completed_rows(tmp_path):
+    from concurrent.futures import Future
+    from tools.live_benchmark_data import merge_render_jobs
+    detail={'first_frame':'assets/lost.png','candidates':[],'events':[],
+            'case_id':'0001','attempt':1,'delivery_status':'complete','status':'complete','output_tokens':1}
+    future=Future();future.set_result([
+        ('case_0001_attempt_01','suite/m/text/case_0001_attempt_01.json',[],detail),
+        ('case_0002_attempt_01','suite/m/text/case_0002_attempt_01.json',[],{**detail,'case_id':'0002','first_frame':None})])
+    pending={('suite/m/text','0001'):future}
+    cache={'suite/m/text':{'case_0001_attempt_01':{'stamp':['old']}}}
+    destination=tmp_path/'public'
+    merge_render_jobs(destination,cache,pending,tmp_path/'render')
+    assert not pending
+    assert 'case_0001_attempt_01' not in cache['suite/m/text']
+    assert not (destination/'suite/m/text/case_0001_attempt_01.json').exists()
+    assert (destination/'suite/m/text/case_0002_attempt_01.json').exists()
+
+
 def test_incremental_publish_tracks_only_changed_public_files(tmp_path,monkeypatch):
     from tools import live_benchmark_data as live
     root=tmp_path/'public';monkeypatch.setattr(live,'PUBLICATION_ROOT',root)

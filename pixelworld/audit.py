@@ -585,7 +585,27 @@ def _denied_python_write(path: str, item: dict, prefix: str | None = None) -> bo
     # line. Strip only those lookups; arbitrary preceding commands could have
     # read or written outside data and must remain conservatively blocked.
     command = re.sub(r'^(?:command[ \t]+-v[ \t]+[A-Za-z0-9_.+-]+[ \t]*;[ \t]*)+', '', command)
-    for _, body in _python_sections(command):
+    for start, body in _python_sections(command, compound=True):
+        # Read-only local inventory can precede the failing heredoc. Do not
+        # infer a denied write after arbitrary shell actions or outside reads.
+        header = command[:start]
+        preceding = re.sub(r"python(?:3(?:\.\d+)?)?\s+-\s+<<\s*['\"]?[A-Za-z_]\w*['\"]?\s*\n$", '', header).strip(' ;\t\n')
+        allowed_files = {'frames', 'pixels.npz', 'inspection.png', 'transition_check.png', 'generate.py', 'first_frame.png', 'index.html'}
+        allowed_prefix = True
+        for probe in preceding.split(';'):
+            probe = probe.strip()
+            if not probe or probe == 'find frames -type f | wc -l':
+                continue
+            try:
+                args = shlex.split(probe)
+            except ValueError:
+                allowed_prefix = False; break
+            if (not args or args[0] != 'ls' or len(args) < 2
+                    or any(arg not in allowed_files and not re.fullmatch(r'-[lah]+', arg)
+                           for arg in args[1:])):
+                allowed_prefix = False; break
+        if not allowed_prefix:
+            continue
         try:
             tree = ast.parse(body)
         except SyntaxError:
