@@ -110,3 +110,10 @@ content reads, find actions and content-reading pipelines remain blocked.
 Closed deliveries rejected by an earlier false path flag can be revalidated
 with `tools.revalidate_audit_failures`, which backs up the original manifest
 and checks that generated code and pixel hashes remain unchanged.
+
+Literal `PATH`, `PYTHONPATH` and `LD_LIBRARY_PATH` assignments are checked as
+lists of directories. Every component must already be readable; a colon does
+not turn two granted library directories into an outside filename. Actual file
+operands with colons remain subject to path checks. The bounded interpreter
+lookup also recognizes the observed name-only Python/OpenCV package query;
+find actions and content-reading pipelines remain outside this exception.

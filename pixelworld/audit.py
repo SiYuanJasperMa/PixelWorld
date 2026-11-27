@@ -283,8 +283,9 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
     # general read root: only this bounded, name-only find operand is exempt.
     tool_probes = set()
     discovery = re.compile(r"(?:^|[;&|\n])\s*find\s+(?P<root>/[^\s'\";&|<>]+)"
-        r"\s+-maxdepth\s+[123]\s+-name\s+(?:'python\*'|\"python\*\")"
-        r"\s+-type\s+f\s*(?:2>/dev/null\s*)?"
+        r"\s+-maxdepth\s+[123](?:\s+-name\s+(?:'python\*'|\"python\*\")\s+-type\s+f"
+        r"|\s+-iname\s+(?:'\*python\*'|\"\*python\*\")\s+-o\s+-iname\s+(?:'cv2\*'|\"cv2\*\"))"
+        r"\s*(?:2>/dev/null\s*)?"
         r"(?=$|[;&\n]|\|\s*head(?:\s+-(?:\d+|n\s+\d+))?\s*(?:$|[;&\n]))")
     for probe in discovery.finditer(command):
         position = probe.start('root')
@@ -296,6 +297,37 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
                 tool_probes.add(position)
         except OSError:
             pass
+    # Search-path assignments contain several directories, not one filename
+    # with embedded colons. Exempt only literal assignments whose every
+    # component is already readable; keep actual file operands auditable.
+    environment_spans = []
+    assignments = re.compile(r"(?:^|[;&\n])\s*(?:env\s+|export\s+)?"
+        r"(?:PYTHONPATH|PATH|LD_LIBRARY_PATH)=(?P<value>'[^'\n]*'|\"[^\"$`\n]*\"|[^\s;&|<>$`]+)")
+    for assignment in assignments.finditer(command):
+        start, end = assignment.span('value')
+        if any(left <= start < right for left, right in python_ranges):
+            continue
+        literal = assignment.group('value').strip("'\"")
+        if any(symbol in literal for symbol in ('$','`','\\')):
+            continue
+        allowed = True
+        for component in literal.split(':'):
+            if component in ('', '.'):
+                continue
+            if not Path(component).is_absolute():
+                allowed = False; break
+            try:
+                resolved = Path(component).resolve()
+            except OSError:
+                allowed = False; break
+            if (resolved == workspace.resolve() or workspace.resolve() in resolved.parents
+                    or any(resolved == root or root in resolved.parents for root in tool_roots)
+                    or any(str(resolved) == prefix.rstrip('/') or str(resolved).startswith(prefix)
+                           for prefix in SYSTEM_READ_PREFIXES)):
+                continue
+            allowed = False; break
+        if allowed:
+            environment_spans.append((start,end))
     # A literal sed substitution has two operands separated by slash
     # delimiters. Do not join the tail of one operand to the head of the
     # next and call it a path; leave both operands and the target auditable.
@@ -307,6 +339,7 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
                 path_text[edit.start(delimiter)] = ' '
     for match in ABSOLUTE_PATH_PATTERN.finditer(''.join(path_text)):
         if match.start() in divisions or match.start() in tool_probes:continue
+        if any(start <= match.start() and match.end() <= end for start,end in environment_spans):continue
         value = match.group(1).rstrip(".,:)")
         if value == str(workspace.resolve()) or value.startswith(workspace_value):
             continue

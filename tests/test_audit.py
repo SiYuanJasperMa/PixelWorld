@@ -130,6 +130,27 @@ def test_interpreter_discovery_allows_only_granted_tool_parent_metadata(tmp_path
         f"find {runtime} -maxdepth 3 -name 'python*' -type f | xargs cat", workspace, [binary])
     assert str(runtime) in outside_command_paths(
         "python3.11 - <<'PY'\ntext = '''\n" + command + "\n'''\nPY", workspace, [binary])
+    packages = f"find {runtime} -maxdepth 3 -iname '*python*' -o -iname 'cv2*' | head -30"
+    assert outside_command_paths(packages, workspace, [binary]) == []
+    assert str(runtime) in outside_command_paths(packages.replace('head -30','xargs cat'), workspace, [binary])
+
+
+def test_literal_library_path_list_checks_each_granted_component(tmp_path):
+    workspace = tmp_path/'workspace'
+    workspace.mkdir()
+    runtime = tmp_path/'runtime'
+    library = runtime/'lib'
+    packages = runtime/'local/lib/python3.11/dist-packages'
+    library.mkdir(parents=True)
+    packages.mkdir(parents=True)
+    paths = f'{packages}:{library}'
+    command = f'PYTHONPATH={paths} python3.11 generate.py'
+    assert outside_command_paths(command, workspace, [library,packages]) == []
+    assert str(runtime/'secrets') in ''.join(outside_command_paths(
+        f'PYTHONPATH={packages}:{runtime}/secrets python3.11 generate.py', workspace, [library,packages]))
+    assert paths in outside_command_paths(f'cat "{paths}"', workspace, [library,packages])
+    assert str(runtime/'secrets.key') in outside_command_paths(
+        command+f'; cat {runtime}/secrets.key', workspace, [library,packages])
 
 
 def test_audit_recovery_preserves_original_pixels_and_rejects_real_outside_paths(tmp_path):
