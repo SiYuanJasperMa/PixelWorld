@@ -58,6 +58,18 @@ def configurations(config: Benchmark) -> list[tuple[Model, str]]:
     return [(model, track) for model in config.models for track in model.tracks]
 
 
+def _matches_case_runner(arguments: list[str], expected_arguments: tuple[str, ...]) -> bool:
+    def contains(expected):
+        return any(tuple(arguments[i:i + len(expected)]) == expected for i in range(len(arguments)))
+    if contains(expected_arguments):
+        return True
+    # run-case's public CLI defaults to attempt 1. A manually launched smoke
+    # may omit that flag, while all config/model/track/case identity remains exact.
+    return (expected_arguments[:3] == ('-m', 'pixelworld.cli', 'run-case')
+            and expected_arguments[-2:] == ('--attempt', '1')
+            and '--attempt' not in arguments and contains(expected_arguments[:-2]))
+
+
 def _pid_alive(path: Path, expected_arguments: tuple[str, ...] = ()) -> bool:
     try:
         pid = int(path.read_text().strip())
@@ -82,8 +94,7 @@ def _pid_alive(path: Path, expected_arguments: tuple[str, ...] = ()) -> bool:
                     return True
                 # PID numbers are reused after a reboot or process exit. A
                 # surviving number alone does not identify this case runner.
-                if not any(tuple(arguments[i:i + len(expected_arguments)]) == expected_arguments
-                           for i in range(len(arguments))):
+                if not _matches_case_runner(arguments, expected_arguments):
                     return False
         return True
     except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):

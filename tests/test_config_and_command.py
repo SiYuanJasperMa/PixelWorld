@@ -258,6 +258,18 @@ def test_prior_usage_blocks_unknown_budget_terminal_attempt(tmp_path):
     assert ignored == []
 
 
+def test_case_runner_identity_accepts_only_the_omitted_default_attempt():
+    from pixelworld.supervisor import _matches_case_runner
+    expected = ('-m', 'pixelworld.cli', 'run-case', '--config', 'smoke.json',
+                '--model', 'gemini', '--track', 'vision-agent', '--case', '0001', '--attempt', '1')
+    assert _matches_case_runner(['python', *expected], expected)
+    assert _matches_case_runner(['python', *expected[:-2]], expected)
+    assert not _matches_case_runner(['python', *expected[:-2], '--attempt', '2'], expected)
+    wrong_case = list(expected[:-2]); wrong_case[-1] = '0002'
+    assert not _matches_case_runner(['python', *wrong_case], expected)
+    assert not _matches_case_runner(['python', *expected[:-2]], expected[:-1] + ('2',))
+
+
 def test_pid_alive_treats_zombie_as_dead(tmp_path):
     import pytest
     from pixelworld import supervisor
