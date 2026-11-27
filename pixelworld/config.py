@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .constants import TRACKS, DEFAULT_TRACKS, DEFAULT_PROTOCOL, LEGACY_TRACK_PROTOCOLS
 
-CONTROLLED_CLI_VERSIONS = {'opencode': '1.19.6', 'claude_code': '2.1.304'}
+CONTROLLED_CLI_VERSIONS = {'opencode': '1.19.6', 'claude_code': '2.1.304', 'antigravity': '1.5.18'}
 CONTROLLED_PHYSICS_PROTOCOL = 'pixelworld-physics_iq_720p24fps-native-source-v1'
 
 
@@ -95,8 +95,10 @@ def load_config(path: str | Path) -> Benchmark:
                 not isinstance(provider.stream_idle_timeout_ms, int) or isinstance(provider.stream_idle_timeout_ms, bool)
                 or provider.stream_idle_timeout_ms <= 0):
             raise ValueError('stream_idle_timeout_ms must be a positive integer')
-        if provider.type not in ("builtin", "responses", "oss"):
+        if provider.type not in ("builtin", "responses", "oss", "google_subscription"):
             raise ValueError(f"Unsupported provider type for {key}: {provider.type}")
+        if (provider.type == 'google_subscription') != (value.get('cli_backend') == 'antigravity'):
+            raise ValueError('The Google subscription provider requires the pinned Antigravity backend')
         if provider.type == "responses" and not all(
                 (provider.id, provider.name, provider.base_url, provider.env_key)):
             raise ValueError(f"Responses provider {key} needs id, name, base_url, and env_key")
@@ -105,10 +107,14 @@ def load_config(path: str | Path) -> Benchmark:
         if cli_backend not in ("codex", "trae", "pi", *CONTROLLED_CLI_VERSIONS):
             raise ValueError(f"Unknown CLI backend for {key}: {cli_backend}")
         cli_version=value.get('cli_version')
+        google_subscription = provider.type == 'google_subscription'
         if cli_backend in CONTROLLED_CLI_VERSIONS and (
-            cli_version != CONTROLLED_CLI_VERSIONS[cli_backend] or protocol != CONTROLLED_PHYSICS_PROTOCOL or
-            tracks != ('vision-agent',) or token_budget is None or provider.type != 'responses' or
-            not provider.model_catalog_json or filesystem_policy != 'case-only-v1' or harness_variant != 'baseline'
+            cli_version != CONTROLLED_CLI_VERSIONS[cli_backend] or
+            (protocol != CONTROLLED_PHYSICS_PROTOCOL and not google_subscription) or
+            tracks != ('vision-agent',) or token_budget is None or
+            (provider.type != 'responses' and not google_subscription) or
+            (not provider.model_catalog_json and not google_subscription) or
+            filesystem_policy != 'case-only-v1' or harness_variant != 'baseline'
         ):
             raise ValueError('Controlled native clients require the frozen Physics-IQ Vision protocol, Responses, and a budget')
         if cli_backend=='pi' and (cli_version!='1.6.0' or provider.type!='responses'

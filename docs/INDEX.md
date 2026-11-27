@@ -22,6 +22,7 @@ local file belongs in Git.
 | Run an exact model with Codex 0.169.0 | [Add-model runbook](ADD_MODEL_RUNBOOK.md) |
 | Claude collaborator: 537 Vision samples | [Claude assignment](RUN_CLAUDE_MAIN.md) |
 | Kimi/Qwen collaborator: 537 samples each | [Kimi + Qwen assignment](RUN_KIMI_QWEN_MAIN.md) |
+| Gemini with native Antigravity and measured subscription quota | [Antigravity runbook](RUN_ANTIGRAVITY_SUBSCRIPTION.md) |
 | Hand a task to another collaborator | [Handoff template](COLLABORATOR_HANDOFF.md) |
 | Choose configuration templates | [Configuration guide](../configs/README.md) |
 

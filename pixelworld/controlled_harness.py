@@ -23,7 +23,7 @@ from .responses_budget_proxy import responses_relay
 from .token_budget import ResponseUsageBudget, stop_agent
 from .util import atomic_json, sha256, utc_now
 
-VERSION = {'opencode': '1.19.6', 'claude_code': '2.1.304 (Claude Code)'}
+VERSION = {'opencode': '1.19.6', 'claude_code': '2.1.304 (Claude Code)', 'antigravity': '1.5.18'}
 TOOL_NAMES = {x['name'] for x in tool_list()}
 
 
@@ -260,6 +260,11 @@ def run_prepared(*, model, workspace, logs, task, environment, limit, prior_outp
     runtime = Path(environment['PIXELWORLD_CONTROLLED_RUNTIME']).resolve(strict=True)
     locks = Path(environment['PIXELWORLD_CONTROLLED_LOCKS'])
     client,digest = pinned_client(locks,model.cli_backend)
+    if model.provider.type == 'google_subscription':
+        from .antigravity_harness import run_prepared_antigravity
+        return run_prepared_antigravity(model=model, workspace=workspace, logs=logs, task=task,
+            environment=environment, limit=limit, prior_output=prior_output, runtime=runtime,
+            client=client, digest=digest)
     upstream = model.provider.base_url.rstrip('/')+'/responses'
     catalog = json.loads(Path(model.provider.model_catalog_json).read_text())['models']
     item = next(x for x in catalog if x.get('slug') == model.model)
