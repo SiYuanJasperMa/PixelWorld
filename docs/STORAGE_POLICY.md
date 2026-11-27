@@ -92,6 +92,16 @@ when a filesystem reuses the timestamp, the bounded scan recovers the change.
 Explicit fresh inspection remains available. Capacity denial starts no upstream
 sampling and does not remove any original records.
 
+A segment controller can create and fsync the `.spool_drain` marker in a live
+log root before rotating it. Readiness then reports `draining=true` and rejects
+new admissions before upstream sampling, while already leased requests can
+finish writing and release their reservations. Waiting admissions also observe
+the marker. Rotate only after the reported active reservation count reaches
+zero; retain the closed segment and use a fresh directory. This prevents a
+steady stream of small requests from occupying the last available slot forever.
+A legacy process without the `draining` readiness field does not support this
+control and must first reach its ordinary idle boundary.
+
 Codex stdout capture also waits through quota, full-disk, read-only-filesystem
 and I/O errors. It retains the current event in memory until both the original
 and annotated copies are fsynced. A retry rolls back only that event's partial

@@ -14,6 +14,7 @@ import uuid
 DEFAULT_PROXY_LOG_MAX_BYTES = 64 * 1024**3
 DEFAULT_PROXY_MIN_FREE_BYTES = 20 * 1024**3
 CAPACITY_RECONCILE_INTERVAL_SECONDS = 30
+DRAIN_MARKER = '.spool_drain'
 
 
 def add_storage_arguments(parser):
@@ -121,11 +122,13 @@ class SpoolBudget:
             raise ValueError('Request size must be nonnegative')
         reserve = request_bytes * 4 + 64 * 1024**2
         with self.lock:
+            draining = (self.root / DRAIN_MARKER).exists()
             used = self.used_bytes() if refresh else self._current_usage(check_namespace=True)
             reserved = sum(self.reservations.values())
             free = shutil.disk_usage(self.root).free
-            return {'ready': used + reserved + reserve <= self.max_bytes - 1024**2
+            return {'ready': not draining and used + reserved + reserve <= self.max_bytes - 1024**2
                     and free >= self.min_free_bytes + reserve,
+                    'draining': draining,
                     'used_bytes': used, 'reserved_bytes': reserved,
                     'max_bytes': self.max_bytes, 'free_bytes': free,
                     'min_free_bytes': self.min_free_bytes,
@@ -139,6 +142,8 @@ class SpoolBudget:
         deadline = time.monotonic() + timeout
         while True:
             with self.lock:
+                if (self.root / DRAIN_MARKER).exists():
+                    raise StorageBackpressure('storage_backpressure: durable log segment draining; no upstream sampling started')
                 used = self._current_usage(check_namespace=True)
                 free = shutil.disk_usage(self.root).free
                 if (used + sum(self.reservations.values()) + reserve > self.max_bytes - 1024**2

@@ -52,6 +52,57 @@ def test_admission_reserves_capacity_across_concurrent_requests(tmp_path):
     budget.acquire('three',100,timeout=0)
 
 
+def test_draining_segment_keeps_inflight_bytes_and_rejects_new_sampling(tmp_path):
+    from pixelworld.log_storage import DRAIN_MARKER
+    budget = SpoolBudget(tmp_path, 1024**3)
+    budget.acquire('active', 100, timeout=0)
+    budget.write('active', 'active.input.json', b'complete original input')
+    (tmp_path/DRAIN_MARKER).write_text('operator requested safe rotation')
+    status = budget.capacity_status(100, refresh=False)
+    assert status['draining'] and not status['ready']
+    assert status['active_reservations'] == 1
+    with pytest.raises(StorageBackpressure, match='segment draining'):
+        budget.acquire('new', 100, timeout=0)
+    assert set(budget.reservations) == {'active'}
+    budget.write('active', 'active.response.json', b'complete original response')
+    budget.append_summary('active', {'id': 'active', 'status': 'complete'})
+    budget.release('active')
+    assert budget.capacity_status(100)['active_reservations'] == 0
+    assert not budget.capacity_status(100)['ready']
+    assert (tmp_path/'active.input.json').read_bytes() == b'complete original input'
+    assert (tmp_path/'active.response.json').read_bytes() == b'complete original response'
+
+
+def test_waiting_admission_observes_drain_without_taking_a_lease(tmp_path, monkeypatch):
+    from pixelworld.log_storage import DRAIN_MARKER
+    import pixelworld.log_storage as storage
+    budget = SpoolBudget(tmp_path, 100*1024**2)
+    budget.acquire('active', 100, timeout=0)
+    sleeps = []
+
+    def request_drain(delay):
+        sleeps.append(delay)
+        (tmp_path/DRAIN_MARKER).write_text('drain')
+
+    monkeypatch.setattr(storage.time, 'sleep', request_drain)
+    with pytest.raises(StorageBackpressure, match='segment draining'):
+        budget.acquire('waiting', 100, timeout=60)
+    assert len(sleeps) == 1
+    assert set(budget.reservations) == {'active'}
+
+
+def test_drain_does_not_transfer_to_a_new_segment(tmp_path):
+    from pixelworld.log_storage import DRAIN_MARKER
+    old = tmp_path/'old'; new = tmp_path/'new'
+    old.mkdir(); (old/DRAIN_MARKER).write_text('old segment retained')
+    closed = SpoolBudget(old, 1024**3)
+    fresh = SpoolBudget(new, 1024**3)
+    assert closed.capacity_status()['draining']
+    assert fresh.capacity_status()['ready']
+    fresh.acquire('new', 100, timeout=0)
+    assert (old/DRAIN_MARKER).is_file()
+
+
 def test_waiting_admissions_share_capacity_reconciliation(tmp_path, monkeypatch):
     import pixelworld.log_storage as storage
     clock = [100.0]
