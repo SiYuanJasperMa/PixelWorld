@@ -99,6 +99,26 @@ def test_versioned_python_arithmetic_is_not_an_outside_path(tmp_path):
     assert result['pass'] and result['generate_runs'] == 1
 
 
+def test_interpreter_discovery_allows_only_granted_tool_parent_metadata(tmp_path):
+    workspace = tmp_path/'workspace'
+    workspace.mkdir()
+    runtime = tmp_path/'runtime'
+    binary = runtime/'bin'
+    binary.mkdir(parents=True)
+    command = f"find {runtime} -maxdepth 3 -name 'python*' -type f 2>/dev/null | head -10"
+    assert outside_command_paths(command, workspace, [binary]) == []
+    assert outside_command_paths(command, workspace) == [str(runtime)]
+    assert str(runtime/'secret.key') in outside_command_paths(
+        command + f'; cat {runtime}/secret.key', workspace, [binary])
+    assert str(runtime) in outside_command_paths(
+        f"find {runtime} -maxdepth 3 -name 'python*' -type f -exec cat {{}} \\;", workspace, [binary])
+    assert str(runtime) in outside_command_paths(f'find {runtime} -type f', workspace, [binary])
+    assert str(runtime) in outside_command_paths(
+        f"find {runtime} -maxdepth 3 -name 'python*' -type f | xargs cat", workspace, [binary])
+    assert str(runtime) in outside_command_paths(
+        "python3.11 - <<'PY'\ntext = '''\n" + command + "\n'''\nPY", workspace, [binary])
+
+
 def test_audit_recovery_preserves_original_pixels_and_rejects_real_outside_paths(tmp_path):
     from tools.revalidate_audit_failures import recover
     from pixelworld.media import DEFAULT_MEDIA

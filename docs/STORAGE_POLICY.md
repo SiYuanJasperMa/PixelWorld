@@ -101,3 +101,12 @@ capture to finish after the CLI exits; it cannot discard final events after a
 fixed join timeout. Capture recovery is recorded in `logs/stream_capture_state.json`.
 An unrecoverable capture failure is exposed to the supervisor, which stops its
 own agent and records an infrastructure failure rather than leaving an orphan.
+
+Static path checks distinguish Python arithmetic, including versioned
+interpreters such as `python3.11`, from filenames. A bounded, name-only
+`find` for Python interpreters may inspect the parent of explicitly granted
+tool directories. It does not grant access to files beneath that parent:
+content reads, find actions and content-reading pipelines remain blocked.
+Closed deliveries rejected by an earlier false path flag can be revalidated
+with `tools.revalidate_audit_failures`, which backs up the original manifest
+and checks that generated code and pixel hashes remain unchanged.

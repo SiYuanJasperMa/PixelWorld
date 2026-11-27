@@ -271,11 +271,31 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
     values = []
     workspace_value = str(workspace.resolve()) + "/"
     divisions = set()
+    python_ranges = []
     # A slash in an actual Python division expression is not a file path.
     # Restrict lexical parsing to Python heredoc bodies; shell paths and
     # quoted Python filenames remain subject to the original checks.
     for body_start, body in _python_sections(command, include_written=True,compound=True):
+        python_ranges.append((body_start, body_start + len(body)))
         divisions.update(body_start + index for index in _division_positions(body))
+    # Discovering interpreter filenames in the synthetic parent of granted
+    # tool directories reads no case data. Do not grant that parent as a
+    # general read root: only this bounded, name-only find operand is exempt.
+    tool_probes = set()
+    discovery = re.compile(r"(?:^|[;&|\n])\s*find\s+(?P<root>/[^\s'\";&|<>]+)"
+        r"\s+-maxdepth\s+[123]\s+-name\s+(?:'python\*'|\"python\*\")"
+        r"\s+-type\s+f\s*(?:2>/dev/null\s*)?"
+        r"(?=$|[;&\n]|\|\s*head(?:\s+-(?:\d+|n\s+\d+))?\s*(?:$|[;&\n]))")
+    for probe in discovery.finditer(command):
+        position = probe.start('root')
+        if any(start <= position < end for start, end in python_ranges):
+            continue
+        try:
+            parent = Path(probe.group('root')).resolve()
+            if parent.is_dir() and any(parent == root.resolve().parent for root in tool_roots):
+                tool_probes.add(position)
+        except OSError:
+            pass
     # A literal sed substitution has two operands separated by slash
     # delimiters. Do not join the tail of one operand to the head of the
     # next and call it a path; leave both operands and the target auditable.
@@ -286,7 +306,7 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
             for delimiter in pattern.groupindex:
                 path_text[edit.start(delimiter)] = ' '
     for match in ABSOLUTE_PATH_PATTERN.finditer(''.join(path_text)):
-        if match.start() in divisions:continue
+        if match.start() in divisions or match.start() in tool_probes:continue
         value = match.group(1).rstrip(".,:)")
         if value == str(workspace.resolve()) or value.startswith(workspace_value):
             continue
