@@ -139,16 +139,30 @@ def operator_access_token(source: Path, client: Path) -> str:
         token = valid()
         if token is not None:
             return token
+        # The native OAuth library may consider a credential with less than
+        # two minutes left still valid. Force only its local expiry metadata
+        # stale so the native catalog request refreshes before our safety margin.
+        path = source/'antigravity-oauth-token'
+        original = path.read_bytes()
+        backup = source/'pixelworld-pre-refresh.json'
+        backup.write_bytes(original)
+        backup.chmod(0o600)
+        stale = json.loads(original)
+        stale['token']['expiry'] = '2000-01-01T00:00:00Z'
+        atomic_json(path, stale)
+        path.chmod(0o600)
         # Only a native catalog command is run, with no agent prompt or tools.
         # All callers share this one canonical state, avoiding rotated-copy races.
         env = os.environ.copy()
         env.update(HOME=str(source.parent.parent), AGY_CLI_DISABLE_AUTO_UPDATE='1')
+        env.pop('DBUS_SESSION_BUS_ADDRESS', None)
         completed = subprocess.run([str(client), 'models'], cwd=source.parent.parent,
                                    env=env, stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL, timeout=120)
         token = valid()
         if completed.returncode != 0 or token is None:
             raise RuntimeError('Native operator login refresh did not produce a valid credential')
+        backup.unlink(missing_ok=True)
         return token
 
 

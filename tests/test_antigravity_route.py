@@ -104,6 +104,34 @@ def test_host_authentication_unavailable_never_samples(tmp_path):
     assert fake.seen == []
 
 
+def test_parallel_operator_refresh_uses_one_canonical_credential(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import datetime, timedelta, timezone
+    import subprocess
+    source = tmp_path/'operator-home/.gemini/antigravity-cli'
+    source.mkdir(parents=True)
+    path = source/'antigravity-oauth-token'
+    path.write_text(json.dumps({'token': {'access_token': 'old-test-token',
+        'refresh_token': 'private-test-refresh',
+        'expiry': (datetime.now(timezone.utc)+timedelta(seconds=60)).isoformat()}}))
+    calls = []
+    def native_catalog(command, **kwargs):
+        calls.append(command)
+        data = json.loads(path.read_text())
+        assert data['token']['expiry'] == '2000-01-01T00:00:00Z'
+        assert kwargs['env']['HOME'] == str(source.parent.parent)
+        data['token'].update(access_token='fresh-test-token',
+            expiry=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat())
+        path.write_text(json.dumps(data))
+        return subprocess.CompletedProcess(command, 0)
+    monkeypatch.setattr(agh.subprocess, 'run', native_catalog)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        values = list(pool.map(lambda _: agh.operator_access_token(source, Path('agy')), range(4)))
+    assert values == ['fresh-test-token'] * 4
+    assert calls == [['agy', 'models']]
+    assert not (source/'pixelworld-pre-refresh.json').exists()
+
+
 def test_parse_stream_takes_final_usage_and_counts_thoughts_as_output():
     parsed = parse_stream(gemini_stream(), 'text/event-stream')
     assert parsed['model_version'] == 'gemini-4-neon' and parsed['finish_reason'] == 'STOP'
