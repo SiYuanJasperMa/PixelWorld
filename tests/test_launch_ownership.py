@@ -4,11 +4,12 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from dataclasses import replace
 
 from PIL import Image
 
 from pixelworld.config import load_config
-from pixelworld.runner import run_case, run_path
+from pixelworld.runner import run_case, run_path, _seed_provider_env
 from pixelworld.supervisor import inspect, launch_pid_path
 
 
@@ -73,3 +74,32 @@ def test_concurrent_attempts_cannot_overwrite_the_same_run(tmp_path, monkeypatch
     assert results.count('already_owned') == 1
     assert sum(isinstance(result, dict) for result in results) == 1
     assert json.loads((run/'run_manifest.json').read_text())['case_id'] == 'one'
+
+
+def test_loopback_provider_bypasses_proxy_even_with_existing_api_key(tmp_path):
+    config, model = prepared(tmp_path)
+    model = replace(model, provider=replace(model.provider, base_url='http://127.0.0.1:9714/v1', env_key='PIXELWORLD_API_KEY'))
+    environment = {'HTTP_PROXY':'http://proxy.example:8080','PIXELWORLD_API_KEY':'already-present',
+                   'NO_PROXY':'example.org','no_proxy':'internal.example.net'}
+    _seed_provider_env(environment, config, model)
+    assert set(environment['NO_PROXY'].split(',')) == {'127.0.0.1','localhost','::1','example.org','internal.example.net'}
+    assert environment['no_proxy'] == environment['NO_PROXY']
+    assert environment['HTTP_PROXY'] == 'http://proxy.example:8080'
+    assert environment['PIXELWORLD_API_KEY'] == 'already-present'
+
+
+def test_ipv6_loopback_provider_bypasses_proxy(tmp_path):
+    config, model = prepared(tmp_path)
+    model = replace(model, provider=replace(model.provider, base_url='http://[::1]:9714/v1'))
+    environment = {'HTTPS_PROXY':'http://proxy.example:8080'}
+    _seed_provider_env(environment, config, model)
+    assert '::1' in environment['NO_PROXY'].split(',')
+
+
+def test_external_provider_keeps_existing_proxy_routing(tmp_path):
+    config, model = prepared(tmp_path)
+    model = replace(model, provider=replace(model.provider, base_url='https://api.example.com/v1'))
+    environment = {'HTTP_PROXY':'http://proxy.example:8080','NO_PROXY':'example.org'}
+    before = dict(environment)
+    _seed_provider_env(environment, config, model)
+    assert environment == before

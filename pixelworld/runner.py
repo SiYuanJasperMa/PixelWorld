@@ -9,6 +9,8 @@ import subprocess
 import sys
 import time
 import threading
+import ipaddress
+from urllib.parse import urlsplit
 
 from .audit import canonicalize_tensor, validate
 from .config import Benchmark, Model, CONTROLLED_CLI_VERSIONS
@@ -59,6 +61,18 @@ def generation_task_text(track: str, spec: dict, *, legacy: bool = False,
 
 
 def _seed_provider_env(environment: dict[str, str], config: Benchmark, model: Model) -> None:
+    host = urlsplit(model.provider.base_url or '').hostname
+    loopback = host == 'localhost'
+    if host:
+        try:
+            loopback = loopback or ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            pass
+    if loopback:
+        bypass = {entry.strip() for name in ('NO_PROXY', 'no_proxy')
+                  for entry in environment.get(name, '').split(',') if entry.strip()}
+        bypass.update((host, 'localhost', '127.0.0.1', '::1'))
+        environment['NO_PROXY'] = environment['no_proxy'] = ','.join(sorted(bypass))
     key = model.provider.env_key
     if not key or environment.get(key):
         return

@@ -206,7 +206,9 @@ and local re-evaluations remain labeled.
 ### Local API routing and launch ownership
 
 When an API bridge uses a loopback URL, keep that traffic out of an external
-HTTP proxy. Export both forms before starting or recovering a controller:
+HTTP proxy. The runner adds loopback hosts to both `NO_PROXY` forms while
+preserving external proxy settings. For older checkouts, export both forms
+before starting or recovering a controller:
 
 ```bash
 export NO_PROXY="${NO_PROXY:+$NO_PROXY,}127.0.0.1,localhost,::1"
