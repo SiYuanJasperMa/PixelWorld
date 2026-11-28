@@ -8,6 +8,17 @@ import time
 from tools.build_cost_score_plots import build
 
 
+def source_digest(web_root, main_status):
+    paths = [web_root / 'cost_effect_progress.json', main_status]
+    analysis = web_root / 'analysis_progress.json'
+    if analysis.is_file():
+        paths.append(analysis)
+    value = hashlib.sha256()
+    for path in paths:
+        value.update(path.name.encode() + b'\0' + path.read_bytes() + b'\0')
+    return value.hexdigest()
+
+
 def main():
     from huggingface_hub import HfApi, CommitOperationAdd
     parser = argparse.ArgumentParser(description=__doc__)
@@ -22,8 +33,7 @@ def main():
     previous = None
     while True:
         try:
-            paths = [args.web_root / 'cost_effect_progress.json', args.main_status]
-            digest = hashlib.sha256(b''.join(p.read_bytes() for p in paths)).hexdigest()
+            digest = source_digest(args.web_root, args.main_status)
             if digest != previous:
                 proof = build(args.web_root, args.main_status)
                 files = [args.web_root / 'cost_score_plots.html', args.web_root / 'cost_effects.html',

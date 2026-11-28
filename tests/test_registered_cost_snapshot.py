@@ -76,9 +76,9 @@ def test_phygen_plot_uses_current_full_scope_judge_score():
            'usage_missing_cases': 0, 'metrics': {'Overall': .99}}
     analysis = {'conditions': [{'id': 'phygenbench_text', 'models': [{
         'key': 'gpt62-sol', 'complete': 160, 'evaluation': {
-            'full_scope_scored': True, 'metrics': {'Overall': .7145833333}}}]}]}
+            'full_scope_scored': True, 'metrics': {'Overall': .62}}}]}]}
     rows, excluded = collect({'rows': [row]}, {}, analysis)
-    assert not excluded and rows[0]['score'] == pytest.approx(.7145833333)
+    assert not excluded and rows[0]['score'] == pytest.approx(.62)
     assert rows[0]['score_source'] == 'current_analysis_scope'
 
 
@@ -91,3 +91,15 @@ def test_incomplete_current_analysis_cannot_fall_back_to_legacy_score():
         'key': 'gpt62-sol', 'complete': 198, 'evaluation': {'full_scope_scored': False}}]}]}
     rows, excluded = collect({'rows': [row]}, {}, analysis)
     assert not rows and excluded[0]['reason'] == 'current full-scope analysis score pending'
+
+
+def test_analysis_only_score_update_triggers_plot_refresh(tmp_path):
+    from tools.watch_cost_score_plots import source_digest
+    (tmp_path/'cost_effect_progress.json').write_text('{"rows": []}')
+    main = tmp_path/'main_suite_status_v2.json'
+    main.write_text('{"models": {}}')
+    analysis = tmp_path/'analysis_progress.json'
+    analysis.write_text('{"conditions": []}')
+    before = source_digest(tmp_path,main)
+    analysis.write_text('{"conditions": [{"id": "physics_iq_text"}]}')
+    assert source_digest(tmp_path,main) != before
