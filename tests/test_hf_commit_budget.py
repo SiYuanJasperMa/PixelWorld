@@ -54,3 +54,31 @@ def test_latest_operations_are_read_after_the_commit_slot_opens(tmp_path, monkey
     api = SimpleNamespace(create_commit=lambda **kwargs: calls.append(kwargs))
     commit(api, state=state, operations_factory=lambda: list(latest), repo_id='dataset')
     assert calls == [{'repo_id': 'dataset', 'operations': ['current']}]
+
+
+def test_default_commit_budget_can_use_writable_control_storage(tmp_path,monkeypatch):
+    state=tmp_path/'control/shared_budget.json'
+    monkeypatch.setenv('PIXELWORLD_HF_COMMIT_BUDGET_STATE',str(state))
+    monkeypatch.setattr('tools.hf_commit_budget.time.time',lambda:100)
+    calls=[]
+    commit(SimpleNamespace(create_commit=lambda **kwargs:calls.append(kwargs)),repo_id='dataset',operations=['same'])
+    assert calls==[{'repo_id':'dataset','operations':['same']}]
+    assert json.loads(state.read_text())['last_reserved_unix']==100
+
+
+def test_commit_budget_quota_wait_keeps_one_slot_and_one_submission(tmp_path,monkeypatch):
+    import errno
+    from pathlib import Path
+    state=tmp_path/'budget.json';opened=Path.open;rejected=[]
+    def interrupted(path,*args,**kwargs):
+        if path.name.startswith('budget.json.tmp.')and not rejected:
+            rejected.append(path);raise OSError(errno.EDQUOT,'quota fixture')
+        return opened(path,*args,**kwargs)
+    monkeypatch.setenv('PIXELWORLD_PERSIST_STORAGE_WAIT','1')
+    monkeypatch.setattr(Path,'open',interrupted)
+    monkeypatch.setattr('pixelworld.util.time.sleep',lambda delay:None)
+    monkeypatch.setattr('tools.hf_commit_budget.time.time',lambda:100)
+    calls=[]
+    commit(SimpleNamespace(create_commit=lambda **kwargs:calls.append(kwargs)),state=state,repo_id='dataset',operations=['same'])
+    assert len(rejected)==1 and len(calls)==1
+    assert json.loads(state.read_text())['last_reserved_unix']==100

@@ -150,6 +150,10 @@ read-only mount, the uploader waits to persist the same receipt instead of
 uploading that batch again. Restore the storage while it waits.
 The live exporter uses the same durable write path for case JSON and publication
 state, retaining compact JSON bytes so existing content hashes remain valid.
+Publishers that use the shared commit limiter can set
+`PIXELWORLD_HF_COMMIT_BUDGET_STATE` to a writable control-file location. All such
+publishers must use the same path, including its retained reservation and server
+cooldown records. Keep this control storage separate from large media caches.
 
 ### 3. Mirror progress and publication coverage
 

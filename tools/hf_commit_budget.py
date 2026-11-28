@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import re
 import time
+import os
+from pixelworld.util import atomic_json
 
 
 DEFAULT_STATE = Path(__file__).resolve().parents[1] / 'runs/publication_state/hf_commit_budget.json'
@@ -19,9 +21,7 @@ def reserve(state, now, spacing=45):
         slot = max(now, data.get('last_reserved_unix', 0) + spacing,
                    data.get('cooldown_until_unix', 0))
         data.update(last_reserved_unix=slot, spacing_seconds=spacing)
-        temporary = state.with_suffix('.tmp')
-        temporary.write_text(json.dumps(data))
-        temporary.replace(state)
+        atomic_json(state,data)
     return slot
 
 
@@ -33,9 +33,7 @@ def defer(state, until, reason):
         data = json.loads(state.read_text()) if state.exists() else {}
         data['cooldown_until_unix'] = max(until, data.get('cooldown_until_unix', 0))
         data['cooldown_reason'] = reason
-        temporary = state.with_suffix('.tmp')
-        temporary.write_text(json.dumps(data))
-        temporary.replace(state)
+        atomic_json(state,data)
 
 
 def retry_delay(error):
@@ -51,8 +49,10 @@ def retry_delay(error):
     return 300
 
 
-def commit(api, state=DEFAULT_STATE, operations_factory=None, **kwargs):
+def commit(api, state=None, operations_factory=None, **kwargs):
     """Keep existing atomic operations; only coordinate the submission schedule."""
+    if state is None:
+        state=Path(os.environ.get('PIXELWORLD_HF_COMMIT_BUDGET_STATE',str(DEFAULT_STATE)))
     slot = reserve(state, time.time())
     while True:
         data = json.loads(Path(state).read_text())
