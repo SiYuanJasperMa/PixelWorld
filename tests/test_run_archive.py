@@ -1,5 +1,6 @@
 import json
 import tarfile
+import shutil
 
 import numpy as np
 import pytest
@@ -36,6 +37,50 @@ def test_archive_preserves_raw_pair_and_source(tmp_path):
         assert tar.extractfile('api_originals/resp_test/response.json').read() == b'{"test":"output"}'
     assert (run/'workspace/pixels.npz').is_file()
     assert archive_closed_attempt(run,root,benchmark='physics_iq',proxy_logs=proxy) == receipt
+
+
+def test_verified_wire_relocation_reuses_original_archive_without_repacking(tmp_path):
+    from pixelworld.run_archive import latest_archive_receipt
+    run=completed_run(tmp_path);proxy=tmp_path/'proxy';proxy.mkdir();moved=tmp_path/'moved';moved.mkdir()
+    for suffix,value in [('input.json',b'original input'),('response.json',b'original output')]:
+        (proxy/('resp_test.'+suffix)).write_bytes(value)
+    root=tmp_path/'archive';first=archive_closed_attempt(run,root,benchmark='p',proxy_logs=proxy)
+    folder=root/'p/sample-model/run_0001';tar_before=(folder/'artifacts.tar.gz').read_bytes();receipt_before=(folder/'verified.json').read_bytes()
+    for path in proxy.iterdir():shutil.copy2(path,moved/path.name);path.unlink()
+    current=latest_archive_receipt(run,root,benchmark='p',proxy_logs=proxy,proxy_log_fallbacks=[moved])
+    assert current['recording_relocation_verified'] and current['run_number']==first['run_number']
+    second=archive_closed_attempt(run,root,benchmark='p',proxy_logs=proxy,proxy_log_fallbacks=[moved])
+    assert second['run_number']==1 and (folder/'artifacts.tar.gz').read_bytes()==tar_before
+    assert (folder/'verified.json').read_bytes()==receipt_before
+    assert len(list((root/'p/sample-model').glob('run_*')))==1
+    (moved/'resp_test.input.json').write_bytes(b'different input')
+    assert latest_archive_receipt(run,root,benchmark='p',proxy_logs=proxy,proxy_log_fallbacks=[moved]) is None
+
+
+def test_wire_move_after_identity_capture_does_not_lose_original_bytes(tmp_path,monkeypatch):
+    import pixelworld.run_archive as module
+    run=completed_run(tmp_path);proxy=tmp_path/'proxy';proxy.mkdir();moved=tmp_path/'moved';moved.mkdir()
+    (proxy/'resp_test.input.json').write_bytes(b'input')
+    (proxy/'resp_test.response.json').write_bytes(b'output')
+    original=module._archive_identity
+    def capture(*args,**kwargs):
+        value=original(*args,**kwargs)
+        for p in list(proxy.iterdir()):shutil.copy2(p,moved/p.name);p.unlink()
+        return value
+    monkeypatch.setattr(module,'_archive_identity',capture)
+    receipt=archive_closed_attempt(run,tmp_path/'archive',benchmark='p',proxy_logs=proxy,proxy_log_fallbacks=[moved])
+    with tarfile.open(tmp_path/'archive/p/sample-model/run_0001/artifacts.tar.gz') as tar:
+        assert tar.extractfile('api_originals/resp_test/input.json').read()==b'input'
+        assert tar.extractfile('api_originals/resp_test/response.json').read()==b'output'
+    assert receipt['wire_pair_count']==1
+
+
+def test_wire_relocation_does_not_hide_conflicting_copies(tmp_path):
+    run=completed_run(tmp_path);proxy=tmp_path/'proxy';proxy.mkdir();moved=tmp_path/'moved';moved.mkdir()
+    (proxy/'resp_test.input.json').write_bytes(b'original')
+    (moved/'resp_test.input.json').write_bytes(b'different')
+    with pytest.raises(ValueError,match='Conflicting original API records'):
+        archive_closed_attempt(run,tmp_path/'archive',benchmark='p',proxy_logs=proxy,proxy_log_fallbacks=[moved])
 
 
 def test_archive_reports_missing_original_and_ignores_symlinks(tmp_path, monkeypatch):

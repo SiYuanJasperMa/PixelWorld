@@ -42,6 +42,33 @@ def _closed_files(run):
                 if p.is_file() and not p.is_symlink():yield p.relative_to(run).as_posix(),p
 
 
+def _preferred_wire_path(rid, suffix, roots):
+    """Prefer a retained authorized copy while closed logs migrate."""
+    for _ in range(3):
+        matches=[]
+        for root in roots:
+            p=Path(root)/f'{rid}.{suffix}'
+            if p.is_file() and not p.is_symlink() and p.resolve()==p:matches.append(p)
+        if not matches:return None
+        try:
+            if len(matches)>1 and len({sha256(p) for p in matches})!=1:
+                raise ValueError('Conflicting original API records across authorized roots')
+            return matches[-1]
+        except FileNotFoundError:
+            # A verified mover can remove the old copy after discovery.
+            # Re-discover the same response ID and role, never another file.
+            continue
+    raise FileNotFoundError(f'Original API record changed locations: {rid}.{suffix}')
+
+
+def _wire_source(name, source, roots):
+    parts=Path(name).parts
+    if (len(parts)==3 and parts[0]=='api_originals' and RID.fullmatch(parts[1])
+            and parts[2] in WIRE_ROLES):
+        return _preferred_wire_path(parts[1],parts[2],roots) or source
+    return source
+
+
 def _wire_files(run, log_root, request_ids=(), fallback_roots=()):
     ids=list(dict.fromkeys(rid for rid in request_ids if isinstance(rid, str) and RID.fullmatch(rid)))
     ledger=run/'recording/api_usage.jsonl'
@@ -59,14 +86,9 @@ def _wire_files(run, log_root, request_ids=(), fallback_roots=()):
     for rid in ids:
         roles[rid]=[]
         for suffix in WIRE_ROLES:
-            matches=[]
-            for root in roots:
-                p=root/f'{rid}.{suffix}'
-                if p.is_file() and not p.is_symlink() and p.resolve()==p:matches.append(p)
-            if matches:
-                if len(matches)>1 and len({sha256(p) for p in matches})!=1:
-                    raise ValueError('Conflicting original API records across authorized roots')
-                files.append((f'api_originals/{rid}/{suffix}',matches[0]));roles[rid].append(suffix)
+            selected=_preferred_wire_path(rid,suffix,roots)
+            if selected:
+                files.append((f'api_originals/{rid}/{suffix}',selected));roles[rid].append(suffix)
     return files,roles
 
 
@@ -148,13 +170,17 @@ def _external_files(extra_files):
     return files
 
 
-def _archive_identity(run, manifest_sha256, wire_files, extras, request_ids=()):
-    def signature(path):
-        st=path.stat()
-        return [st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns]
+def _archive_identity(run, manifest_sha256, wire_files, extras, request_ids=(), wire_roots=()):
+    def signature(name,path):
+        for _ in range(3):
+            try:
+                st=_wire_source(name,path,wire_roots).stat()
+                return [st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns]
+            except FileNotFoundError:continue
+        raise FileNotFoundError(path)
     value={'source_run':str(run), 'manifest_sha256':manifest_sha256,
            'known_request_ids':sorted(request_ids),
-           'wire_members':{name:signature(path) for name,path in wire_files},
+           'wire_members':{name:signature(name,path) for name,path in wire_files},
            'attachments':{name:sha256(path) for name,path in extras}}
     return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest(),value
 
@@ -174,8 +200,33 @@ def latest_archive_receipt(run, root, *, benchmark, proxy_logs=None, request_ids
     if target.is_symlink() or not target.is_file() or target.stat().st_size!=old.get('archive_bytes'):
         raise ValueError('Existing verified archive is missing or changed')
     wire,roles=_wire_files(run,proxy_logs,request_ids,proxy_log_fallbacks);extras=_external_files(extra_files)
-    identity,_=_archive_identity(run,sha256(run/'run_manifest.json'),wire,extras,roles)
+    wire_roots=([Path(proxy_logs)] if proxy_logs is not None else [])+list(proxy_log_fallbacks)
+    manifest_hash=sha256(run/'run_manifest.json')
+    identity,fields=_archive_identity(run,manifest_hash,wire,extras,roles,wire_roots)
     if old.get('archive_identity')==identity:return old
+    # An inode/path change from verified log migration is not a new recording.
+    # Prove changed members against the independently verified tar digests and
+    # keep the original tar and receipt unchanged.
+    members=old.get('members',{})
+    old_wire={name for name in members if name.startswith('api_originals/')}
+    old_extras={name for name in members if name.startswith(('configuration/','evaluations/'))}
+    if (old.get('source_run')==str(run) and members.get('run_manifest.json')==manifest_hash
+            and old.get('known_request_roles')==roles and old_wire=={name for name,_ in wire}
+            and old_extras=={name for name,_ in extras}
+            and all(members.get(name)==sha256(source) for name,source in extras)):
+        reuse=path.parent/f'recording_relocation_{identity}.json'
+        original_receipt_hash=sha256(path)
+        if reuse.is_file():
+            proof=json.loads(reuse.read_text())
+            if (proof.get('archive_identity')==identity and proof.get('original_receipt_sha256')==original_receipt_hash):
+                return {**old,'archive_identity':identity,'recording_relocation_verified':True}
+        previous=old.get('archive_identity_fields',{}).get('wire_members',{})
+        changed=[(name,source) for name,source in wire if previous.get(name)!=fields['wire_members'][name]]
+        if all(sha256(_wire_source(name,source,wire_roots))==members[name] for name,source in changed):
+            atomic_json(reuse,{'archive_identity':identity,'original_receipt_sha256':original_receipt_hash,
+                'verified_utc':utc_now(),'changed_wire_members':[name for name,_ in changed],
+                'proof':'changed member SHA256 equals verified archived bytes','original_archive_unchanged':True})
+            return {**old,'archive_identity':identity,'recording_relocation_verified':True}
     # Compatibility for earlier receipts with no additional attachments.
     if (not old.get('archive_identity') and not extras and old.get('source_run')==str(run)
             and old.get('members',{}).get('run_manifest.json')==sha256(run/'run_manifest.json')
@@ -200,7 +251,8 @@ def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Pat
     wire_files,roles=_wire_files(run,proxy_logs,request_ids,proxy_log_fallbacks)
     extras=_external_files(extra_files)
     manifest_hash=sha256(run/'run_manifest.json')
-    identity,identity_fields=_archive_identity(run,manifest_hash,wire_files,extras,roles)
+    wire_roots=([proxy_logs] if proxy_logs is not None else [])+list(proxy_log_fallbacks)
+    identity,identity_fields=_archive_identity(run,manifest_hash,wire_files,extras,roles,wire_roots)
     parent=root/_safe(benchmark)/_safe(m['model_key']);parent.mkdir(mode=0o700,parents=True,exist_ok=True)
     if parent.resolve()!=parent:raise ValueError('Archive hierarchy contains a symlink')
     case,track,attempt=_safe(str(m['case_id'])),_safe(m['track']),int(m['attempt'])
@@ -252,8 +304,13 @@ def archive_closed_attempt(run:Path, root:Path, *, benchmark:str, proxy_logs:Pat
         try:
             with tarfile.open(tmp,'w:gz',compresslevel=1)as tar:
                 for name,src in files:
+                    src=_wire_source(name,src,wire_roots)
                     if src.resolve()!=src or name in expected:raise ValueError('Untrusted source member')
-                    with os.fdopen(os.open(src,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK),'rb')as handle:
+                    try:descriptor=os.open(src,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+                    except FileNotFoundError:
+                        src=_wire_source(name,src,wire_roots)
+                        descriptor=os.open(src,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+                    with os.fdopen(descriptor,'rb')as handle:
                         before=os.fstat(handle.fileno())
                         if not stat.S_ISREG(before.st_mode):raise ValueError('Only regular files may be archived')
                         digest=hashlib.sha256()
