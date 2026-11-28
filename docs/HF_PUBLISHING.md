@@ -103,6 +103,11 @@ For independently exported immutable case records, add
 `--external-cache "$BUNDLE/accepted_cache_import.json"`; this option may be
 repeated. The exporter merges these records on every pass, preserving its
 current live entries even when an importer finishes during a cache write.
+A newer completed export can replace an older running or failed cache entry
+only when the canonical published detail has the recorded hash, matching case
+and attempt, and all referenced media. Newer live state retains priority. This
+lets an already delivered video become visible after recovery without rerunning
+the agent or declaring a missing preview ready.
 
 ### 2. Upload closed cases, media and traces
 

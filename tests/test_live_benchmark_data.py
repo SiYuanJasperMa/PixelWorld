@@ -233,6 +233,70 @@ def test_external_cache_import_adds_history_without_overwriting_live_state():
     assert current['suite/m/vision-agent']['history_old']['status']=='complete'
 
 
+def closed_external_fixture(tmp_path):
+    import hashlib
+    from tools import live_benchmark_data as live
+    identity='suite/m/vision-agent';key='case_0001_attempt_01';relative=identity+'/'+key+'.json'
+    body={'case_id':'0001','attempt':1,'status':'complete','delivery_status':'complete',
+          'candidates':[{'preview_mp4':'assets/preview.mp4','poster':'assets/poster.png'}],'events':[]}
+    p=tmp_path/relative;p.parent.mkdir(parents=True);p.write_text(json.dumps(body))
+    (tmp_path/'assets').mkdir();(tmp_path/'assets/preview.mp4').write_bytes(b'video')
+    (tmp_path/'assets/poster.png').write_bytes(b'poster')
+    previous={'case':'0001','attempt':1,'status':'running','detail':relative,'stamp':[live.PUBLIC_SCHEMA,1]}
+    closed={**previous,'status':'complete','stamp':[live.PUBLIC_SCHEMA,2],'candidate_count':1,
+            'detail_sha256':hashlib.sha256(p.read_bytes()).hexdigest()}
+    return identity,key,previous,closed
+
+
+def test_completed_import_updates_stale_running_cache_from_verified_published_detail(tmp_path):
+    from tools.live_benchmark_data import merge_external_cache
+    identity,key,previous,closed=closed_external_fixture(tmp_path)
+    current={identity:{key:previous}}
+    merge_external_cache(current,{identity:{key:closed}},tmp_path)
+    assert current[identity][key]==closed
+
+
+def test_completed_import_preserves_newer_live_state(tmp_path):
+    from tools.live_benchmark_data import merge_external_cache
+    identity,key,previous,closed=closed_external_fixture(tmp_path)
+    previous['stamp'][1]=3
+    current={identity:{key:previous}}
+    merge_external_cache(current,{identity:{key:closed}},tmp_path)
+    assert current[identity][key]['status']=='running'
+
+
+def test_completed_import_requires_matching_detail_bytes(tmp_path):
+    from tools.live_benchmark_data import merge_external_cache
+    identity,key,previous,closed=closed_external_fixture(tmp_path)
+    closed['detail_sha256']='wrong'
+    current={identity:{key:previous}}
+    merge_external_cache(current,{identity:{key:closed}},tmp_path)
+    assert current[identity][key]['status']=='running'
+
+
+def test_completed_import_requires_all_media_before_replacing_failure(tmp_path):
+    from tools.live_benchmark_data import merge_external_cache
+    identity,key,previous,closed=closed_external_fixture(tmp_path)
+    previous['status']='failed'
+    (tmp_path/'assets/poster.png').unlink()
+    current={identity:{key:previous}}
+    merge_external_cache(current,{identity:{key:closed}},tmp_path)
+    assert current[identity][key]['status']=='failed'
+
+
+def test_completed_import_rejects_media_outside_publication_root(tmp_path):
+    import hashlib
+    from tools.live_benchmark_data import merge_external_cache
+    identity,key,previous,closed=closed_external_fixture(tmp_path/'public')
+    outside=tmp_path/'outside.png';outside.write_bytes(b'private')
+    p=tmp_path/'public'/closed['detail'];body=json.loads(p.read_text())
+    body['candidates'][0]['poster']='../outside.png';p.write_text(json.dumps(body))
+    closed['detail_sha256']=hashlib.sha256(p.read_bytes()).hexdigest()
+    current={identity:{key:previous}}
+    merge_external_cache(current,{identity:{key:closed}},tmp_path/'public')
+    assert current[identity][key]['status']=='running'
+
+
 def test_formal_dashboard_exposes_data_age_and_latest_delivery():
     from tools.build_formal_dashboard import JS
     assert '数据更新：' in JS

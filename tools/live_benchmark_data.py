@@ -161,12 +161,42 @@ def save(path, value):
     return True
 
 
-def merge_external_cache(current, external):
+def completed_external_cache_is_newer(identity, key, previous, value, destination):
+    """Accept a closed render only when its published bytes prove the update."""
+    if (destination is None or previous.get('status')=='complete' or value.get('status')!='complete'
+            or not isinstance(value.get('candidate_count'),int) or value['candidate_count']<1):
+        return False
+    old,new=previous.get('stamp')or[],value.get('stamp')or[]
+    if (len(old)<2 or len(new)<2 or old[0]!=PUBLIC_SCHEMA or new[0]!=PUBLIC_SCHEMA
+            or type(old[1])is not int or type(new[1])is not int or new[1]<=old[1]):
+        return False
+    relative=value.get('detail')
+    if (not isinstance(relative,str) or relative!=previous.get('detail')
+            or Path(relative).parent.as_posix()!=identity or Path(relative).stem!=key
+            or value.get('case')!=previous.get('case') or value.get('attempt')!=previous.get('attempt')):
+        return False
+    root=Path(destination).resolve();path=(root/relative).resolve()
+    if not path.is_relative_to(root):return False
+    try:
+        raw=path.read_bytes()
+        if hashlib.sha256(raw).hexdigest()!=value.get('detail_sha256'):return False
+        detail=json.loads(raw)
+        if (detail.get('status')!='complete' or detail.get('delivery_status')!='complete'
+                or detail.get('case_id')!=value.get('case') or detail.get('attempt')!=value.get('attempt')
+                or len(detail.get('candidates',[]))!=value['candidate_count']):return False
+        return all((root/asset).resolve().is_relative_to(root) and (root/asset).is_file()
+                   for asset in referenced_assets(detail))
+    except (OSError,ValueError,TypeError):return False
+
+
+def merge_external_cache(current, external, destination=None):
     """Accept newly imported immutable entries without losing live updates."""
     for identity, entries in external.items():
         group = current.setdefault(identity, {})
         for key, value in entries.items():
-            group.setdefault(key, value)
+            previous=group.get(key)
+            if previous is None or completed_external_cache_is_newer(identity,key,previous,value,destination):
+                group[key]=value
 
 
 def save_head_pointer(destination, revision, now=None):
@@ -921,7 +951,7 @@ def main():
                 merge_external_cache(cache, read(cache_path))
                 cache_stamp=disk_stamp
             for import_path in args.external_cache:
-                merge_external_cache(cache, read(import_path))
+                merge_external_cache(cache, read(import_path), destination)
             published_revision = (None if args.local_only else subprocess.check_output(
                 ['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip())
             async_update(args.run_root.resolve(),destination,cache,pool,pending,render_root,
