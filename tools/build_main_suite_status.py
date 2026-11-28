@@ -501,6 +501,43 @@ def phygen_score(report, model):
     return scored, finite_score(row.get('mean')) if scored == 160 else None
 
 
+def registered_phygen_baseline_score(report, source):
+    """Use a complete adapted baseline bound to its registered video archive."""
+    identity = source.get('source_archive_manifest_sha256')
+    if (not isinstance(identity, str) or not re.fullmatch(r'[0-9a-f]{64}', identity)
+            or report.get('source_archive_manifest_sha256') != identity
+            or report.get('full160') is not True or report.get('errors') != []):
+        return None
+    count, score = phygen_score(report, source.get('model'))
+    return score if count == 160 and score is not None and 0 <= score <= 1 else None
+
+
+def baseline_references(plan, publication, evaluation, phygen, registered_rbench):
+    """Keep published references available when a local plan has no baseline rows."""
+    rows = plan.get('video_baselines') or read(publication.parent.parent/'evaluation/video_baselines.json').get('models', [])
+    baseline_keys = {'seedance25': 'seedance25-v1', 'minimax-h3': 'minimax-h3-local'}
+    registered_phygen = read(evaluation/'phygen_current_sources.json')
+    references = {}
+    for row in rows:
+        key = row.get('key')
+        if key not in baseline_keys:
+            continue
+        scores = {}
+        for benchmark in ('physics_iq', 'pcve'):
+            item = row.get('scores', {}).get(benchmark, {})
+            if item.get('kind') == 'published_reference':
+                scores[benchmark] = finite_score(item.get('value'))
+        _, scores['phygenbench'] = phygen_score(phygen, baseline_keys[key])
+        source = registered_phygen.get('baselines', {}).get(key, {})
+        if source.get('summary'):
+            scores['phygenbench'] = registered_phygen_baseline_score(read(Path(source['summary'])), source)
+        source = registered_rbench.get('baselines', {}).get(key, {})
+        if source.get('summary'):
+            scores['rbench'] = rbench_baseline_score(read(Path(source['summary'])), source)
+        references[key] = scores
+    return references
+
+
 def rbench_score(report, model):
     if (report.get('protocol'), report.get('judge')) != ('rbench-common-official-gpt-branch-gpt61-sol-v1', JUDGE):
         return 0, None
@@ -732,22 +769,7 @@ def build(nightly, publication):
         indexes = {group['path']: read(publication/group['path']) for group in cat.get('groups', [])}
         upload_coverage = coverage(cat, indexes, read(publication.parent.parent/'state/hf_incremental.json'))
     plan = read(publication / 'experiment_plan.json')
-    baseline_keys = {'seedance25': 'seedance25-v1', 'minimax-h3': 'minimax-h3-local'}
-    references = {}
-    for row in plan.get('video_baselines', []):
-        key = row.get('key')
-        if key not in baseline_keys:
-            continue
-        scores = {}
-        for benchmark in ('physics_iq', 'pcve'):
-            item = row.get('scores', {}).get(benchmark, {})
-            if item.get('kind') == 'published_reference':
-                scores[benchmark] = finite_score(item.get('value'))
-        _, scores['phygenbench'] = phygen_score(phygen, baseline_keys[key])
-        source = registered_rbench.get('baselines', {}).get(key, {})
-        if source.get('summary'):
-            scores['rbench'] = rbench_baseline_score(read(Path(source['summary'])), source)
-        references[key] = scores
+    references = baseline_references(plan, publication, evaluation, phygen, registered_rbench)
     baseline_report = read(evaluation/'physics_iq_local_baselines/summary.json')
     baseline_rechecks = [{k: row.get(k) for k in ('cohort','model','status','partial_done','expected','source_count','selected_count','failed','missing_ids','official_full_score')}
                          for row in baseline_report.get('cohorts', [])]

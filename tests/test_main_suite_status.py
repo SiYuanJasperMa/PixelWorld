@@ -17,6 +17,37 @@ def test_matched_rbench_video_baseline_requires_protocol_and_complete_scope():
     assert rbench_baseline_score({**report, 'official_combined_gpt_qwen_leaderboard_equivalent': True}, source) is None
     assert rbench_baseline_score(report, {**source, 'manifest_sha256': 'c' * 64}) is None
 
+
+def test_published_baselines_remain_visible_with_empty_local_plan(tmp_path):
+    from tools.build_main_suite_status import baseline_references
+    bundle = tmp_path/'bundle'
+    publication = bundle/'publication/pixelworld'
+    publication.mkdir(parents=True)
+    evaluation = bundle/'evaluation'
+    evaluation.mkdir()
+    metadata = {'models':[{'key':'seedance25','scores':{
+        'physics_iq':{'kind':'published_reference','value':42.0},
+        'pcve':{'kind':'published_reference','value':-0.1}}}]}
+    (evaluation/'video_baselines.json').write_text(json.dumps(metadata))
+    references = baseline_references({'video_baselines':[]}, publication, evaluation, {}, {})
+    assert references['seedance25']['physics_iq'] == 42.0
+    assert references['seedance25']['pcve'] == -0.1
+    assert references['seedance25']['phygenbench'] is None
+
+
+def test_registered_phygen_baseline_requires_complete_matching_archive():
+    from tools.build_main_suite_status import registered_phygen_baseline_score
+    from tools.evaluate_phygen_three_stage_gpt55 import GPT61_VERSION
+    source = {'model':'external-baseline','source_archive_manifest_sha256':'a'*64}
+    report = {'version':GPT61_VERSION,'judge':JUDGE,'full160':True,'errors':[], 'cases':list(range(1,161)),
+        'source_archive_manifest_sha256':'a'*64,
+        'models':{'external-baseline':{'cases':160,'mean':0.6}}}
+    assert registered_phygen_baseline_score(report, source) == 0.6
+    assert registered_phygen_baseline_score({**report,'full160':False}, source) is None
+    assert registered_phygen_baseline_score({**report,'judge':'another-judge'}, source) is None
+    assert registered_phygen_baseline_score({**report,'errors':[{'case':1}]}, source) is None
+    assert registered_phygen_baseline_score(report, {**source,'source_archive_manifest_sha256':'b'*64}) is None
+
 from tools.build_main_suite_status import (
     BENCHMARKS, JUDGE, appearance_scores, harness_progress, legacy_score, native_main_smoke,
     native_smoke_additional_samples, native_smoke_cumulative_quota, native_smoke_weekly_deltas,
