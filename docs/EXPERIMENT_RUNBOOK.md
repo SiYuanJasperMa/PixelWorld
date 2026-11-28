@@ -193,6 +193,19 @@ be counterintuitive. Judge edited and source clips with the same appearance
 protocol, then report the matched change where requested. The quality judge
 does not substitute for physical-edit correctness.
 
+The current homepage merges appearance reports only after their accepted-video
+identities and both presentation orders are verified. Complete original decisions
+keep priority; registered reports fill missing model/benchmark cells. PCVE shows
+the appearance difference from its unedited-source mean and retains the raw mean.
+The other benchmarks show the original 1–5 appearance scale. Missing or null
+decisions retain their coverage rather than becoming zero scores.
+
+The public `coding_agent_fvd.html` and `coding_agent_fvd.json` show complete
+current cohorts, reference counts, extractor hashes and source evidence. The
+baseline quality report is `video_quality_baselines.html`. Current FVD controllers
+reuse verified features and admit newly completed cohorts; a partial generation
+queue remains excluded until its full accepted scope is available.
+
 Full scores require the full accepted roster and current source-manifest/video
 hashes. Partial subsets, missing clips and stale score joins stay explicit.
 For GPU work, use only verified idle devices; keep environment, caches, workdir
