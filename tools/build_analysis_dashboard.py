@@ -55,13 +55,26 @@ def rbench_evaluation(execution: dict, model_alias: str) -> dict | None:
     if type(count) is not int or not 0 <= count <= 50:
         return None
     mean = row.get('mean')
-    complete = (row.get('full_common50') is True and count == 50
+    complete = (row.get('full_common50') is True and count == row.get('expected') == 50
+                and not any(row.get(field) for field in ('waiting','generation_failures','judge_errors'))
                 and isinstance(mean, (int, float)) and not isinstance(mean, bool)
                 and isfinite(mean) and 1 <= mean <= 5)
     return {'phase': 'complete' if complete else 'adapter_evaluation',
             'full_scope_scored': complete,
             'score': {'metrics': {'Normalized score': (mean-1)/4}} if complete else None,
             'evaluation_progress': {'completed': count, 'expected': 50}}
+
+
+def phygen_evaluation(report: dict, model_alias: str) -> dict | None:
+    from tools.build_main_suite_status import phygen_score
+    if (report.get('version'),report.get('judge'),report.get('cases')) != (
+            'phygen-gpt61-sol-three-stage-mcq-v1','traex/GPT-6.1-Sol',list(range(1,161))):
+        return None
+    count,score=phygen_score(report,model_alias)
+    full=count==160 and isinstance(score,(int,float)) and not isinstance(score,bool) and isfinite(score) and 0<=score<=1
+    return {'phase':'complete' if full else 'adapter_evaluation','full_scope_scored':full,
+        'score':{'metrics':{'Overall':score}} if full else None,
+        'evaluation_progress':{'completed':count,'expected':160}}
 
 
 def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
@@ -81,11 +94,16 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
     evaluation_rows = {(row.get('suite'), row.get('model_key'), row.get('track')): row
                        for row in evaluation.get('cohorts', [])}
     for source in runtime.get('evaluation_sources', []):
-        if source.get('condition') != 'rbench_text':
-            continue
-        result = rbench_evaluation(read(Path(source['execution'])), source['model_alias'])
+        if source.get('condition') == 'rbench_text':
+            result = rbench_evaluation(read(Path(source['execution'])), source['model_alias'])
+        elif source.get('condition') == 'phygenbench_text':
+            result = phygen_evaluation(read(Path(source['summary'])), source['model_alias'])
+        else:continue
         if result is not None:
-            evaluation_rows[('rbench_text', source['model_key'], 'text')] = result
+            evaluation_rows[(source['condition'], source['model_key'], 'text')] = result
+        else:
+            evaluation_rows[(source['condition'], source['model_key'], 'text')] = {
+                'phase':'waiting_for_current_adapter','full_scope_scored':False,'score':None}
     harness_plan = read(run_root / 'analysis_plans/harness_comparison.json')
     archived_harness_ids = set(harness_plan.get('archived_condition_ids', []))
     archived_harness_ids.update(runtime.get('retired_conditions',[]))
