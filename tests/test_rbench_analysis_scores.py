@@ -1,4 +1,6 @@
 from tools.build_analysis_dashboard import rbench_evaluation,phygen_evaluation
+import subprocess
+import sys
 
 
 def fixture(**row):
@@ -40,3 +42,18 @@ def test_current_phygen_text_adapter_requires_full_current_protocol():
     partial={**report,'models':{'text_model':{'cases':159,'mean':.6}}}
     assert not phygen_evaluation(partial,'text_model')['full_scope_scored']
     assert phygen_evaluation({**report,'judge':'gpt-5.5'},'text_model') is None
+
+
+def test_progress_reader_does_not_load_the_judge_sdk():
+    code="""import builtins
+original=builtins.__import__
+def guarded(name,*args,**kwargs):
+    if name=='openai' or name.startswith('openai.'):
+        raise ImportError('The progress reader has no judge SDK')
+    return original(name,*args,**kwargs)
+builtins.__import__=guarded
+from tools.build_analysis_dashboard import phygen_evaluation
+report={'version':'phygen-gpt61-sol-three-stage-mcq-v1','judge':'traex/GPT-6.1-Sol','full160':True,'cases':list(range(1,161)),'models':{'model':{'cases':160,'mean':.6}}}
+assert phygen_evaluation(report,'model')['full_scope_scored']
+"""
+    subprocess.run([sys.executable,'-c',code],check=True,capture_output=True,text=True)
