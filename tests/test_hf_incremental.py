@@ -75,6 +75,36 @@ def test_failed_commit_does_not_remove_trace_cache(tmp_path,monkeypatch):
     assert cache.read_bytes()==b'compressed'
 
 
+def test_external_trace_cache_is_cleaned_only_after_durable_receipt(tmp_path,monkeypatch):
+    source,relative=fixture(tmp_path/'bundle/publication')
+    external=tmp_path/'writable_upload_cache'
+    external.mkdir()
+    monkeypatch.setenv('PIXELWORLD_HF_TRACE_CACHE_ROOT',str(external))
+    cache=external/'case.tar.gz';cache.write_bytes(b'complete trace package')
+    original=source.parent.parent/'original_trace.jsonl';original.write_text('native trace')
+    legacy=source.parent.parent/'hf_incremental_traces/old.tar.gz'
+    legacy.parent.mkdir();legacy.write_bytes(b'other package')
+    monkeypatch.setattr('tools.publish_hf_incremental.package_case',lambda *args:{
+        'source_sha256':'hash','media':{'live/case.trace.tar.gz':cache},
+        'trace_ready':True,'trace_format_version':3,'detail':b'{}'})
+    state=tmp_path/'state.json'
+    api=SimpleNamespace(create_commit=lambda **kwargs:SimpleNamespace(oid='ok'))
+    publish_cycle(source,state,api)
+    assert json.loads(state.read_text())['ready'][relative]['commit']=='ok'
+    assert not cache.exists()
+    assert original.read_text()=='native trace'
+    assert legacy.read_bytes()==b'other package'
+
+
+def test_trace_cache_root_uses_writable_override_without_changing_default(tmp_path,monkeypatch):
+    from tools.publish_hf_incremental import trace_cache_root
+    source=tmp_path/'bundle/publication/pixelworld'
+    monkeypatch.delenv('PIXELWORLD_HF_TRACE_CACHE_ROOT',raising=False)
+    assert trace_cache_root(source)==tmp_path/'bundle/hf_incremental_traces'
+    monkeypatch.setenv('PIXELWORLD_HF_TRACE_CACHE_ROOT',str(tmp_path/'writable'))
+    assert trace_cache_root(source)==(tmp_path/'writable').resolve()
+
+
 def test_publication_alternates_accepted_delivery_and_failed_history(tmp_path):
     source,relative=fixture(tmp_path)
     assets=source/'assets/a';assets.mkdir(parents=True)

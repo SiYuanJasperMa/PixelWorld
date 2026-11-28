@@ -155,6 +155,22 @@ Publishers that use the shared commit limiter can set
 publishers must use the same path, including its retained reservation and server
 cooldown records. Keep this control storage separate from large media caches.
 
+Keep `--state` on writable storage even when the exported publication bundle is
+on another disk. Set `PIXELWORLD_HF_TRACE_CACHE_ROOT` to a writable directory for
+the reproducible trace upload packages:
+
+```bash
+export PIXELWORLD_HF_TRACE_CACHE_ROOT="$UPLOAD_CACHE/trace_packages"
+```
+
+Without this setting, packages use `$BUNDLE/hf_incremental_traces`. The uploader
+removes only the packages included in a successful Hub commit after its local
+receipt is durable. Original agent traces and other upload packages are kept.
+When relocating an uploader ledger, preserve its complete acknowledgement map
+and any acknowledged commit waiting for local persistence before restarting.
+Keep existing lock owners until they exit; a copied lock file does not preserve
+the original lock inode.
+
 ### 3. Mirror progress and publication coverage
 
 ```bash

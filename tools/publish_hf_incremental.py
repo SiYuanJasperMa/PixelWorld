@@ -3,6 +3,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import os
 from pathlib import Path
 import time
 
@@ -10,6 +11,12 @@ from tools.prepare_hf_delivery import public_case,export_trace_run,TRACE_FORMAT_
 from pixelworld.util import atomic_json
 
 DATA_BASE = 'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/data/'
+
+
+def trace_cache_root(source):
+    """Keep reproducible upload packages on operator-selected writable storage."""
+    configured = os.environ.get('PIXELWORLD_HF_TRACE_CACHE_ROOT')
+    return Path(configured).resolve() if configured else source.parent.parent/'hf_incremental_traces'
 
 
 def read(path):
@@ -67,7 +74,7 @@ def package_case(source, relative):
         cache_key=Path(relative).stem
         run=next((run for run,key,_ in run_sources(folder,original['case_id']) if key==cache_key),None)
         if run:
-            trace=bundle/'hf_incremental_traces'/Path(relative).with_suffix('.tar.gz')
+            trace=trace_cache_root(source)/Path(relative).with_suffix('.tar.gz')
             export_trace_run(run,trace)
             remote='live/'+str(Path(relative).with_suffix('.trace.tar.gz'))
             media[remote]=trace
@@ -165,7 +172,7 @@ def publish_cycle(source, state_path, api, batch_size=2, *, priority_groups=(), 
     atomic_json(state_path,state)
     # These are reproducible upload packages, not original agent traces.
     # Drop only after both the HF commit and the local receipt are durable.
-    cache_root=(source.parent.parent/'hf_incremental_traces').resolve()
+    cache_root=trace_cache_root(source).resolve()
     for _,package in selected:
         for remote,path in package['media'].items():
             path=Path(path)
