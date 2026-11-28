@@ -173,3 +173,17 @@ guard, even if removing the transient active marker fails with quota or I/O
 errors. A failed marker removal leaves diagnostics intact; original request and
 response files are not deleted. An unreleased reservation must not be mistaken
 for proof that upstream sampling is still active.
+
+Verified archive files may be moved to another mounted archive volume to keep
+space available for live raw-message recording. Compare the complete file SHA256
+before and after copying and fsync the destination before removing its source
+copy. Preserve the archive receipts and restore the old path as an alias where
+required. Hold new dispatch during quota recovery and verify durable writes in
+the actual recorder directories before restoring admission; filesystem free-byte
+counters alone do not establish that the account quota is writable.
+
+For failed attempts, the existence of `pixels.npz` does not prove that saved PNG
+frames can be reconstructed from it. An archive may omit redundant frame PNGs
+only with a recorded exact PNG/tensor comparison and a matching current tensor
+SHA256. Otherwise retain the PNGs, including partial or inconsistent sequences.
+An expanded archive keeps earlier verified versions instead of replacing them.
