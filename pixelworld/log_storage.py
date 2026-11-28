@@ -10,6 +10,7 @@ import stat
 import threading
 import time
 import uuid
+import errno
 
 DEFAULT_PROXY_LOG_MAX_BYTES = 64 * 1024**3
 DEFAULT_PROXY_MIN_FREE_BYTES = 20 * 1024**3
@@ -166,6 +167,18 @@ class SpoolBudget:
             self.reservations.pop(request, None)
 
     def write(self, request: str, name: str, data: bytes):
+        while True:
+            try:
+                return self._write_once(request,name,data)
+            except OSError as error:
+                if (os.environ.get('PIXELWORLD_PERSIST_STORAGE_WAIT')!='1'
+                        or error.errno not in (errno.EDQUOT,errno.ENOSPC,errno.EROFS)):
+                    raise
+                # The same admitted record waits without holding the writer
+                # lock, sending another provider request or losing its lease.
+                time.sleep(2)
+
+    def _write_once(self, request: str, name: str, data: bytes):
         if Path(name).name != name:
             raise ValueError('Log record must be a basename')
         with self.lock:
@@ -189,10 +202,22 @@ class SpoolBudget:
                 self._used = None
                 raise
             finally:
-                temporary.unlink(missing_ok=True)
+                try:temporary.unlink(missing_ok=True)
+                except OSError:pass
             self.reservations[request] -= max(0, len(data) - previous)
 
     def append_summary(self, request: str, record: dict):
+        while True:
+            try:
+                return self._append_summary_once(request,record)
+            except OSError as error:
+                if (os.environ.get('PIXELWORLD_PERSIST_STORAGE_WAIT')!='1'
+                        or error.errno not in (errno.EDQUOT,errno.ENOSPC,errno.EROFS)):
+                    raise
+                time.sleep(2)
+
+    def _append_summary_once(self, request: str, record: dict):
+        from .util import write_stream_bytes,fsync_stream
         data = (json.dumps(record, ensure_ascii=False) + '\n').encode()
         with self.lock:
             target = self.root / 'requests.jsonl'
@@ -205,10 +230,9 @@ class SpoolBudget:
             if len(data) > remaining or self._current_usage() + len(data) > self.max_bytes:
                 raise StorageBackpressure('storage_backpressure: summary exceeds log reservation')
             try:
-                with target.open('ab') as stream:
-                    stream.write(data)
-                    stream.flush()
-                    os.fsync(stream.fileno())
+                with target.open('ab',buffering=0) as stream:
+                    write_stream_bytes(stream,data)
+                    fsync_stream(stream)
             except BaseException:
                 self._used = None
                 raise

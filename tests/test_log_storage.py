@@ -39,6 +39,63 @@ def test_standard_capacity_is_shared_64gib_without_a_launcher_override():
     assert args.min_free_bytes==20*1024**3
 
 
+def test_admitted_record_waits_for_quota_without_duplicating_bytes_or_lease(tmp_path,monkeypatch):
+    import errno
+    budget=SpoolBudget(tmp_path,1024**3);budget.acquire('request',100,timeout=0)
+    before=budget.reservations['request'];opened=Path.open;rejected=[]
+    def interrupted(path,*args,**kwargs):
+        if path.name.startswith('request.active.json.')and path.name.endswith('.tmp')and not rejected:
+            rejected.append(path);raise OSError(errno.EDQUOT,'quota fixture')
+        return opened(path,*args,**kwargs)
+    def wait(delay):
+        from concurrent.futures import ThreadPoolExecutor
+        def another_writer():
+            acquired=budget.lock.acquire(blocking=False)
+            if acquired:budget.lock.release()
+            return acquired
+        with ThreadPoolExecutor(max_workers=1)as pool:
+            assert pool.submit(another_writer).result()
+        assert budget.reservations['request']==before
+    monkeypatch.setenv('PIXELWORLD_PERSIST_STORAGE_WAIT','1')
+    monkeypatch.setattr(Path,'open',interrupted)
+    monkeypatch.setattr('pixelworld.log_storage.time.sleep',wait)
+    payload=b'original admitted record'
+    budget.write('request','request.active.json',payload)
+    assert len(rejected)==1
+    assert (tmp_path/'request.active.json').read_bytes()==payload
+    assert budget.reservations['request']==before-len(payload)
+
+
+def test_admitted_record_permission_error_does_not_become_storage_wait(tmp_path,monkeypatch):
+    import errno
+    budget=SpoolBudget(tmp_path,1024**3);budget.acquire('request',100,timeout=0)
+    opened=Path.open
+    def denied(path,*args,**kwargs):
+        if path.name.startswith('request.input.json.')and path.name.endswith('.tmp'):
+            raise OSError(errno.EACCES,'permission fixture')
+        return opened(path,*args,**kwargs)
+    monkeypatch.setenv('PIXELWORLD_PERSIST_STORAGE_WAIT','1')
+    monkeypatch.setattr(Path,'open',denied)
+    with pytest.raises(OSError)as error:budget.write('request','request.input.json',b'input')
+    assert error.value.errno==errno.EACCES
+
+
+def test_proxy_summary_quota_wait_does_not_duplicate_accepted_request(tmp_path,monkeypatch):
+    import errno
+    budget=SpoolBudget(tmp_path,1024**3);budget.acquire('request',100,timeout=0)
+    opened=Path.open;rejected=[]
+    def interrupted(path,*args,**kwargs):
+        if path.name=='requests.jsonl'and args and args[0]=='ab'and not rejected:
+            rejected.append(path);raise OSError(errno.EDQUOT,'quota fixture')
+        return opened(path,*args,**kwargs)
+    monkeypatch.setenv('PIXELWORLD_PERSIST_STORAGE_WAIT','1')
+    monkeypatch.setattr(Path,'open',interrupted)
+    monkeypatch.setattr('pixelworld.log_storage.time.sleep',lambda delay:None)
+    budget.append_summary('request',{'id':'request','status':'complete'})
+    rows=(tmp_path/'requests.jsonl').read_text().splitlines()
+    assert len(rejected)==1 and len(rows)==1 and json.loads(rows[0])['id']=='request'
+
+
 def test_explicit_legacy_async_does_not_silently_enable_both_storage_modes():
     import argparse
     from pixelworld.log_storage import add_storage_arguments, resolve_storage_arguments
