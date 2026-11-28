@@ -145,7 +145,8 @@ def build(web, main_path, output=None):
     for bench in BENCHMARKS:
         draw(bench, [r for r in rows if r['benchmark'] == bench], output / f'{bench}_scale')
     public_rows = [{k: r.get(k) for k in ('benchmark', 'condition', 'model', 'track', 'score', 'cost_usd',
-                    'complete', 'expected', 'reported_cache_hit_rate', 'price_source', 'cost_audit', 'score_source')} for r in rows]
+                    'complete', 'expected', 'reported_cache_hit_rate', 'price_source',
+                    'price_document_sha256', 'price_checked_utc', 'pricing_basis', 'cost_audit', 'score_source')} for r in rows]
     proof = {'updated_utc': utc_now(), 'main_snapshot_utc': main.get('updated_utc'),
              'cost_snapshot_epoch': costs.get('updated_at'), 'cache_assumption': .7,
              'cost_snapshot_sha256': hashlib.sha256(costs_path.read_bytes()).hexdigest(),

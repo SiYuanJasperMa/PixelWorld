@@ -134,6 +134,8 @@ def cohort(entry, tariffs, hit_rate):
            'per_call_records_cases': audits['per_request_verified_cases'],
            'premium_requests': premium, 'price_source': tariff.get('source') if tariff else None,
            'price_document_sha256': tariff.get('document_sha256') if tariff else None,
+           'price_checked_utc': tariff.get('checked_utc') if tariff else None,
+           'pricing_basis': tariff.get('pricing_basis') if tariff else None,
            'cost_audit': dict(audits), 'assumed_cache_hit_rate': hit_rate,
            'standardized_cache70_cost_usd': (sum(costs) / complete
                                            if complete and len(costs) == complete else None),
