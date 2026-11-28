@@ -172,3 +172,27 @@ def test_priority_group_ignores_missing_media_and_leaves_other_groups_available(
     assert len(calls)==1
     assert {op.path_in_repo for op in calls[0]}=={'live/'+other}
     assert relative not in json.loads(state.read_text())['ready']
+
+
+def test_quota_wait_retries_commit_receipt_write_without_reupload(tmp_path,monkeypatch):
+    import errno
+    from pathlib import Path
+    source,relative=fixture(tmp_path)
+    assets=source/'assets/a';assets.mkdir(parents=True)
+    (assets/'preview.mp4').write_bytes(b'video');(assets/'poster.png').write_bytes(b'poster')
+    state=tmp_path/'state.json'
+    original_open=Path.open
+    rejected=[]
+    def open_with_quota(path,*args,**kwargs):
+        if path.name.startswith('state.json.tmp.') and not rejected:
+            rejected.append(path)
+            raise OSError(errno.EDQUOT,'fixture quota exhausted')
+        return original_open(path,*args,**kwargs)
+    monkeypatch.setenv('PIXELWORLD_PERSIST_STORAGE_WAIT','1')
+    monkeypatch.setattr(Path,'open',open_with_quota)
+    monkeypatch.setattr('pixelworld.util.time.sleep',lambda seconds:None)
+    calls=[]
+    api=SimpleNamespace(create_commit=lambda **kwargs:(calls.append(kwargs)or SimpleNamespace(oid='durable')))
+    publish_cycle(source,state,api)
+    assert len(rejected)==1 and len(calls)==1
+    assert json.loads(state.read_text())['ready'][relative]['commit']=='durable'

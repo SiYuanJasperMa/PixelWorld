@@ -7,6 +7,7 @@ from pathlib import Path
 import time
 
 from tools.prepare_hf_delivery import public_case,export_trace_run,TRACE_FORMAT_VERSION,sanitize
+from pixelworld.util import atomic_json
 
 DATA_BASE = 'https://huggingface.co/datasets/HuggingFriends/PixelWorld/resolve/main/data/'
 
@@ -159,9 +160,9 @@ def publish_cycle(source, state_path, api, batch_size=2, *, priority_groups=(), 
         state['last_commit'] = commit.oid
         state['last_uploaded_unix'] = now
     state['checked_unix'] = time.time()
-    temporary = state_path.with_suffix('.tmp')
-    temporary.write_text(json.dumps(state, indent=2))
-    temporary.replace(state_path)
+    # Persist the same commit receipt through a configured storage wait rather
+    # than retrying the upload after it has already reached the Hub.
+    atomic_json(state_path,state)
     # These are reproducible upload packages, not original agent traces.
     # Drop only after both the HF commit and the local receipt are durable.
     cache_root=(source.parent.parent/'hf_incremental_traces').resolve()
