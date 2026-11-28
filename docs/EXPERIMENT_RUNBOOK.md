@@ -286,6 +286,32 @@ an ended retry window must not start another attempt while it is alive.
 Attempt directories are claimed atomically, so concurrent launches cannot
 overwrite an existing run's native records or RGB artifacts.
 
+### Current accepted-run cost accounting
+
+Rebuild cost statistics from the current operator map and an explicit tariff
+file. Every priced model must have its own input, cached-input and output rates
+per million tokens, plus the official source URL. Retain the retrieved document,
+date and SHA256 privately. Supply long-context thresholds and multipliers from
+that same source when applicable.
+
+```bash
+python -m tools.build_registered_cost_snapshot --map runtime.local.json \
+  --prices "$MODEL_PRICES" --output "$COST_SNAPSHOT" --progress "$COST_PROGRESS"
+```
+
+The report selects the accepted delivery through the standard inspector and
+includes historical reuse. It preserves missing or partial usage as unknown,
+uses the agreed 70% cache assumption, and applies long-context premiums only
+when deduplicated per-request input/output sums equal terminal run counters.
+Otherwise the report explicitly labels a base-rate estimate. Failed attempts,
+cache writes, tools/GPU and evaluator costs are excluded from this estimate;
+subscription quota consumption is a separate measurement.
+
+Cost/score plots read current main and analysis evaluation snapshots. A full
+generation scope, full current score and complete token accounting are required
+for a point. Current PhyGenBench analysis uses the GPT-6.1-Sol adaptation. Keep
+the previous cost snapshot until the replacement passes the same checks.
+
 ## 8. Cleanup and handoff
 
 Inventory the registered data first. Distinguish original records, independent

@@ -10,7 +10,7 @@ from pathlib import Path
 from pixelworld.util import atomic_json, utc_now
 
 BENCHMARKS = {'physics_iq': ('Physics-IQ · I2V', 'Verified (%)', 'Verified'),
-              'rbench': ('RBench Common Manipulation · I2V', 'Official normalized score (0–1)', 'Score'),
+              'rbench': ('RBench Common Manipulation · I2V', 'Official normalized score (0–1)', 'Normalized score'),
               'phygenbench': ('PhyGenBench · T2V', 'Overall · GPT-6.1-Sol MCQ', 'Overall'),
               'pcve': ('PCVE-RigidBench · V2V', 'PES', 'PES')}
 LABELS = {'gpt61-sol': 'GPT-6.1-Sol', 'gpt62-sol': 'GPT-6.2-Sol',
@@ -25,8 +25,11 @@ def read(path):
     return json.loads(path.read_text()) if path.is_file() else {}
 
 
-def collect(costs, main):
+def collect(costs, main, analysis=None):
     rows, excluded = [], []
+    current_analysis = {(condition['id'], model['key']): model
+                        for condition in (analysis or {}).get('conditions', [])
+                        for model in condition.get('models', [])}
     for source in costs.get('rows', []):
         row = dict(source)
         bench, model = row.get('benchmark'), row.get('model')
@@ -36,14 +39,23 @@ def collect(costs, main):
         current = main.get('models', {}).get(model, {}).get(bench, {})
         # Main scores come from the current physical protocol, not the retired
         # PhyGen GPT-5.5 scores in the historical cost snapshot.
-        score = current.get('score') if is_main else (row.get('metrics') or {}).get(BENCHMARKS[bench][2])
+        assessed = current_analysis.get((row.get('condition'), model))
+        if is_main:
+            score = current.get('score')
+        elif assessed:
+            score = ((assessed.get('evaluation') or {}).get('metrics') or {}).get(BENCHMARKS[bench][2])
+        else:
+            score = (row.get('metrics') or {}).get(BENCHMARKS[bench][2])
         reason = None
         if row.get('complete') != row.get('expected'):
             reason = 'generation incomplete'
         elif is_main and (current.get('counts', {}).get('complete') != row.get('expected') or
                           current.get('scored') != row.get('expected')):
             reason = 'current full-scope physical score pending'
-        elif bench == 'phygenbench' and not is_main:
+        elif assessed and (assessed.get('complete') != row.get('expected') or
+                           not (assessed.get('evaluation') or {}).get('full_scope_scored')):
+            reason = 'current full-scope analysis score pending'
+        elif bench == 'phygenbench' and not is_main and not assessed:
             reason = 'matched GPT-6.1-Sol analysis aggregate pending; GPT-5.5 excluded'
         elif not isinstance(score, (float, int)):
             reason = 'full-scope score pending'
@@ -54,7 +66,8 @@ def collect(costs, main):
             excluded.append({'benchmark': bench, 'model': model, 'condition': row.get('condition'), 'reason': reason})
             continue
         row.update(score=score, cost_usd=cost, is_main=is_main,
-                   score_source='current_main_suite' if is_main else 'verified_analysis_cost_snapshot')
+                   score_source=('current_main_suite' if is_main else
+                                 'current_analysis_scope' if assessed else 'verified_analysis_cost_snapshot'))
         rows.append(row)
     return rows, excluded
 
@@ -126,7 +139,7 @@ def draw(bench, rows, output):
 def build(web, main_path, output=None):
     costs_path = web / 'cost_effect_progress.json'
     costs, main = read(costs_path), read(main_path)
-    rows, excluded = collect(costs, main)
+    rows, excluded = collect(costs, main, read(web / 'analysis_progress.json'))
     output = output or web / 'cost_score_charts'
     output.mkdir(parents=True, exist_ok=True)
     for bench in BENCHMARKS:
