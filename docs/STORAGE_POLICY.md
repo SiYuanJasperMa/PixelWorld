@@ -21,6 +21,22 @@ are retained as well. A separate worker compresses closed records, reads them
 back, checks SHA256, and only then removes unchanged sources. In-flight records
 are never pruned.
 
+Closed API records can move between explicitly registered storage roots while
+run archival is in progress. The archiver resolves each exact response ID and
+record role in those roots, verifies the recorded bytes, and rejects conflicting
+copies. A missing old path alone does not prove that the original message is
+lost. Register the destination root before migrating closed records, and retain
+the verified migration receipt before removing the source copy.
+
+A verified run archive is reused when relocation changes only file location or
+filesystem identity. Changed members are checked against the existing archive's
+SHA256 records and a relocation proof is saved separately; the verified archive
+and receipt remain unchanged. Changed content, configuration or run manifests
+still require their own archive revision. An unfinished temporary archive never
+authorizes source deletion. Verify coverage across all retained experiment
+registries and earlier backup formats; a recent-window archive report alone is
+not a complete paper-record inventory.
+
 Check `/ready` before dispatch: HTTP 503 indicates insufficient durable log
 admission capacity. `/health` proves the listener is alive and may still return
 HTTP 200 with `ready=false`. A capacity snapshot is not a reservation or proof
