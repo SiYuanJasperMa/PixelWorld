@@ -120,6 +120,25 @@ waits while its preview or required export is unavailable. The local ledger
 records content hashes, trace format and commit receipts; matching records are
 not uploaded again. Running attempts remain on the progress channel.
 
+For a backlog of already accepted videos, add `--priority-group` with the exact
+`suite/model/track` identity from the catalogue. The flag can be repeated:
+
+```bash
+python -m tools.publish_hf_incremental \
+  --source "$PUBLICATION_SOURCE" \
+  --state "$BUNDLE/state/hf_incremental.json" \
+  --token-file "$HF_TOKEN_FILE" \
+  --batch-size 32 --interval 60 \
+  --priority-group physics_iq_res1080/deepseek-v41/vision-agent \
+  --priority-cases-per-group 8
+```
+
+Accepted-delivery rounds take up to eight ready successes from each named group,
+within the overall batch limit. Alternating history rounds retain the normal
+group rotation, including failed traces. Missing previews still wait; the flags
+do not generate videos, change accepted-run selection or bypass trace export.
+Without priority groups, the existing upload rotation is unchanged.
+
 ### 3. Mirror progress and publication coverage
 
 ```bash

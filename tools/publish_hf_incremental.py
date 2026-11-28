@@ -79,10 +79,11 @@ def package_case(source, relative):
             'detail': json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode()}
 
 
-def publish_cycle(source, state_path, api, batch_size=2):
+def publish_cycle(source, state_path, api, batch_size=2, *, priority_groups=(), priority_cases_per_group=8):
     from huggingface_hub import CommitOperationAdd
     state = read(state_path)
     if batch_size<1:raise ValueError('Positive publication batch size required')
+    if priority_cases_per_group<1:raise ValueError('Positive priority group batch size required')
     ready = state.setdefault('ready', {})
     catalogue = read(source / 'catalogue.json')
     groups = catalogue.get('groups', [])
@@ -91,9 +92,16 @@ def publish_cycle(source, state_path, api, batch_size=2):
     cursor = state.get('cursor', 0) % len(groups)
     selected = []
     delivery_priority=state.get('publication_round',0)%2==0
+    priority_groups=set(priority_groups)
+    ordered_groups=groups[cursor:]+groups[:cursor]
+    if delivery_priority and priority_groups:
+        ordered_groups.sort(key=lambda group:str(Path(group['path']).parent) not in priority_groups)
     checked = 0
-    for group in groups[cursor:] + groups[:cursor]:
+    for group in ordered_groups:
         checked += 1
+        priority=delivery_priority and str(Path(group['path']).parent) in priority_groups
+        group_limit=priority_cases_per_group if priority else 1
+        group_selected=0
         index = read(source / group['path'])
         histories = index.get('cases') or {}
         latest = (group.get('latest_completion') or ['', ''])[1]
@@ -105,6 +113,8 @@ def publish_cycle(source, state_path, api, batch_size=2):
             else:
                 ordered=sorted(histories[case],key=lambda a:-a['attempt'])
             for attempt in ordered:
+                if priority and attempt.get('status')!='complete':
+                    continue  # Failed histories retain their normal alternating rounds.
                 relative = attempt['detail']
                 path = source / relative
                 if not path.is_file() or attempt.get('status') == 'running':
@@ -119,13 +129,17 @@ def publish_cycle(source, state_path, api, batch_size=2):
                 if package is None:
                     continue
                 selected.append((relative, package))
+                group_selected+=1
                 break
-            if selected and selected[-1][0].startswith(str(Path(group['path']).parent) + '/'):
+            if group_selected>=group_limit or len(selected)>=batch_size:
                 break
         if len(selected) >= batch_size:
             break
     state['cursor'] = (cursor + checked) % len(groups)
     state['publication_round']=state.get('publication_round',0)+1
+    state['last_batch_count']=len(selected)
+    state['last_batch_counts_by_group']={str(Path(relative).parent):sum(
+        str(Path(name).parent)==str(Path(relative).parent) for name,_ in selected) for relative,_ in selected}
     if selected:
         assets = {}
         for _, package in selected:
@@ -166,7 +180,12 @@ if __name__ == '__main__':
     parser.add_argument('--token-file', type=Path, required=True)
     parser.add_argument('--interval', type=int, default=60)
     parser.add_argument('--batch-size',type=int,default=2)
+    parser.add_argument('--priority-group',action='append',default=[],
+                        help='Exact suite/model/track group to batch on accepted-delivery rounds')
+    parser.add_argument('--priority-cases-per-group',type=int,default=8)
     args = parser.parse_args()
+    if args.batch_size<1 or args.priority_cases_per_group<1:
+        parser.error('Publication batch sizes must be positive')
     import os
     os.environ['HF_HUB_DISABLE_XET'] = '1'
     os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
@@ -176,9 +195,13 @@ if __name__ == '__main__':
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         while True:
             try:
-                result = publish_cycle(args.source, args.state, api,args.batch_size)
+                result = publish_cycle(args.source, args.state, api,args.batch_size,
+                                       priority_groups=args.priority_group,
+                                       priority_cases_per_group=args.priority_cases_per_group)
                 print(json.dumps({'checked_unix': result.get('checked_unix'),
                                   'ready_details': len(result.get('ready', {})),
+                                  'uploaded_this_cycle': result.get('last_batch_count',0),
+                                  'uploaded_by_group': result.get('last_batch_counts_by_group',{}),
                                   'last_commit': result.get('last_commit')}), flush=True)
             except Exception as error:
                 print(type(error).__name__, str(error), flush=True)

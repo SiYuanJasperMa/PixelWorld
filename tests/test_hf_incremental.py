@@ -125,3 +125,50 @@ def test_inline_generator_source_is_not_resolved_as_a_filename(tmp_path):
     public=json.loads(package['detail'])
     assert public['candidates'][0]['code_text']==inline
     assert public['candidates'][0]['code']==inline
+
+
+def test_priority_group_batches_successes_without_skipping_failure_round(tmp_path):
+    source,relative=fixture(tmp_path)
+    assets=source/'assets/a';assets.mkdir(parents=True)
+    (assets/'preview.mp4').write_bytes(b'video');(assets/'poster.png').write_bytes(b'poster')
+    original=json.loads((source/relative).read_text())
+    histories={}
+    for number in range(1,4):
+        case=f'{number:04d}'
+        name=relative.replace('0001',case)
+        data={**original,'case_id':case}
+        (source/name).write_text(json.dumps(data))
+        histories[case]=[{'detail':name,'attempt':1,'status':'complete'}]
+    failed=relative.replace('attempt_01','attempt_02')
+    (source/failed).write_text(json.dumps({'case_id':'0001','status':'failed','delivery_status':'failed',
+        'candidates':[],'events':[],'first_frame':None}))
+    histories['0001'].append({'detail':failed,'attempt':2,'status':'failed'})
+    (source/'suite/model/vision-agent/index.json').write_text(json.dumps({'cases':histories}))
+    calls=[]
+    def commit(**kwargs):
+        calls.append(kwargs['operations']);return SimpleNamespace(oid=str(len(calls)))
+    state=tmp_path/'state.json';api=SimpleNamespace(create_commit=commit)
+    publish_cycle(source,state,api,3,priority_groups=['suite/model/vision-agent'],priority_cases_per_group=3)
+    details={op.path_in_repo for op in calls[0] if op.path_in_repo.startswith('live/')}
+    assert details=={'live/'+relative.replace('0001',f'{n:04d}')for n in range(1,4)}
+    assert 'live/'+failed not in details
+    publish_cycle(source,state,api,3,priority_groups=['suite/model/vision-agent'],priority_cases_per_group=3)
+    assert 'live/'+failed in {op.path_in_repo for op in calls[1]}
+
+
+def test_priority_group_ignores_missing_media_and_leaves_other_groups_available(tmp_path):
+    source,relative=fixture(tmp_path)
+    other='other/model/vision-agent/case_0002_attempt_01.json'
+    path=source/other;path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({'case_id':'0002','status':'failed','delivery_status':'failed',
+        'candidates':[],'events':[],'first_frame':None}))
+    (path.parent/'index.json').write_text(json.dumps({'cases':{'0002':[{'detail':other,'attempt':1,'status':'failed'}]}}))
+    (source/'catalogue.json').write_text(json.dumps({'groups':[
+        {'path':'other/model/vision-agent/index.json'}, {'path':'suite/model/vision-agent/index.json'}]}))
+    calls=[]
+    api=SimpleNamespace(create_commit=lambda **kwargs:(calls.append(kwargs['operations'])or SimpleNamespace(oid='ok')))
+    state=tmp_path/'state.json'
+    publish_cycle(source,state,api,4,priority_groups=['suite/model/vision-agent'])
+    assert len(calls)==1
+    assert {op.path_in_repo for op in calls[0]}=={'live/'+other}
+    assert relative not in json.loads(state.read_text())['ready']
