@@ -138,6 +138,34 @@ def test_appearance_requires_both_orders_on_the_full_benchmark():
     assert appearance_scores(report) == {}
 
 
+def test_supplemental_appearance_fills_models_without_replacing_complete_originals():
+    from tools.build_main_suite_status import merged_appearance_scores
+    from tools.evaluate_video_photographic_gpt61 import RUBRIC_SHA256,VERSION
+    header={'phase':'finished','judge':JUDGE,'version':VERSION,'rubric_sha256':RUBRIC_SHA256,
+            'completed_calls':2,'expected_calls':2,'failures':[]}
+    original={**header,'cohorts':[{'benchmark':'physics_iq_720p24fps','model':'gpt61-sol',
+              'cases':198,'ratings':396,'no_evidence':0,'mean':4.0}]}
+    supplement={**header,'cohorts':[
+        {'benchmark':'physics_iq_720p24fps','model':'gpt61-sol','cases':198,'ratings':396,'no_evidence':0,'mean':5.0},
+        {'benchmark':'physics_iq_720p24fps','model':'gpt62-sol','cases':198,'ratings':396,'no_evidence':0,'mean':4.5},
+        {'benchmark':'rbench_common_manipulation','model':'gpt62-sol','cases':49,'ratings':98,'no_evidence':0,'mean':4.5}]}
+    scores=merged_appearance_scores(original,[supplement])
+    assert scores['gpt61-sol']['physics_iq']['score']==4.0
+    assert scores['gpt62-sol']['physics_iq']['score']==4.5
+    assert scores['gpt62-sol']['rbench']['score'] is None
+    assert 'gpt62-sol' not in merged_appearance_scores(original,[{**supplement,'judge':'different-judge'}])
+
+
+def test_pcve_photographic_delta_preserves_raw_scores():
+    cell={'score':3.0,'cases':129,'expected':129,'ratings':258,'no_evidence':0,'complete':True}
+    status={'protocol':'pixelworld-main-suite-20261124','updated_utc':'2026-11-28T00:00:00Z',
+            'models':{},'references':{},'photographic_progress':{},'photographic_scores':{
+                'gpt61-sol':{'pcve':cell},'pcve-source':{'pcve':{**cell,'score':3.2}}}}
+    page=render(status)
+    assert 'Δ -0.200' in page and '原始分 3.00' in page and 'PCVE · 编辑前 Source' in page
+    assert status['photographic_scores']['gpt61-sol']['pcve']['score']==3.0
+
+
 def test_rbench_never_displays_a_partial_or_failed_cohort_mean():
     row = {'scored': 49, 'expected': 50, 'full_common50': True, 'mean': 3.84}
     report = {'protocol': 'rbench-common-official-gpt-branch-gpt61-sol-v1',

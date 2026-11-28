@@ -598,7 +598,8 @@ def appearance_scores(report):
     if report.get('completed_calls') != report.get('expected_calls'):
         return {}
     scope = {value[0]:(key,value[1]) for key,value in BENCHMARKS.items()}
-    models = set(ROSTER) | {'seedance25-v1','minimax-h3-local'}
+    models = set(ROSTER) | {'seedance25-v1','minimax-h3-local','minimax-h3-official-pe',
+                           'seedance25','seedance25_seed0','seedance25_seed1','seedance25_seed2','pcve-source'}
     results = {}
     for row in report.get('cohorts',[]):
         if row['benchmark'] not in scope or row['model'] not in models:
@@ -616,6 +617,22 @@ def appearance_scores(report):
         entry[key] = {'score':score,'cases':cases,'expected':expected,'ratings':ratings,
                       'no_evidence':unavailable,'complete':complete}
     return results
+
+
+def merged_appearance_scores(original, supplements):
+    result = appearance_scores(original)
+    for report in supplements:
+        current = appearance_scores(report)
+        for model, cells in current.items():
+            for benchmark, entry in cells.items():
+                prior = result.setdefault(model, {}).get(benchmark)
+                if not prior or (not prior['complete'] and entry['cases'] >= prior['cases']):
+                    result[model][benchmark] = entry
+    if 'minimax-h3-official-pe' in result:
+        result.pop('minimax-h3-local', None)
+    if 'seedance25' in result:
+        result.pop('seedance25-v1', None)
+    return result
 
 
 def harness_progress(root):
@@ -801,11 +818,13 @@ def build(nightly, publication):
     native_rbench = rows.get('gpt62-astra-native', {}).get('rbench')
     if native_rbench and native_rbench.get('counts', {}).get('complete') == 50:
         native_rbench['scored'], native_rbench['score'] = rbench_score(rbench, 'gpt62-astra-native')
+    quality_sources = read(evaluation/'current_quality_sources.json')
+    supplemental_quality = [read(Path(path)) for path in quality_sources.get('appearance_reports', []) if isinstance(path,str)]
     return {'protocol': 'pixelworld-main-suite-20261124', 'updated_utc': utc_now(), 'models': rows,
             'references': references,
             'harness_progress': harness_progress(nightly/'controlled_harness_matrix'),
             'photographic_progress': {key: photo.get(key) for key in ('completed_calls', 'expected_calls')},
-            'photographic_scores': appearance_scores(photo),
+            'photographic_scores': merged_appearance_scores(photo, supplemental_quality),
             'photographic_judge': JUDGE, 'publication_coverage': upload_coverage,
             'baseline_rechecks': baseline_rechecks,
             'native_main_smoke': native,
@@ -925,24 +944,30 @@ def render(status):
         f'{freshness}'
         '<div class="table"><table><thead><tr><th>模型</th><th>Codex 基准</th><th>OpenCode</th><th>Claude Code</th>'
         f'</tr></thead><tbody>{harness_rows}</tbody></table></div></details>' if harness_rows else '')
-    def photo_cell(row):
+    photos = status.get('photographic_scores', {})
+    source_score = photos.get('pcve-source', {}).get('pcve', {}).get('score')
+    def photo_cell(row, benchmark):
         if row is None:
             return '<td>—</td>'
         score = row['score']
         value = '—' if score is None else f'<b>{score:.2f}</b>'
+        if benchmark == 'pcve' and score is not None and source_score is not None:
+            value = f'<b>Δ {score-source_score:+.3f}</b><br><span class="small muted">原始分 {score:.2f}</span>'
         label = f"{row['cases']} / {row['expected']} 题"
         if row['no_evidence']:
             label += f" · {row['no_evidence']} 次无法评分"
         return f'<td>{value}<br><span class="small muted">{label}</span></td>'
 
-    labels = {**LABELS,'seedance25-v1':'Seedance 2.5','minimax-h3-local':'MiniMax H3 · 本地'}
-    photos = status.get('photographic_scores', {})
-    photo_rows = ''.join(f'<tr><th>{labels[model]}</th>' + ''.join(photo_cell(cells.get(k)) for k in HEADER) + '</tr>'
+    labels = {**LABELS,'seedance25-v1':'Seedance 2.5','minimax-h3-local':'MiniMax H3 · 本地',
+              'minimax-h3-official-pe':'MiniMax H3 · 本地官方推理 + PE','seedance25':'Seedance 2.5',
+              'seedance25_seed0':'Seedance 2.5 · Seed 0','seedance25_seed1':'Seedance 2.5 · Seed 1',
+              'seedance25_seed2':'Seedance 2.5 · Seed 2','pcve-source':'PCVE · 编辑前 Source'}
+    photo_rows = ''.join(f'<tr><th>{labels[model]}</th>' + ''.join(photo_cell(cells.get(k),k) for k in HEADER) + '</tr>'
                          for model,cells in photos.items())
     photo_table = ('<h3>主观画质（1–5，越高越好）</h3><div class="table"><table><thead><tr><th>模型</th>' + heads +
                    f'</tr></thead><tbody>{photo_rows}</tbody></table></div>'
                    '<p class="small muted">仅在整个 benchmark 的每题两种播放顺序均可评分时显示均值。'
-                   'RBench 当前只有 1 题验收；各 benchmark 内容和条件不同，不据此推断输入条件的因果效应。</p>'
+                   'PCVE 报相对编辑前 Source 的 Δ，并保留原始分；其余 benchmark 报 1–5 分。各评分批次的展示上下文均保留。</p>'
                    if photo_rows else '')
     photo = status['photographic_progress']
     baseline_rows = ''.join(f'<tr><th>{escape(str(row.get("model","")))}</th><td>{escape(str(row.get("cohort","")))}</td>'
