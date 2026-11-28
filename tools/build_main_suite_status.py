@@ -962,8 +962,9 @@ def render(status):
               'minimax-h3-official-pe':'MiniMax H3 · 本地官方推理 + PE','seedance25':'Seedance 2.5',
               'seedance25_seed0':'Seedance 2.5 · Seed 0','seedance25_seed1':'Seedance 2.5 · Seed 1',
               'seedance25_seed2':'Seedance 2.5 · Seed 2','pcve-source':'PCVE · 编辑前 Source'}
-    photo_rows = ''.join(f'<tr><th>{labels[model]}</th>' + ''.join(photo_cell(cells.get(k),k) for k in HEADER) + '</tr>'
-                         for model,cells in photos.items())
+    photo_order = ['seedance25','minimax-h3-official-pe','seedance25-v1','minimax-h3-local'] + model_order + ['pcve-source']
+    photo_rows = ''.join(f'<tr><th>{labels[model]}</th>' + ''.join(photo_cell(photos[model].get(k),k) for k in HEADER) + '</tr>'
+                         for model in sorted(photos,key=lambda m:photo_order.index(m) if m in photo_order else len(photo_order)))
     photo_table = ('<h3>主观画质（1–5，越高越好）</h3><div class="table"><table><thead><tr><th>模型</th>' + heads +
                    f'</tr></thead><tbody>{photo_rows}</tbody></table></div>'
                    '<p class="small muted">仅在整个 benchmark 的每题两种播放顺序均可评分时显示均值。'
