@@ -53,6 +53,11 @@ network access with the pinned Codex sandbox. The audit accepts workspace
 warnings; successful outside reads remain violations. Historical permissions
 are preserved when revalidating old outputs.
 
+When a literal crop cannot open its first scratch output, subsequent crops and
+a final `ls -l` of those same outputs behind `&&` are recorded as failed scratch
+operations. The denial must identify the first output; other paths, commands,
+successful writes and shell operators retain their existing checks.
+
 ## Recovering audit-only rejections
 
 Recovery verifies unchanged code, RGB data and output contracts, and saves the

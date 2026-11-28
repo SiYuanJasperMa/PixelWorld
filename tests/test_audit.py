@@ -695,6 +695,34 @@ def test_denied_ffmpeg_image_crop_and_short_circuited_crop_are_warnings():
     assert not failed_scratch_path(first,{**item,'command':item['command'].replace('scale=20:20','movie=/tmp/reference.png')})
 
 
+def test_denied_crop_followed_by_unexecuted_output_listing_preserves_delivery(tmp_path):
+    first = '/tmp/pixelworld_blocked_crop_listing_first_34c6.png'
+    second = '/tmp/pixelworld_blocked_crop_listing_second_34c6.png'
+    crop = lambda path: (
+        "ffmpeg -y -loglevel error -i first_frame.png "
+        "-vf 'crop=10:10:0:0,scale=20:20:flags=lanczos' " + path)
+    command = crop(first) + ' && ' + crop(second) + f' && ls -l {first} {second}'
+    item = {'type': 'command_execution', 'command': command, 'exit_code': 251,
+            'aggregated_output': '[image2 @ 0x123] Could not open file : ' + first + '\n'}
+    workspace = tmp_path / 'workspace'
+    make_artifacts(workspace)
+    events = tmp_path / 'events.jsonl'
+    events.write_text('\n'.join(map(json.dumps, [
+        {'type': 'item.completed', 'item': item}, {'type': 'turn.completed'}])))
+    result = validate(workspace, events, 0, 'vision-agent', require_reports=False)
+    assert result['pass']
+    assert result['outside_workspace_command_paths'] == []
+    assert result['failed_outside_scratch_operations'] == [first, second]
+    # Only the failed first write and its short-circuited known outputs qualify.
+    for changed in (command.replace(' && ', '; '),
+                    command + ' && cat /other/case/reference.png',
+                    command + ' && ls -l /other/case/reference.png',
+                    command.replace('ls -l', 'cat')):
+        assert not failed_scratch_path(first, {**item, 'command': changed})
+    assert not failed_scratch_path(first, {**item, 'exit_code': 0})
+    assert not failed_scratch_path(first, {**item, 'aggregated_output': 'unrelated I/O failure'})
+
+
 def test_denied_first_fstring_scratch_crop_is_not_an_access():
     prefix='/tmp/pixelworld_fstring_missing_crop_83418'
     command="python - <<'PY'\nfrom PIL import Image\nfor i in [1,12,17]:\n im=Image.open(f'frames/{i:02d}.png')\n im.save(f'"+prefix+"{i}.png')\nPY"

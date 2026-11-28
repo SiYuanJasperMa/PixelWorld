@@ -547,7 +547,14 @@ def _denied_ffmpeg_crop(path: str, item: dict) -> bool:
         else:
             chunks[-1].append(token)
     outputs = []
-    for args in chunks:
+    for index, args in enumerate(chunks):
+        # A trailing listing behind && is never reached when the first crop
+        # cannot open its output. Limit this to the literal crop targets;
+        # another path or another command still requires an audit.
+        if (index == len(chunks) - 1 and args[:2] == ['ls', '-l']
+                and len(args) > 2 and outputs
+                and all(value in outputs for value in args[2:])):
+            continue
         # This informational flag changes neither the input nor the crop output.
         if args[1:2] == ['-hide_banner']:
             args = [args[0], *args[2:]]
