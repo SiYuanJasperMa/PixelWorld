@@ -41,3 +41,20 @@ def test_changed_export_is_rebuilt_without_overwriting_original(tmp_path,monkeyp
     assert not result['rows'][0]['reused_export']
     assert video.read_bytes()==b'changed-export'
     assert (tmp_path/'new/m/videos/scene/edit.mp4').read_bytes()==b'new-export'
+
+
+def test_export_includes_audited_delivery_outside_run_directory(tmp_path,monkeypatch):
+    old,video,run=export_fixture(tmp_path,monkeypatch)
+    relocated=tmp_path/'adopted_run'
+    run.rename(relocated)
+    runs=tmp_path/'runs'
+    (runs/'reuse_registry.json').write_text(json.dumps({
+        'schema':'pixelworld-compatible-history-v1','entries':[{
+            'model_key':'model','track':'vision-agent','case_id':'pcve_0000',
+            'source':str(relocated),'manifest_sha256':sha256(relocated/'run_manifest.json')}]}))
+    def unexpected(*_):raise AssertionError('Audited export must be reused, not regenerated')
+    monkeypatch.setattr(pcve,'encode_pixels',unexpected)
+    result=pcve.export(tmp_path/'config','model','vision-agent',tmp_path/'data','m',tmp_path/'new',reuse_root=old)
+    assert len(result['rows'])==1
+    assert result['rows'][0]['source_run']==str(relocated)
+    assert result['rows'][0]['reused_export']

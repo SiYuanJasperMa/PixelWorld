@@ -96,9 +96,20 @@ def export(config_path: Path, model: str, track: str, benchmark_root: Path, base
     if not previous.exists() and reuse_root is not None:
         previous=Path(reuse_root)/baseline/'pixelworld_submission.json'
     cache={row['case_id']:row for row in json.loads(previous.read_text()).get('rows',[])} if previous.exists() else {}
+    # The dispatcher resolves audited historical deliveries before local runs.
+    # Export the same accepted source even when it lives outside this directory.
+    from .reuse import registry, delivery
+    adopted=set()
+    scope=set(getattr(config,'case_ids',None) or [])
+    for (key,condition,case),item in registry(config.runs_root).items():
+        if key!=model or condition!=track or (scope and case not in scope):continue
+        entry,manifest=delivery(config.runs_root,model,track,case)
+        if manifest.get('case_id')!=case:raise ValueError('Reused PCVE delivery has a different case identity')
+        selected[case]=(Path(entry['source']),manifest);adopted.add(case)
     for path in (config.runs_root/model/track).glob('case_*/run_manifest.json'):
         m=json.loads(path.read_text())
         if m['status']!='complete' or not m.get('validation',{}).get('pass'):continue
+        if m['case_id'] in adopted or (scope and m['case_id'] not in scope):continue
         if m['case_id'] not in selected or m['attempt']<selected[m['case_id']][1]['attempt']:
             selected[m['case_id']]=(path.parent,m)
     rows=[]
