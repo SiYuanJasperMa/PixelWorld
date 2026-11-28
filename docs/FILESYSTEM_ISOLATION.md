@@ -75,6 +75,11 @@ workspace. Directory changes with unresolved variables are not guessed.
 These are retrospective validation corrections. They do not change the agent's
 filesystem or network isolation, generation prompts, or evaluator/dataset pins.
 
+The static command audit recognises division and slice syntax in literal Python
+heredocs and `python -c` arguments. A slice such as `frame[y-h//2:y+h//2]` does
+not name an absolute file. Quoted filenames remain checked, and shell-expanded
+or unparseable arguments do not receive this arithmetic exemption.
+
 A writable host may record that an exact closed failure is ineligible for audit
 recovery. Retry controllers accept this review only when the original manifest,
 audit implementation and recovery-tool hashes match. The record remains failed;

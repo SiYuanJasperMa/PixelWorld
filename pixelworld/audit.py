@@ -261,6 +261,39 @@ def _division_positions(body: str, *, embedded: bool = False) -> set[int]:
     return divisions
 
 
+def _literal_python_c_sections(command: str):
+    """Decode a single literal shell argument while retaining source offsets."""
+    pattern = re.compile(
+        r"(?:^|[;&|\n])[ \t]*(?:[^\s;&|]*/)?python(?:3(?:\.\d+)?)?"
+        r"[ \t]+-c[ \t]+(?P<arg>'[^']*'|\"(?:\\.|[^\"\\])*\")",
+        re.S,
+    )
+    for match in pattern.finditer(command):
+        argument = match.group('arg')
+        raw, quote = argument[1:-1], argument[0]
+        # Shell expansion can execute other commands before Python starts.
+        if quote == '"' and any(symbol in raw for symbol in ('$','`')):
+            continue
+        body, positions = [], []
+        i, base = 0, match.start('arg') + 1
+        while i < len(raw):
+            if quote == '"' and raw[i] == '\\' and i + 1 < len(raw):
+                if raw[i + 1] == '\n':
+                    i += 2
+                    continue
+                if raw[i + 1] in ('"', '\\'):
+                    i += 1
+            body.append(raw[i])
+            positions.append(base + i)
+            i += 1
+        body = ''.join(body)
+        try:
+            ast.parse(body)
+        except (SyntaxError, ValueError):
+            continue
+        yield match.start('arg') + 1, match.end('arg') - 1, body, positions
+
+
 def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] | None = None,
                           working_directory: str | Path | None = None) -> list[str]:
     # Codex logs shell invocations as /bin/bash -lc "<actual script>".
@@ -278,6 +311,9 @@ def outside_command_paths(command: str, workspace: Path, tool_roots: list[Path] 
     for body_start, body in _python_sections(command, include_written=True,compound=True):
         python_ranges.append((body_start, body_start + len(body)))
         divisions.update(body_start + index for index in _division_positions(body))
+    for start, end, body, positions in _literal_python_c_sections(command):
+        python_ranges.append((start, end))
+        divisions.update(positions[index] for index in _division_positions(body))
     # Discovering interpreter filenames in the synthetic parent of granted
     # tool directories reads no case data. Do not grant that parent as a
     # general read root: only this bounded, name-only find operand is exempt.

@@ -369,6 +369,29 @@ def test_python_division_is_not_an_absolute_file_access(tmp_path):
     assert outside_command_paths('cat /3/26',tmp_path)==['/3/26']
 
 
+def test_literal_python_c_slices_preserve_real_numeric_paths(tmp_path):
+    command = 'python -c "crop=rf[cy-ch//2:cy+ch//2, cx-cw//2:cx+cw//2]"'
+    assert outside_command_paths(command, tmp_path) == []
+    command += '; cat /2:cx+cw//2'
+    assert outside_command_paths(command, tmp_path) == ['/2:cx+cw//2']
+    literal = "python -c 'open(\"/2:cx+cw//2\").read()'"
+    assert outside_command_paths(literal, tmp_path) == ['/2:cx+cw//2']
+
+
+def test_python_c_shell_escapes_keep_operator_source_positions(tmp_path):
+    command = 'python3 -c "label=\\\"a\\\"; crop=rf[y-h//2:y+h//2]; open(\\\"/outside/secret\\\").read()"'
+    assert outside_command_paths(command, tmp_path) == ['/outside/secret']
+    continued = 'python -c "crop=rf[y-h\\\n//2:y+h//2]"'
+    assert outside_command_paths(continued, tmp_path) == []
+
+
+def test_dynamic_or_invalid_python_c_is_not_a_path_exemption(tmp_path):
+    command = 'python -c "crop=rf[y-h//2:y+h//2]; print($(cat /outside/secret))"'
+    assert '/outside/secret' in outside_command_paths(command, tmp_path)
+    command = 'python -c "crop=rf[y-h//2:y+h//2"'
+    assert outside_command_paths(command, tmp_path)
+
+
 def test_python_file_heredoc_tuple_division_preserves_literal_path_checks(tmp_path):
     import shlex
     script="cat > generate.py <<'PY'\ncenter=(x+w//2,y+h//2)\nopen('/other/case/input.png').read()\nPY\npython generate.py"
