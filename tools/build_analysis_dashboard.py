@@ -66,12 +66,13 @@ def rbench_evaluation(execution: dict, model_alias: str) -> dict | None:
 
 
 def phygen_evaluation(report: dict, model_alias: str) -> dict | None:
-    from tools.build_main_suite_status import phygen_score
     if (report.get('version'),report.get('judge'),report.get('cases')) != (
             'phygen-gpt61-sol-three-stage-mcq-v1','traex/GPT-6.1-Sol',list(range(1,161))):
         return None
-    count,score=phygen_score(report,model_alias)
-    full=count==160 and isinstance(score,(int,float)) and not isinstance(score,bool) and isfinite(score) and 0<=score<=1
+    row=report.get('models',{}).get(model_alias,{})
+    count=row.get('cases',0);score=row.get('mean')
+    if type(count) is not int or not 0<=count<=160:return None
+    full=report.get('full160') is True and count==160 and isinstance(score,(int,float)) and not isinstance(score,bool) and isfinite(score) and 0<=score<=1
     return {'phase':'complete' if full else 'adapter_evaluation','full_scope_scored':full,
         'score':{'metrics':{'Overall':score}} if full else None,
         'evaluation_progress':{'completed':count,'expected':160}}
