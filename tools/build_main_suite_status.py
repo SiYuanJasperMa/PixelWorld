@@ -1143,6 +1143,7 @@ PhyGenBench 为 GPT-6.1-Sol 三阶段 MCQ 适配，不与原评测器分数混�
 <p class="small muted">原生 GPT-6.2-Astra 单独标记 Codex 0.172.0 / high / default；其余主队列冻结为 Codex 0.169.0。原生进度按跨批次去重样本计数，未完成官方全套评测时不显示总分。待补齐不代表已发任务，继续生成需在已授权额度内。</p>
 <h2>成本与物理分 · 主实验和分析设置</h2>
 <p><a href="cost_score_plots.html">查看四个 benchmark 的成本—分数图及数据 →</a></p>
+<p><a href="video_quality_baselines.html">视频基线的真实度与四组分布 FVD</a> · <a href="pcve_source_fvd.html">PCVE 编辑前参考分布 FVD</a> · <a href="rbench_rovidx_fvd.html">RBench / RoVid-X 分布 FVD</a></p>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
 <img style="width:100%" loading="lazy" src="cost_score_charts/physics_iq_scale.svg" alt="Physics-IQ cost versus score">
 <img style="width:100%" loading="lazy" src="cost_score_charts/rbench_scale.svg" alt="RBench cost versus score">
