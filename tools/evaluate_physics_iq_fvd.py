@@ -44,15 +44,31 @@ def matched_references(directory, cases):
 def sample(source, frames, fps):
     """Same 16-frame / short-edge 224 / center-crop convention as PhyGen I3D."""
     import cv2
-    out=[]; cap=None
+    out=[]; cap=None; tensor=None
+    indices=np.linspace(0,frames-1,16).astype(int)
     if source.is_file():
         cap=cv2.VideoCapture(str(source))
         n=int(cap.get(cv2.CAP_PROP_FRAME_COUNT));rate=float(cap.get(cv2.CAP_PROP_FPS))
         if n<frames or not np.isclose(rate,fps,atol=.01):
             cap.release();raise ValueError(f'Video does not match the declared decoder grid: {source.name}')
+    elif not all((source/'workspace/frames'/f'{i:02d}.png').is_file() for i in indices):
+        # Minimal RGB deliveries can retain the lossless packed tensor without
+        # a second PNG copy. Decode the same RGB pixels before the unchanged
+        # temporal sampling, resize and crop; never fill missing video frames.
+        with np.load(source/'workspace/pixels.npz',allow_pickle=False) as archive:
+            if archive.files != ['pixels']:
+                raise ValueError('Expected a single packed RGB pixel tensor')
+            tensor=archive['pixels']
+        if (tensor.dtype != np.uint32 or tensor.ndim != 3
+                or tensor.shape[2] != frames or min(tensor.shape[:2]) < 1):
+            raise ValueError('Packed RGB tensor does not match the declared frame grid')
     try:
-        for i in np.linspace(0,frames-1,16).astype(int):
-            if cap is None:
+        for i in indices:
+            if tensor is not None:
+                packed=tensor[:,:,i]
+                rgb=Image.fromarray(np.stack([(packed>>16)&255,(packed>>8)&255,
+                                             packed&255],axis=-1).astype(np.uint8))
+            elif cap is None:
                 with Image.open(source/'workspace/frames'/f'{i:02d}.png') as im:rgb=im.convert('RGB')
             else:
                 cap.set(cv2.CAP_PROP_POS_FRAMES,int(i));ok,data=cap.read()

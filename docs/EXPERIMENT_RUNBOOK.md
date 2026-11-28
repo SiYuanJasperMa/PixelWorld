@@ -182,6 +182,10 @@ module and local evaluator/checkpoint directories are recorded in the local
 handoff; some adapters retain an older filename while selecting a newer judge.
 
 FVD is a **distribution distance**, not a pairwise reconstruction error.
+The sampler accepts saved PNG frames and tensor-only RGB deliveries. It decodes
+the standard packed `uint32` tensor from `pixels.npz` when sampled PNGs are
+unavailable, then uses the same frame indices, resize and crop. This changes
+storage input support; it preserves the feature extractor and score formula.
 Use the same extractor/checkpoint hash, frame sampling and reference pool for
 all compared models within a benchmark: Physics-IQ official references; PCVE
 source/reference videos; PhyGenBench frozen WISA-2048; RBench the approved
