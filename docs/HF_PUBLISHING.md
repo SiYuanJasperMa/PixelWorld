@@ -148,6 +148,8 @@ Set `PIXELWORLD_PERSIST_STORAGE_WAIT=1` for unattended publication on shared
 cloud storage. If saving an acknowledged Hub commit hits quota or a temporary
 read-only mount, the uploader waits to persist the same receipt instead of
 uploading that batch again. Restore the storage while it waits.
+The live exporter uses the same durable write path for case JSON and publication
+state, retaining compact JSON bytes so existing content hashes remain valid.
 
 ### 3. Mirror progress and publication coverage
 

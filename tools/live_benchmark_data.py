@@ -154,9 +154,8 @@ def save(path, value):
     if path.exists() and path.read_text() == text:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + '.tmp')
-    tmp.write_text(text)
-    tmp.replace(path)
+    from pixelworld.util import atomic_bytes
+    atomic_bytes(path,text.encode('utf-8'))
     mark_publication_dirty(path)
     return True
 

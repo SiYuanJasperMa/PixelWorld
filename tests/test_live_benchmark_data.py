@@ -3,6 +3,25 @@ import numpy as np
 from tools.live_benchmark_data import case_data, update, distinct_candidate_previews
 
 
+def test_publication_save_waits_on_quota_and_preserves_compact_hash_bytes(tmp_path,monkeypatch):
+    import errno
+    from pathlib import Path
+    from tools.live_benchmark_data import save
+    path=tmp_path/'case.json';value={'status':'complete','text':'像素'}
+    opened=Path.open;failures=[]
+    def interrupted(p,*args,**kwargs):
+        if p.name.startswith('case.json.tmp.') and not failures:
+            failures.append(p);raise OSError(errno.EDQUOT,'quota fixture')
+        return opened(p,*args,**kwargs)
+    monkeypatch.setattr(Path,'open',interrupted)
+    monkeypatch.setenv('PIXELWORLD_PERSIST_STORAGE_WAIT','1')
+    monkeypatch.setattr('pixelworld.util.time.sleep',lambda delay:None)
+    assert save(path,value)
+    assert len(failures)==1
+    assert path.read_bytes()==json.dumps(value,ensure_ascii=False,separators=(',',':')).encode()
+    assert not save(path,value)
+
+
 def test_completion_snapshots_merge_preview_without_losing_code_or_record():
     versions=[{'asset_id':'same','label':'partial','utc':'t1','code':'v1'},
               {'asset_id':'same','label':'complete','utc':'t2','code':'v2'},
