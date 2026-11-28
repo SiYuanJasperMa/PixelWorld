@@ -48,6 +48,22 @@ def test_registered_phygen_baseline_requires_complete_matching_archive():
     assert registered_phygen_baseline_score({**report,'errors':[{'case':1}]}, source) is None
     assert registered_phygen_baseline_score(report, {**source,'source_archive_manifest_sha256':'b'*64}) is None
 
+
+def test_current_phygen_scores_fill_gaps_without_replacing_original_decisions():
+    from tools.build_main_suite_status import merge_current_phygen_scores
+    from tools.evaluate_phygen_three_stage_gpt55 import GPT61_VERSION
+    original = {'version':GPT61_VERSION,'judge':JUDGE,'full160':True,'cases':list(range(1,161)),
+                'models':{'original-model':{'cases':160,'mean':0.5}}}
+    current = {**original,'models':{'original-model':{'cases':160,'mean':0.8},
+                                   'new-model':{'cases':160,'mean':0.6},
+                                   'partial-model':{'cases':159,'mean':None}}}
+    merged = merge_current_phygen_scores(original, current)
+    assert merged['models']['original-model']['mean'] == 0.5
+    assert phygen_score(merged,'new-model') == (160,0.6)
+    assert phygen_score(merged,'partial-model')[1] is None
+    assert merge_current_phygen_scores(original,{**current,'judge':'different-judge'}) == original
+    assert merge_current_phygen_scores(original,{**current,'full160':False}) == original
+
 from tools.build_main_suite_status import (
     BENCHMARKS, JUDGE, appearance_scores, harness_progress, legacy_score, native_main_smoke,
     native_smoke_additional_samples, native_smoke_cumulative_quota, native_smoke_weekly_deltas,

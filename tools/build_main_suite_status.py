@@ -512,6 +512,17 @@ def registered_phygen_baseline_score(report, source):
     return score if count == 160 and score is not None and 0 <= score <= 1 else None
 
 
+def merge_current_phygen_scores(original, current):
+    if (current.get('version'), current.get('judge'), current.get('full160'), current.get('cases')) != (
+            'phygen-gpt61-sol-three-stage-mcq-v1', JUDGE, True, list(range(1,161))):
+        return original
+    models = dict(original.get('models', {}))
+    for model, entry in current.get('models', {}).items():
+        if phygen_score(original, model)[1] is None:
+            models[model] = entry
+    return {**current, 'models': models}
+
+
 def baseline_references(plan, publication, evaluation, phygen, registered_rbench):
     """Keep published references available when a local plan has no baseline rows."""
     rows = plan.get('video_baselines') or read(publication.parent.parent/'evaluation/video_baselines.json').get('models', [])
@@ -715,6 +726,9 @@ def build(nightly, publication):
                 'rbench-common-official-gpt-branch-gpt61-sol-v1', JUDGE):
             rbench = current
     phygen = read(evaluation / 'phygen_gpt61_sol_three_stage/summary.json')
+    registered_phygen = read(evaluation/'phygen_current_sources.json')
+    if registered_phygen.get('main_summary'):
+        phygen = merge_current_phygen_scores(phygen, read(Path(registered_phygen['main_summary'])))
     phygen_deepseek = read(evaluation / 'phygen_gpt61_sol_deepseek/summary.json')
     photo = read(evaluation / 'photographic_gpt61_existing_main/execution.json')
     fvd_report = read(evaluation / 'physics_iq_fvd_official_take1/summary.json')
