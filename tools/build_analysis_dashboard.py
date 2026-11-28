@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 from datetime import datetime, timezone
+from math import isfinite
 
 ROOT = Path(__file__).resolve().parents[1]
 RUN_ROOT = ROOT / "runs/final_release_candidate_20261117"
@@ -44,6 +45,25 @@ def normalized(counts: dict, cases: int) -> dict:
     return {key: int(counts.get(key, 0) or 0) for key in ("complete", "running", "pending", "exhausted")}
 
 
+def rbench_evaluation(execution: dict, model_alias: str) -> dict | None:
+    """Read the pinned GPT branch without treating raw 1..5 as normalized scores."""
+    if (execution.get('protocol') != 'rbench-common-official-gpt-branch-gpt61-sol-v1'
+            or execution.get('judge') != 'traex/GPT-6.1-Sol'):
+        return None
+    row = execution.get('models', {}).get(model_alias, {})
+    count = row.get('scored', 0)
+    if type(count) is not int or not 0 <= count <= 50:
+        return None
+    mean = row.get('mean')
+    complete = (row.get('full_common50') is True and count == 50
+                and isinstance(mean, (int, float)) and not isinstance(mean, bool)
+                and isfinite(mean) and 1 <= mean <= 5)
+    return {'phase': 'complete' if complete else 'adapter_evaluation',
+            'full_scope_scored': complete,
+            'score': {'metrics': {'Normalized score': (mean-1)/4}} if complete else None,
+            'evaluation_progress': {'completed': count, 'expected': 50}}
+
+
 def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
     if not run_root.is_dir():raise FileNotFoundError('Analysis run bundle does not exist')
     metadata=read(run_root/'bundle.json')
@@ -60,6 +80,12 @@ def build(web_root: Path, run_root: Path = RUN_ROOT) -> dict:
     evaluation = read(web_root / 'evaluation.json')
     evaluation_rows = {(row.get('suite'), row.get('model_key'), row.get('track')): row
                        for row in evaluation.get('cohorts', [])}
+    for source in runtime.get('evaluation_sources', []):
+        if source.get('condition') != 'rbench_text':
+            continue
+        result = rbench_evaluation(read(Path(source['execution'])), source['model_alias'])
+        if result is not None:
+            evaluation_rows[('rbench_text', source['model_key'], 'text')] = result
     harness_plan = read(run_root / 'analysis_plans/harness_comparison.json')
     archived_harness_ids = set(harness_plan.get('archived_condition_ids', []))
     archived_harness_ids.update(runtime.get('retired_conditions',[]))
