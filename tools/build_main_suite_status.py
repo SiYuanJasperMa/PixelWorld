@@ -397,6 +397,13 @@ def project_all_video_evaluation_progress(report):
     return result
 
 
+def current_video_evaluation_progress(evaluation):
+    registered = read(evaluation/'current_quality_sources.json')
+    source = registered.get('progress')
+    return project_all_video_evaluation_progress(read(Path(source)) if isinstance(source,str)
+        else read(evaluation/'maintenance_20261125/progress_summary.json'))
+
+
 def count_config(config, model, expected):
     if len(config.case_ids) != expected or len(set(config.case_ids)) != expected:
         raise ValueError(f'Configured scope does not contain exactly {expected} unique cases')
@@ -788,7 +795,7 @@ def build(nightly, publication):
     baseline_rechecks = [{k: row.get(k) for k in ('cohort','model','status','partial_done','expected','source_count','selected_count','failed','missing_ids','official_full_score')}
                          for row in baseline_report.get('cohorts', [])]
     native = native_main_smoke(evaluation/'astra62_native_main_smoke.json', evaluation/'astra62_native_smoke_source.json')
-    video_progress = project_all_video_evaluation_progress(read(evaluation/'maintenance_20261125/progress_summary.json'))
+    video_progress = current_video_evaluation_progress(evaluation)
     if native and not any(model == 'gpt62-astra-native' for model, _ in additional):
         rows['gpt62-astra-native'] = native_experiment_cells(native, video_progress)
     native_rbench = rows.get('gpt62-astra-native', {}).get('rbench')

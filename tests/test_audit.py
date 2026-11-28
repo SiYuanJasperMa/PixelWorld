@@ -50,6 +50,24 @@ def test_uncaught_pillow_save_error_skips_only_later_literal_save():
     assert not failed_scratch_path(later,{**item,'command':command.replace("from PIL import Image", "try:\n from PIL import Image\nexcept Exception:\n pass")})
 
 
+def test_denied_first_dictionary_crop_write_does_not_grant_tmp_access():
+    prefix='/tmp/'
+    body=("from PIL import Image\nim=Image.open('first_frame.png')\n"
+          "for name,box in {'objects':(0,0,4,4),'wall':(0,0,8,8)}.items():\n"
+          " im.crop(box).save('/tmp/'+name+'.png')")
+    command="python - <<'PY'\n"+body+"\nPY"
+    output=('Traceback (most recent call last):\n  File "<stdin>", line 4, in <module>\n'
+            '  File "/runtime/site-packages/PIL/Image.py", line 2583, in save\n'
+            "FileNotFoundError: [Errno 2] No such file or directory: '/tmp/objects.png'\n")
+    item={'command':command,'exit_code':1,'aggregated_output':output}
+    assert failed_scratch_path(prefix,item)
+    assert not failed_scratch_path(prefix,{**item,'exit_code':0})
+    assert not failed_scratch_path(prefix,{**item,'aggregated_output':output.replace('objects.png','wall.png')})
+    assert not failed_scratch_path(prefix,{**item,'command':command.replace("Image.open('first_frame.png')","Image.open('/tmp/input.png')")})
+    assert not failed_scratch_path(prefix,{**item,'command':command.replace("(0,0,4,4)","load_boxes()")})
+    assert not failed_scratch_path(prefix,{**item,'command':command.replace("{'objects':(0,0,4,4),","{**more_boxes,'objects':(0,0,4,4),")})
+
+
 def test_shell_denied_creation_and_missing_python_scratch_is_not_access(tmp_path):
     path='/tmp/pixelworld_denied_creation_fixture_57c8.py'
     item={'exit_code':2,'command':f"cat > {path} <<'PY'\nprint(1)\nPY\npython {path}",

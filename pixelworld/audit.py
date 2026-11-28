@@ -614,10 +614,26 @@ def _denied_python_write(path: str, item: dict, prefix: str | None = None) -> bo
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
                 bindings.setdefault(node.targets[0].id, []).append(node.value)
-            if (prefix and isinstance(node, ast.For) and isinstance(node.iter, (ast.List, ast.Tuple))
-                    and node.iter.elts and not any(isinstance(n, ast.For) for statement in node.body
-                                                for n in ast.walk(statement))):
-                first = node.iter.elts[0]
+            if (prefix and isinstance(node, ast.For)
+                    and not any(isinstance(n, ast.For) for statement in node.body for n in ast.walk(statement))):
+                first = None
+                if isinstance(node.iter, (ast.List, ast.Tuple)) and node.iter.elts:
+                    first = node.iter.elts[0]
+                elif (isinstance(node.iter, ast.Call) and not node.iter.args and not node.iter.keywords
+                        and isinstance(node.iter.func, ast.Attribute) and node.iter.func.attr == 'items'
+                        and isinstance(node.iter.func.value, ast.Dict)):
+                    mapping = node.iter.func.value
+                    # Dict insertion order identifies the first attempt only
+                    # for a wholly literal mapping, without dynamic values or
+                    # unpacking that could execute other I/O before the save.
+                    try:
+                        literal = ast.literal_eval(mapping)
+                    except (ValueError, TypeError, SyntaxError):
+                        literal = None
+                    if isinstance(literal, dict) and literal and all(key is not None for key in mapping.keys):
+                        first = ast.Tuple(elts=[mapping.keys[0], mapping.values[0]], ctx=ast.Load())
+                if first is None:
+                    continue
                 if isinstance(node.target, ast.Name):
                     bindings.setdefault(node.target.id, []).append(first)
                 elif isinstance(node.target, (ast.Tuple, ast.List)) and isinstance(first, (ast.Tuple, ast.List)):

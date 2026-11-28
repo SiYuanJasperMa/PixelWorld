@@ -35,6 +35,20 @@ def test_published_baselines_remain_visible_with_empty_local_plan(tmp_path):
     assert references['seedance25']['phygenbench'] is None
 
 
+def test_current_evaluation_progress_uses_registered_source_without_stale_fallback(tmp_path):
+    from tools.build_main_suite_status import current_video_evaluation_progress
+    legacy=tmp_path/'maintenance_20261125';legacy.mkdir()
+    (legacy/'progress_summary.json').write_text(json.dumps({'schema_version':1,'available_video_records':10}))
+    assert current_video_evaluation_progress(tmp_path)['available_video_records']==10
+    current=tmp_path/'current.json'
+    current.write_text(json.dumps({'schema_version':1,'available_video_records':20,'private_path':'/hidden'}))
+    (tmp_path/'current_quality_sources.json').write_text(json.dumps({'progress':str(current)}))
+    result=current_video_evaluation_progress(tmp_path)
+    assert result['available_video_records']==20 and 'private_path' not in result
+    current.write_text('{}')
+    assert current_video_evaluation_progress(tmp_path)=={}
+
+
 def test_registered_phygen_baseline_requires_complete_matching_archive():
     from tools.build_main_suite_status import registered_phygen_baseline_score
     from tools.evaluate_phygen_three_stage_gpt55 import GPT61_VERSION
